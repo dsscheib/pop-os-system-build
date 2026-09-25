@@ -1,30 +1,37 @@
 # Pop! OS Installation and Setup
 
+> ### This is my personal set of instructions and scripts to rebuild my computers
+
 ## Base Install
-1. Install using advanced options
+
+Install Pop! OS using advanced options:
 #### Partitioning:
     Device           Size           Type        Mount Point    Label
     /dev/nvme0n1p1   2G             boot/efi                   EFI
     /dev/nvme0n1p2   4G             fat32       /recovery      RECOVERY
     /dev/nvme0n1p3   <remaining>    btrfs       /              ROOT
 
-2. After installation finishes **DO NOT REBOOT!**
-3. Download `setup_btrfs_live_install.sh`
-4. ```bash
-   chmod +x setup_btrfs_live_install.sh && sudo ./setup_btrfs_live_install.sh /dev/nvme0n1p3
-   ```
-5. Reboot
+>After installation finishes **DO NOT REBOOT!**
+
+Create the Btrfs subvolumes '/@', '/@home', and '/@snapshots' and migrate to them
+```bash
+chmod +x setup_btrfs_live_install.sh && sudo ./setup_btrfs_live_install.sh /dev/nvme0n1p3
+```
+Reboot the system
+```bash
+sudo reboot
+```
 
 ## Configure Btrfs and Snapper
-1. Download `setup_btrfs_snapper.sh`
-2. ```bash
-   chmod +x setup_btrfs_snapper.sh && sudo ./setup_btrfs_snapper.sh
-   ```
+
+```bash
+chmod +x setup_btrfs_snapper.sh && sudo ./setup_btrfs_snapper.sh
+```
 ## Finalize Configuration and Install Software
-1. Download `pop_os_config.sh`
-2. ```bash
-   chmod +x pop_os_config.sh && ./pop_os_config.sh
-   ```
+
+```bash
+chmod +x pop_os_config.sh && ./pop_os_config.sh
+```
 
 ## Install STMicroelectronics Dev Tools
 
