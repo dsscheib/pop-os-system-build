@@ -61,11 +61,20 @@ EOF
 ```bash
 unzip SetupSTM32CubeMX-*.zip
 rm -f SetupSTM32CubeMX-*.zip
+```
+```bash
 xhost +local:root
 sudo -E ./SetupSTM32CubeMX-* auto_install.xml
 ```
+```bash
+rm -rf SetupSTM32CubeMX-*
+```
 
 Silent Installation of STM32CubeIDE
+```diff
+--Not Tested!--
+```
+
 ```bash
 unzip stm32cubeide_*.zip
 chmod +x stm32cubeide_*.sh
