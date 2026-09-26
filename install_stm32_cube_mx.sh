@@ -93,6 +93,8 @@ if command -v update-desktop-database &>/dev/null; then
   update-desktop-database "$DESKTOP_DIR" || true
 fi
 
+rm -f "$INSTALLER"
+
 echo "==> Installation complete!"
 echo "==> Wrapper script created at $HOME/.local/bin/stm32cubemx"
 echo "==> Launcher created at $DESKTOP_DIR/st-com-stm32cubemx.desktop"
