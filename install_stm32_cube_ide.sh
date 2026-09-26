@@ -73,7 +73,7 @@ else
   fi
 fi
 
-# 5. Clean up temporary directories
+# 5. Clean up temporary installer artifacts
 rm -f "$INSTALLER"
 rm -rf "$TEMP_DIR"
 rm -f "$ARCHIVE_ZIP"
