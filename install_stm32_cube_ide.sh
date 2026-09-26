@@ -10,7 +10,7 @@ BIN_DIR="$HOME/.local/bin"
 # 1. Clean up old artifacts & extract archive
 rm -f st-stm32cubeide_*.sh SetupSTM32CubeIDE-*.sh 2>/dev/null || true
 
-ARCHIVE_ZIP=$(ls st-stm32cubeide_*.zip SetupSTM32CubeIDE_*.zip 2>/dev/null | head -n 1 || true)
+ARCHIVE_ZIP=$(ls stm32cubeide_*.zip SetupSTM32CubeIDE_*.zip 2>/dev/null | head -n 1 || true)
 if [ -z "$ARCHIVE_ZIP" ]; then
   echo "Error: No STM32CubeIDE zip archive found in current directory."
   exit 1
