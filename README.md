@@ -78,6 +78,7 @@ Silent Installation of STM32CubeIDE
 ```bash
 unzip stm32cubeide_*.zip
 chmod +x stm32cubeide_*.sh
+rm -f stm32cubeide_*.zip
 ```
 ```bash
 # Run shell script installer headlessly
