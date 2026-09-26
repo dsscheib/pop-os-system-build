@@ -170,7 +170,7 @@ echo "==> Installing STM32CubeProgrammer silently..."
 sudo ./"$INSTALLER" -f installer.auto
 
 # Clean up installer files
-rm -f "$INSTALLER" installer.auto
+rm -f "$INSTALLER" installer.auto *.exe
 
 echo "==> Adding CLI tool to PATH..."
 CLI_PATH="/usr/local/STMicroelectronics/STM32Cube/STM32CubeProgrammer/bin"
