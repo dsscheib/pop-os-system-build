@@ -50,7 +50,7 @@ echo "==> Installing STM32CubeMX silently..."
 "$INSTALLER" auto-install.xml
 
 # 5. Clean up temporary installer artifacts
-rm -f "$INSTALLER" auto-install.xml Readme.html
+rm -f "$INSTALLER" "$ARCHIVE_ZIP" auto-install.xml Readme.html
 rm -rf jre
 
 # 6. Create wrapper in ~/.local/bin to preserve current working directory for JAR execution
