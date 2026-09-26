@@ -94,6 +94,7 @@ if command -v update-desktop-database &>/dev/null; then
 fi
 
 rm -f "$INSTALLER" Readme.html
+rm -rf jre
 
 echo "==> Installation complete!"
 echo "==> Wrapper script created at $HOME/.local/bin/stm32cubemx"
