@@ -74,7 +74,7 @@ mkdir -p "$ICON_DIR" "$DESKTOP_DIR" "$TMP_MX_ICON"
 # Target ALL variants of CubeMX launchers created by IzPack or custom scripts
 rm -f "$DESKTOP_DIR"/st-com-stm32cubemx.desktop \
       "$DESKTOP_DIR"/STM32CubeMX*.desktop \
-      "$DESKTOP_DIR"/*[S|s][T|t]*STM32CubeMX*.desktop \
+      "$DESKTOP_DIR"/*STM32CubeMX*.desktop \
       "$HOME/Desktop"/STM32CubeMX*.desktop
 
 # Locate the primary application JAR (skipping database packs)
