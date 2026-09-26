@@ -17,10 +17,10 @@ echo "==> Extracting $ARCHIVE_ZIP..."
 unzip -q -o "$ARCHIVE_ZIP"
 
 # 2. Identify the Linux installer binary
-INSTALLER=$(find . -maxdepth 2 \( -name "SetupSTM32CubeProgrammer-*.linux" -o -name "SetupSTM32CubeProgrammer-*.bin" -o -name "SetupSTM32CubeProgrammer*" \) ! -name "*.zip" -type f 2>/dev/null | head -n 1 || true)
+INSTALLER=$(find . -maxdepth 2 \( -name "SetupSTM32CubeProgrammer-*.linux" -o -name "SetupSTM32CubeProgrammer-*.bin" -o -name "*.linux" \) ! -name "*.exe" ! -name "*.zip" -type f 2>/dev/null | head -n 1 || true)
 
 if [ -z "$INSTALLER" ]; then
-  echo "Error: SetupSTM32CubeProgrammer binary not found after extraction."
+  echo "Error: SetupSTM32CubeProgrammer Linux binary not found after extraction."
   exit 1
 fi
 
