@@ -66,21 +66,39 @@ echo "==> Creating .desktop launcher..."
 mkdir -p "$DESKTOP_DIR"
 mkdir -p "$HOME/.local/share/icons/hicolor/256x256/apps"
 
-ICON_SRC=$(find "$TARGET_DIR" -type f \( -name "icon.png" -o -name "MX.png" -o -name "logo.png" \) 2>/dev/null | head -n 1 || true)
+# Set up high-res PNG icon
+ICON_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
+mkdir -p "$ICON_DIR" "$DESKTOP_DIR"
 
-if [ -n "$ICON_SRC" ]; then
-  cp "$ICON_SRC" "$HOME/.local/share/icons/hicolor/256x256/apps/stm32cubemx.png"
+# Extract official icon directly from STM32CubeMX.jar
+if [ -f "$TARGET_DIR/STM32CubeMX.jar" ]; then
+  TMP_MX_ICON="/tmp/mx_icon_extract"
+  mkdir -p "$TMP_MX_ICON"
+  unzip -q -o "$TARGET_DIR/STM32CubeMX.jar" "*icon*.png" "*MX*.png" -d "$TMP_MX_ICON" 2>/dev/null || true
+  
+  # Select the largest extracted image (avoids small GUI sub-icons)
+  MX_ICON=$(find "$TMP_MX_ICON" -type f -name "*.png" -exec ls -s {} + 2>/dev/null | sort -nr | head -n 1 | awk '{print $2}' || true)
+  if [ -n "$MX_ICON" ]; then
+    cp -f "$MX_ICON" "$ICON_DIR/stm32cubemx.png"
+  fi
+  rm -rf "$TMP_MX_ICON"
 fi
 
+# Fallback branding image if archive extraction fails
+if [ ! -f "$ICON_DIR/stm32cubemx.png" ]; then
+  curl -sSL "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/STMicroelectronics_logo.svg/512px-STMicroelectronics_logo.svg.png" -o "$ICON_DIR/stm32cubemx.png" 2>/dev/null || true
+fi
+
+# Generate launcher with absolute icon path
 cat << EOF > "$DESKTOP_DIR/st-com-stm32cubemx.desktop"
 [Desktop Entry]
 Version=1.0
 Type=Application
 Name=STM32CubeMX
-Comment=STMicroelectronics Initialization Code Generator
+Comment=STMicroelectronics Code Generator
 Exec=$TARGET_DIR/STM32CubeMX %F
 Path=$TARGET_DIR
-Icon=stm32cubemx
+Icon=$ICON_DIR/stm32cubemx.png
 Terminal=false
 Categories=Development;IDE;
 StartupWMClass=com-st-microxplorer-maingui-STM32CubeMX
