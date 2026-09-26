@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Define your preferred IDE installation target directory
+# Define target installation directory
 IDE_TARGET_DIR="$HOME/STMicroelectronics/STM32Cube/stm32cubeide"
 
 # 1. Locate the downloaded zip archive
