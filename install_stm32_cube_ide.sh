@@ -38,7 +38,7 @@ fi
 # --eula-accept bypasses the interactive license agreement prompt
 # --quiet suppresses the installation wizard GUI
 echo "==> Installing STM32CubeIDE silently..."
-yes | sudo ./"$INSTALLER" --quiet --target "$IDE_TARGET_DIR"
+yes | ./"$INSTALLER" --quiet --target "$IDE_TARGET_DIR"
 
 # 5. Clean up temporary installer artifacts
 rm -f "$INSTALLER"
@@ -51,8 +51,9 @@ else
 fi
 
 if [ -n "$INSTALL_DIR" ] && [ -f "$INSTALL_DIR/stm32cubeide" ]; then
-  echo "==> Symlinking STM32CubeIDE to /usr/local/bin..."
-  sudo ln -sf "$INSTALL_DIR/stm32cubeide" /usr/local/bin/stm32cubeide
+  echo "==> Symlinking STM32CubeIDE to $HOME/.local/bin..."
+  mkdir -p "$HOME/.local/bin"
+  ln -sf "$INSTALL_DIR/stm32cubeide" "$HOME/.local/bin/stm32cubeide"
 
   # Reload udev rules installed by ST-LINK drivers
   if [ -d /etc/udev/rules.d ]; then
