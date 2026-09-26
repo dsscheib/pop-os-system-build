@@ -63,26 +63,29 @@ chmod +x "$HOME/.local/bin/stm32cubemx"
 
 # 7. Create desktop launcher (.desktop) & set up icon
 echo "==> Creating .desktop launcher..."
-mkdir -p "$DESKTOP_DIR"
-mkdir -p "$HOME/.local/share/icons/hicolor/256x256/apps"
-
-# Set up high-res PNG icon
 ICON_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
-mkdir -p "$ICON_DIR" "$DESKTOP_DIR"
+TMP_MX_ICON="/tmp/mx_icon_extract"
 
-# Extract official icon directly from STM32CubeMX.jar
-if [ -f "$TARGET_DIR/STM32CubeMX.jar" ]; then
-  TMP_MX_ICON="/tmp/mx_icon_extract"
-  mkdir -p "$TMP_MX_ICON"
-  unzip -q -o "$TARGET_DIR/STM32CubeMX.jar" "*icon*.png" "*MX*.png" -d "$TMP_MX_ICON" 2>/dev/null || true
+mkdir -p "$ICON_DIR" "$DESKTOP_DIR" "$TMP_MX_ICON"
+
+# Purge ALL existing ST launcher duplicates to clear bad entries
+rm -f "$DESKTOP_DIR"/*stm32*.desktop "$DESKTOP_DIR"/*STM32*.desktop "$DESKTOP_DIR"/st-com-*.desktop
+
+# Locate the primary application JAR (skipping database packs)
+MX_JAR=$(find "$TARGET_DIR" -type f -name "*.jar" ! -path "*/db/*" 2>/dev/null | head -n 1 || true)
+
+if [ -n "$MX_JAR" ]; then
+  unzip -q -o "$MX_JAR" "*icon*.png" "*MX*.png" "*logo*.png" -d "$TMP_MX_ICON" 2>/dev/null || true
   
-  # Select the largest extracted image (avoids small GUI sub-icons)
-  MX_ICON=$(find "$TMP_MX_ICON" -type f -name "*.png" -exec ls -s {} + 2>/dev/null | sort -nr | head -n 1 | awk '{print $2}' || true)
-  if [ -n "$MX_ICON" ]; then
-    cp -f "$MX_ICON" "$ICON_DIR/stm32cubemx.png"
+  # Select the largest extracted PNG image
+  MX_EXTRACTED=$(find "$TMP_MX_ICON" -type f -name "*.png" -exec ls -s {} + 2>/dev/null | sort -nr | head -n 1 | awk '{print $2}' || true)
+  if [ -n "$MX_EXTRACTED" ]; then
+    cp -f "$MX_EXTRACTED" "$ICON_DIR/stm32cubemx.png"
+    echo "✔ STM32CubeMX icon extracted and installed."
   fi
-  rm -rf "$TMP_MX_ICON"
 fi
+
+rm -rf "$TMP_MX_ICON"
 
 # Fallback branding image if archive extraction fails
 if [ ! -f "$ICON_DIR/stm32cubemx.png" ]; then
@@ -106,11 +109,12 @@ EOF
 
 chmod +x "$DESKTOP_DIR/st-com-stm32cubemx.desktop"
 
-# Refresh icon cache & application list
+# Refresh icon cache & restart COSMIC app library service
 gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
 if command -v update-desktop-database &>/dev/null; then
   update-desktop-database "$DESKTOP_DIR" || true
 fi
+killall cosmic-app-library 2>/dev/null || true
 
 echo "==> Installation complete!"
 echo "==> Wrapper script created at $HOME/.local/bin/stm32cubemx"
