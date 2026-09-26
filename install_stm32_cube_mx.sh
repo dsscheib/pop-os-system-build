@@ -50,8 +50,16 @@ sudo ./"$INSTALLER" auto-install.xml
 rm -f "$INSTALLER" auto-install.xml
 
 # 6. Add bin directory to user path or create local symlink
+# Create local bin directory
 mkdir -p "$HOME/.local/bin"
-ln -sf "$TARGET_DIR/STM32CubeMX" "$HOME/.local/bin/stm32cubemx"
+
+# Create a small wrapper script in ~/.local/bin that switches to the target dir first
+cat << 'EOF' > "$HOME/.local/bin/stm32cubemx"
+#!/usr/bin/env bash
+cd "$HOME/STMicroelectronics/STM32Cube/STM32CubeMX" && ./STM32CubeMX "$@"
+EOF
+
+chmod +x "$HOME/.local/bin/stm32cubemx"
 
 echo "==> Installation complete!"
 echo "==> Symlinked to $HOME/.local/bin/stm32cubemx"
