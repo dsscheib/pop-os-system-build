@@ -130,4 +130,4 @@ fi
 
 echo "==> Installation complete!"
 echo "==> CLI linked to $HOME/.local/bin/STM32_Programmer_CLI"
-echo "==> GUI Launcher created at $DESKTOP_DIR/st-com-stm32cubeprogrammer.desktop"#!/usr/bin/env bash
+echo "==> GUI Launcher created at $DESKTOP_DIR/st-com-stm32cubeprogrammer.desktop"
