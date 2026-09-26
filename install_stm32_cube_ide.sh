@@ -36,6 +36,7 @@ rm -rf "$TEMP_DIR"
 echo "==> Preparing target directory $IDE_TARGET_DIR..."
 rm -rf "$IDE_TARGET_DIR"
 mkdir -p "$IDE_TARGET_DIR"
+cp -r /path/to/extracted/files/* "$IDE_TARGET_DIR/"
 
 DEB_FILE=$(find "$TEMP_DIR" -name "*.deb" | head -n 1 || true)
 
