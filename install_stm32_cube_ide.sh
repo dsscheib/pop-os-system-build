@@ -93,26 +93,31 @@ else
   exit 1
 fi
 
-# 8. Extract and sanitize official high-res PNG icon
-echo "==> Setting up official launcher icon..."
-mkdir -p "$HOME/.local/share/icons/hicolor/256x256/apps" "$DESKTOP_DIR"
+# 8. Extract, locate, and sanitize official high-res PNG icon
+echo "==> Searching for official branding icon..."
+ICON_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
+mkdir -p "$ICON_DIR" "$DESKTOP_DIR"
 
-rm -f "$DESKTOP_DIR"/st-com-stm32cubeide.desktop "$DESKTOP_DIR"/STM32CubeIDE*.desktop
+rm -f "$DESKTOP_DIR"/st-com-stm32cubeide.desktop \
+      "$DESKTOP_DIR"/stm32cubeide*.desktop \
+      "$DESKTOP_DIR"/STM32CubeIDE*.desktop
 
-IDE_256=$(find "$IDE_TARGET_DIR" -type f -name "STM32CubeIDE_icon_256px.png" 2>/dev/null | head -n 1 || true)
-ICON_DEST="$HOME/.local/share/icons/hicolor/256x256/apps/stm32cubeide.png"
+OFFICIAL_PNG=$(find "$IDE_TARGET_DIR" -type f -name "*.png" ! -path "*/jre/*" -exec ls -s {} + 2>/dev/null | sort -nr | head -n 1 | awk '{print $2}' || true)
 
-if [ -n "$IDE_256" ]; then
+ICON_DEST="$ICON_DIR/stm32cubeide-official.png"
+
+if [ -n "$OFFICIAL_PNG" ]; then
+  echo "==> Processing icon: $OFFICIAL_PNG"
   python3 -c "
 from PIL import Image
-img = Image.open('$IDE_256').convert('RGBA')
-img.save('$ICON_DEST', 'PNG')
-" 2>/dev/null || cp -f "$IDE_256" "$ICON_DEST"
+img = Image.open('$OFFICIAL_PNG').convert('RGBA')
+img.resize((256, 256)).save('$ICON_DEST', 'PNG')
+" 2>/dev/null || cp -f "$OFFICIAL_PNG" "$ICON_DEST"
   chmod 644 "$ICON_DEST"
-  echo "✔ Official STM32CubeIDE icon sanitized and installed."
+  echo "✔ Official STM32CubeIDE icon processed."
 fi
 
-DESKTOP_FILE="$DESKTOP_DIR/stm32cubeide-app.desktop"
+DESKTOP_FILE="$DESKTOP_DIR/stm32cubeide-official.desktop"
 
 cat << EOF > "$DESKTOP_FILE"
 [Desktop Entry]
@@ -122,7 +127,7 @@ Name=STM32CubeIDE
 Comment=STMicroelectronics Integrated Development Environment for STM32
 Exec=$IDE_TARGET_DIR/stm32cubeide %F
 Path=$IDE_TARGET_DIR
-Icon=stm32cubeide
+Icon=stm32cubeide-official
 Terminal=false
 Categories=Development;IDE;
 StartupWMClass=Eclipse
