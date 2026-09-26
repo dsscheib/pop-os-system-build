@@ -101,16 +101,15 @@ fi
 echo "==> Setting up launcher icon..."
 mkdir -p "$ICON_DIR" "$DESKTOP_DIR"
 
-# Purge old duplicate launchers
-rm -f "$DESKTOP_DIR"/STM32*.desktop "$DESKTOP_DIR"/st-com-stm32cubeide.desktop
+# Purge ALL existing ST launchers to kill duplicates
+rm -f "$DESKTOP_DIR"/*stm32*.desktop "$DESKTOP_DIR"/*STM32*.desktop "$DESKTOP_DIR"/st-com-*.desktop
 
-# Locate the official 256px icon from Eclipse configuration or fallback to root XPM
+# Locate the official 256px icon from Eclipse configuration
 IDE_256=$(find "$IDE_TARGET_DIR" -type f -name "STM32CubeIDE_icon_256px.png" 2>/dev/null | head -n 1 || true)
 
 if [ -n "$IDE_256" ]; then
   cp -f "$IDE_256" "$ICON_DIR/stm32cubeide.png"
-else
-  cp -f "$IDE_TARGET_DIR/icon.xpm" "$ICON_DIR/stm32cubeide.png" 2>/dev/null || true
+  echo "✔ STM32CubeIDE icon installed."
 fi
 
 # Generate launcher with absolute icon path
@@ -130,7 +129,7 @@ EOF
 
 chmod +x "$DESKTOP_DIR/st-com-stm32cubeide.desktop"
 
-# 9. Refresh icon cache, desktop database, and reset COSMIC service cache
+# 9. Refresh icon cache, desktop database, and reset COSMIC launcher service cache
 gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
 if command -v update-desktop-database &>/dev/null; then
   update-desktop-database "$DESKTOP_DIR" || true
