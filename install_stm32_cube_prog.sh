@@ -13,6 +13,9 @@ if [ -z "$ARCHIVE_ZIP" ]; then
   exit 1
 fi
 
+# Clean up old extraction artifacts before unzipping
+rm -f SetupSTM32CubeProgrammer-*.linux SetupSTM32CubeProgrammer-*.bin SetupSTM32CubeProgrammer-*.exe 2>/dev/null || true
+
 echo "==> Extracting $ARCHIVE_ZIP..."
 unzip -q -o "$ARCHIVE_ZIP"
 
