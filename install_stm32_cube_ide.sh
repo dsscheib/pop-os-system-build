@@ -43,9 +43,12 @@ yes | sudo ./"$INSTALLER" --quiet --target "$IDE_TARGET_DIR"
 # 5. Clean up temporary installer artifacts
 rm -f "$INSTALLER"
 
-# 6. Locate installed directory and create a global symlink
-# STM32CubeIDE installs into /opt/st/stm32cubeide_<version>/ by default
-INSTALL_DIR=$(ls -d /opt/st/stm32cubeide_* 2>/dev/null | tail -n 1 || true)
+# 6. Locate installed directory within IDE_TARGET_DIR and create a global symlink
+if [ -f "$IDE_TARGET_DIR/stm32cubeide" ]; then
+  INSTALL_DIR="$IDE_TARGET_DIR"
+else
+  INSTALL_DIR=$(ls -d "$IDE_TARGET_DIR"/stm32cubeide_* 2>/dev/null | tail -n 1 || true)
+fi
 
 if [ -n "$INSTALL_DIR" ] && [ -f "$INSTALL_DIR/stm32cubeide" ]; then
   echo "==> Symlinking STM32CubeIDE to /usr/local/bin..."
@@ -60,5 +63,5 @@ if [ -n "$INSTALL_DIR" ] && [ -f "$INSTALL_DIR/stm32cubeide" ]; then
 
   echo "==> Installation complete! Run 'stm32cubeide' from any terminal."
 else
-  echo "Warning: Expected installation directory in /opt/st/ not found."
+  echo "Warning: Expected installation directory in $IDE_TARGET_DIR not found."
 fi
