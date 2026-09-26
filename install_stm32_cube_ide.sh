@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Target installation directory
 IDE_TARGET_DIR="$HOME/STMicroelectronics/STM32Cube/stm32cubeide"
-TEMP_EXTRACT_DIR="/tmp/stm32cubeide_installer"
+TEMP_DIR="/tmp/stm32cubeide_extract"
 
 # 1. Locate the downloaded zip archive
 ARCHIVE_ZIP=$(ls stm32cubeide_*.sh.zip stm32cubeide_*.zip 2>/dev/null | head -n 1 || true)
@@ -13,73 +13,84 @@ if [ -z "$ARCHIVE_ZIP" ]; then
   exit 1
 fi
 
-echo "==> Extracting $ARCHIVE_ZIP..."
+echo "==> Unzipping $ARCHIVE_ZIP..."
 unzip -q -o "$ARCHIVE_ZIP"
 
-# 2. Identify extracted shell installer script
+# 2. Locate shell installer script
 INSTALLER=$(ls stm32cubeide_*.sh 2>/dev/null | head -n 1 || true)
 
 if [ -z "$INSTALLER" ]; then
-  echo "Error: STM32CubeIDE installer script not found after extraction."
+  echo "Error: STM32CubeIDE shell installer (.sh) not found after extraction."
   exit 1
 fi
 
 chmod +x "$INSTALLER"
 
-# 3. Ensure required system dependencies are installed
-echo "==> Installing system dependencies..."
-if command -v apt-get &>/dev/null; then
-  sudo apt-get update -qq
-  sudo apt-get install -y -qq libusb-1.0-0 libftdi1-2 systemd
-fi
+# 3. Unpack installer payload to temp folder
+echo "==> Unpacking makeself payload..."
+rm -rf "$TEMP_DIR"
+./"$INSTALLER" --noexec --target "$TEMP_DIR"
 
-# 4. Extract payload using Makeself flags
-echo "==> Unpacking installer payload to temporary directory..."
-rm -rf "$TEMP_EXTRACT_DIR"
-./"$INSTALLER" --noexec --target "$TEMP_EXTRACT_DIR"
+# 4. Extract binaries directly without dpkg / apt validation
+echo "==> Extracting files directly to $IDE_TARGET_DIR..."
+mkdir -p "$IDE_TARGET_DIR"
 
-# 5. Run the inner installer script passing arguments AFTER '--'
-echo "==> Installing STM32CubeIDE silently..."
-if [ -f "$TEMP_EXTRACT_DIR/setup.sh" ]; then
-  # Execute inner script directly
-  sudo "$TEMP_EXTRACT_DIR/setup.sh" --quiet --prefix "$IDE_TARGET_DIR" || \
-  sudo "$TEMP_EXTRACT_DIR/setup.sh" -y "$IDE_TARGET_DIR"
-else
-  # Fallback to makeself argument separator '--'
-  sudo ./"$INSTALLER" --quiet -- --eula-accept --prefix "$IDE_TARGET_DIR"
-fi
+DEB_FILE=$(find "$TEMP_DIR" -name "*.deb" | head -n 1 || true)
 
-# 6. Clean up temporary files
-rm -f "$INSTALLER"
-rm -rf "$TEMP_EXTRACT_DIR"
-
-# 7. Symlink to local bin
-mkdir -p "$HOME/.local/bin"
-
-if [ -f "$IDE_TARGET_DIR/stm32cubeide" ]; then
-  INSTALL_DIR="$IDE_TARGET_DIR"
-else
-  INSTALL_DIR=$(ls -d "$IDE_TARGET_DIR"/stm32cubeide_* 2>/dev/null | tail -n 1 || true)
-fi
-
-if [ -z "$INSTALL_DIR" ] || [ ! -f "$INSTALL_DIR/stm32cubeide" ]; then
-  # Check system fallback path if custom prefix was overridden by the internal installer
-  INSTALL_DIR=$(ls -d /opt/st/stm32cubeide_* 2>/dev/null | tail -n 1 || true)
-fi
-
-if [ -n "$INSTALL_DIR" ] && [ -f "$INSTALL_DIR/stm32cubeide" ]; then
-  echo "==> Symlinking STM32CubeIDE to $HOME/.local/bin/stm32cubeide..."
-  ln -sf "$INSTALL_DIR/stm32cubeide" "$HOME/.local/bin/stm32cubeide"
-
-  # Reload udev rules
-  if [ -d /etc/udev/rules.d ]; then
-    echo "==> Reloading udev rules..."
-    sudo udevadm control --reload-rules || true
-    sudo udevadm trigger || true
+if [ -n "$DEB_FILE" ]; then
+  # Unpack .deb archive directly using ar and tar (bypasses dpkg version syntax check)
+  WORKDIR="/tmp/deb_unpack"
+  rm -rf "$WORKDIR" && mkdir -p "$WORKDIR"
+  
+  ar x "$DEB_FILE" --output="$WORKDIR"
+  
+  TAR_DATA=$(find "$WORKDIR" -name "data.tar.*" | head -n 1)
+  tar -xf "$TAR_DATA" -C "$WORKDIR"
+  
+  # Locate internal stm32cubeide installation folder within extracted deb
+  INTERNAL_DIR=$(find "$WORKDIR" -type d -name "stm32cubeide_*" | head -n 1 || true)
+  if [ -z "$INTERNAL_DIR" ]; then
+    INTERNAL_DIR=$(find "$WORKDIR" -type f -name "stm32cubeide" -exec dirname {} \; | head -n 1 || true)
   fi
-
-  echo "==> Installation complete! Run 'stm32cubeide' from your terminal."
+  
+  if [ -n "$INTERNAL_DIR" ]; then
+    cp -r "$INTERNAL_DIR"/* "$IDE_TARGET_DIR/"
+  else
+    echo "Error: Could not locate stm32cubeide directory inside extracted .deb payload."
+    exit 1
+  fi
+  rm -rf "$WORKDIR"
 else
-  echo "Error: Installation failed. Could not locate installed stm32cubeide executable."
+  # Fallback if payload contains raw tarballs instead of a .deb file
+  TAR_FILE=$(find "$TEMP_DIR" -name "*.tar.gz" -o -name "*.tar.bz2" | head -n 1 || true)
+  if [ -n "$TAR_FILE" ]; then
+    tar -xf "$TAR_FILE" -C "$IDE_TARGET_DIR" --strip-components=1
+  else
+    echo "Error: Neither .deb nor tarball payload found inside installer."
+    exit 1
+  fi
+fi
+
+# 5. Clean up temporary directories
+rm -f "$INSTALLER"
+rm -rf "$TEMP_DIR"
+
+# 6. Install udev rules manually if present
+UDEV_RULE=$(find "$IDE_TARGET_DIR" -name "*stlink*.rules" 2>/dev/null | head -n 1 || true)
+if [ -n "$UDEV_RULE" ]; then
+  echo "==> Installing ST-LINK udev rules..."
+  sudo cp "$UDEV_RULE" /etc/udev/rules.d/
+  sudo udevadm control --reload-rules || true
+  sudo udevadm trigger || true
+fi
+
+# 7. Create symlink in ~/.local/bin
+mkdir -p "$HOME/.local/bin"
+if [ -f "$IDE_TARGET_DIR/stm32cubeide" ]; then
+  ln -sf "$IDE_TARGET_DIR/stm32cubeide" "$HOME/.local/bin/stm32cubeide"
+  echo "==> Success! STM32CubeIDE installed directly to $IDE_TARGET_DIR"
+  echo "==> Symlinked to $HOME/.local/bin/stm32cubeide"
+else
+  echo "Error: stm32cubeide executable not found in $IDE_TARGET_DIR."
   exit 1
 fi
