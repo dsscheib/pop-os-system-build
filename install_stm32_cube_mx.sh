@@ -50,7 +50,8 @@ echo "==> Installing STM32CubeMX silently..."
 "$INSTALLER" auto-install.xml
 
 # 5. Clean up temporary installer artifacts
-rm -f auto-install.xml
+rm -f "$INSTALLER" auto-install.xml Readme.html
+rm -rf jre
 
 # 6. Create wrapper in ~/.local/bin to preserve current working directory for JAR execution
 mkdir -p "$HOME/.local/bin"
@@ -92,9 +93,6 @@ gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || tr
 if command -v update-desktop-database &>/dev/null; then
   update-desktop-database "$DESKTOP_DIR" || true
 fi
-
-rm -f "$INSTALLER" Readme.html
-rm -rf jre
 
 echo "==> Installation complete!"
 echo "==> Wrapper script created at $HOME/.local/bin/stm32cubemx"
