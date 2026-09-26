@@ -51,10 +51,11 @@ echo "==> Unpacking installer payload to $TARGET_DIR..."
 # Cleanup temporary response file
 rm -f auto-install.xml
 
-# 4. Target ALL variants of sw4stm32 launchers to prevent duplication
+# 4. Target ALL variants of sw4stm32 launchers safely
 rm -f "$DESKTOP_DIR"/st-com-sw4stm32.desktop \
       "$DESKTOP_DIR"/sw4stm32*.desktop \
-      "$DESKTOP_DIR"/*[S|s]ystem*[W|w]orkbench*.desktop \
+      "$DESKTOP_DIR"/*System*Workbench*.desktop \
+      "$DESKTOP_DIR"/*system*workbench*.desktop \
       "$HOME/Desktop"/sw4stm32*.desktop
 
 # 5. Extract application PNG icon from installed plugins/JARs
