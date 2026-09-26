@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Define target installation directory
+# Target installation directory
 TARGET_DIR="$HOME/STMicroelectronics/STM32Cube/STM32CubeMX"
+DESKTOP_DIR="$HOME/.local/share/applications"
 
 # 1. Locate the downloaded zip archive
-ARCHIVE_ZIP=$(ls SetupSTM32CubeMX-*.zip 2>/dev/null | head -n 1 || true)
+ARCHIVE_ZIP=$(ls SetupSTM32CubeMX-*.zip en.stm32cubemx-*.zip 2>/dev/null | head -n 1 || true)
 
 if [ -z "$ARCHIVE_ZIP" ]; then
-  echo "Error: No 'en.stm32cubemx-*.zip' file found in current directory."
+  echo "Error: No 'SetupSTM32CubeMX-*.zip' or 'en.stm32cubemx-*.zip' file found in current directory."
   exit 1
 fi
 
@@ -25,8 +26,10 @@ fi
 
 chmod +x "$INSTALLER"
 
-# 3. Create the IzPack response file
+# 3. Create the IzPack response file (unquoted EOF allows ${TARGET_DIR} expansion)
 echo "==> Generating response configuration..."
+mkdir -p "$TARGET_DIR"
+
 cat <<EOF >auto-install.xml
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <AutomatedInstallation langpack="eng">
@@ -42,24 +45,54 @@ cat <<EOF >auto-install.xml
 </AutomatedInstallation>
 EOF
 
-# 4. Execute the silent installer with elevated privileges
+# 4. Execute the silent installer in user space
 echo "==> Installing STM32CubeMX silently..."
-sudo ./"$INSTALLER" auto-install.xml
+"$INSTALLER" auto-install.xml
 
 # 5. Clean up temporary installer artifacts
-rm -f "$INSTALLER" auto-install.xml
+rm -f auto-install.xml
 
-# 6. Add bin directory to user path or create local symlink
-# Create local bin directory
+# 6. Create wrapper in ~/.local/bin to preserve current working directory for JAR execution
 mkdir -p "$HOME/.local/bin"
-
-# Create a small wrapper script in ~/.local/bin that switches to the target dir first
 cat << 'EOF' > "$HOME/.local/bin/stm32cubemx"
 #!/usr/bin/env bash
 cd "$HOME/STMicroelectronics/STM32Cube/STM32CubeMX" && ./STM32CubeMX "$@"
 EOF
-
 chmod +x "$HOME/.local/bin/stm32cubemx"
 
+# 7. Create desktop launcher (.desktop) & set up icon
+echo "==> Creating .desktop launcher..."
+mkdir -p "$DESKTOP_DIR"
+mkdir -p "$HOME/.local/share/icons/hicolor/256x256/apps"
+
+ICON_SRC=$(find "$TARGET_DIR" -type f \( -name "icon.png" -o -name "MX.png" -o -name "logo.png" \) 2>/dev/null | head -n 1 || true)
+
+if [ -n "$ICON_SRC" ]; then
+  cp "$ICON_SRC" "$HOME/.local/share/icons/hicolor/256x256/apps/stm32cubemx.png"
+fi
+
+cat << EOF > "$DESKTOP_DIR/st-com-stm32cubemx.desktop"
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=STM32CubeMX
+Comment=STMicroelectronics Initialization Code Generator
+Exec=$TARGET_DIR/STM32CubeMX %F
+Path=$TARGET_DIR
+Icon=stm32cubemx
+Terminal=false
+Categories=Development;IDE;
+StartupWMClass=com-st-microxplorer-maingui-STM32CubeMX
+EOF
+
+chmod +x "$DESKTOP_DIR/st-com-stm32cubemx.desktop"
+
+# Refresh icon cache & application list
+gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
+if command -v update-desktop-database &>/dev/null; then
+  update-desktop-database "$DESKTOP_DIR" || true
+fi
+
 echo "==> Installation complete!"
-echo "==> Symlinked to $HOME/.local/bin/stm32cubemx"
+echo "==> Wrapper script created at $HOME/.local/bin/stm32cubemx"
+echo "==> Launcher created at $DESKTOP_DIR/st-com-stm32cubemx.desktop"
