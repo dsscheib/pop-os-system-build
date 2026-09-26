@@ -27,7 +27,7 @@ chmod +x "$INSTALLER"
 
 # 3. Create the IzPack response file
 echo "==> Generating response configuration..."
-cat <<'EOF' >auto-install.xml
+cat <<EOF >auto-install.xml
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <AutomatedInstallation langpack="eng">
     <com.st.microxplorer.install.MXHTMLHelloPanel id="readme"/>
