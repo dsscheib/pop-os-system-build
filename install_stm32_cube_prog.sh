@@ -64,7 +64,7 @@ echo "==> Installing STM32CubeProgrammer silently..."
 ./"$INSTALLER" -f installer.auto
 
 # 5. Clean up temporary installer artifacts
-rm -f "$INSTALLER" installer.auto *.exe
+rm -f "$INSTALLER" "$ARCHIVE_ZIP" installer.auto *.exe
 rm -rf jre
 
 # 6. Add CLI binaries and GUI wrapper to ~/.local/bin
