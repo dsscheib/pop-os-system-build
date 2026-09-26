@@ -38,7 +38,7 @@ fi
 # --eula-accept bypasses the interactive license agreement prompt
 # --quiet suppresses the installation wizard GUI
 echo "==> Installing STM32CubeIDE silently..."
-sudo ./"$INSTALLER" --eula-accept --quiet --prefix "$IDE_TARGET_DIR"
+sudo ./"$INSTALLER" --eula-accept --quiet --target "$IDE_TARGET_DIR"
 
 # 5. Clean up temporary installer artifacts
 rm -f "$INSTALLER"
