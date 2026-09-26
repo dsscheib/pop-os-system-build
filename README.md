@@ -78,27 +78,27 @@ Silent Installation of STM32CubeProg
 tee auto_install_cube_prog.xml > /dev/null <<EOF
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <AutomatedInstallation langpack="eng">
-<com.st.CustomPanels.CheckedHelloPorgrammerPanel id="Hello.panel"/>
-<com.izforge.izpack.panels.info.InfoPanel id="Info.panel"/>
-<com.izforge.izpack.panels.licence.LicencePanel id="Licence.panel"/>
-<com.st.CustomPanels.TargetProgrammerPanel id="target.panel">
-<installpath>/home/dsscheib/STMicroelectronics/STM32Cube/STM32CubeProgrammere</installpath>
-</com.st.CustomPanels.TargetProgrammerPanel>
-<com.st.CustomPanels.AnalyticsPanel id="analytics.panel"/>
-<com.st.CustomPanels.PacksProgrammerPanel id="Packs.panel">
-<pack index="0" name="Core Files" selected="true"/>
-<pack index="1" name="STM32CubeProgrammer" selected="true"/>
-<pack index="2" name="STM32TrustedPackageCreator" selected="true"/>
-</com.st.CustomPanels.PacksProgrammerPanel>
-<com.izforge.izpack.panels.install.InstallPanel id="Install.panel"/>
-<com.izforge.izpack.panels.shortcut.ShortcutPanel id="Shortcut.panel">
-<createMenuShortcuts>true</createMenuShortcuts>
-<programGroup>STMicroelectronics\STM32CubeProgrammer</programGroup>
-<createDesktopShortcuts>true</createDesktopShortcuts>
-<createStartupShortcuts>false</createStartupShortcuts>
-<shortcutType>user</shortcutType>
-</com.izforge.izpack.panels.shortcut.ShortcutPanel>
-<com.st.CustomPanels.FinishProgrammerPanel id="finish.panel"/>
+    <com.st.CustomPanels.CheckedHelloPorgrammerPanel id="Hello.panel"/>
+    <com.izforge.izpack.panels.info.InfoPanel id="Info.panel"/>
+    <com.izforge.izpack.panels.licence.LicencePanel id="Licence.panel"/>
+    <com.st.CustomPanels.TargetProgrammerPanel id="target.panel">
+    <installpath>/home/dsscheib/STMicroelectronics/STM32Cube/STM32CubeProgrammere</installpath>
+    </com.st.CustomPanels.TargetProgrammerPanel>
+    <com.st.CustomPanels.AnalyticsPanel id="analytics.panel"/>
+    <com.st.CustomPanels.PacksProgrammerPanel id="Packs.panel">
+    <pack index="0" name="Core Files" selected="true"/>
+    <pack index="1" name="STM32CubeProgrammer" selected="true"/>
+    <pack index="2" name="STM32TrustedPackageCreator" selected="true"/>
+    </com.st.CustomPanels.PacksProgrammerPanel>
+    <com.izforge.izpack.panels.install.InstallPanel id="Install.panel"/>
+    <com.izforge.izpack.panels.shortcut.ShortcutPanel id="Shortcut.panel">
+    <createMenuShortcuts>true</createMenuShortcuts>
+    <programGroup>STMicroelectronics\STM32CubeProgrammer</programGroup>
+    <createDesktopShortcuts>true</createDesktopShortcuts>
+    <createStartupShortcuts>false</createStartupShortcuts>
+    <shortcutType>user</shortcutType>
+    </com.izforge.izpack.panels.shortcut.ShortcutPanel>
+    <com.st.CustomPanels.FinishProgrammerPanel id="finish.panel"/>
 </AutomatedInstallation>
 EOF
 ```
