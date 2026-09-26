@@ -101,8 +101,8 @@ fi
 echo "==> Setting up launcher icon..."
 mkdir -p "$ICON_DIR" "$DESKTOP_DIR"
 
-# Purge ALL existing ST launchers to kill duplicates
-rm -f "$DESKTOP_DIR"/*stm32*.desktop "$DESKTOP_DIR"/*STM32*.desktop "$DESKTOP_DIR"/st-com-*.desktop
+# Target ONLY CubeIDE launchers to prevent wiping CubeMX or Programmer
+rm -f "$DESKTOP_DIR"/st-com-stm32cubeide.desktop "$DESKTOP_DIR"/STM32CubeIDE*.desktop
 
 # Locate the official 256px icon from Eclipse configuration
 IDE_256=$(find "$IDE_TARGET_DIR" -type f -name "STM32CubeIDE_icon_256px.png" 2>/dev/null | head -n 1 || true)
