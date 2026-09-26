@@ -48,7 +48,7 @@ echo "==> Unpacking installer payload to $TARGET_DIR..."
 ./"$INSTALLER" auto-install.xml
 
 # Cleanup temporary response file
-rm -f auto-install.xml
+rm -f "$INSTALLER" auto-install.xml
 
 # 4. Target ALL variants of legacy sw4stm32 launchers safely
 rm -f "$DESKTOP_DIR"/st-com-sw4stm32.desktop \
