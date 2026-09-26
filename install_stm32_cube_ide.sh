@@ -5,6 +5,7 @@ set -euo pipefail
 IDE_TARGET_DIR="$HOME/STMicroelectronics/STM32Cube/stm32cubeide"
 TEMP_DIR="/tmp/stm32cubeide_extract"
 DESKTOP_DIR="$HOME/.local/share/applications"
+ICON_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
 
 # 1. Locate the downloaded zip archive
 ARCHIVE_ZIP=$(ls stm32cubeide_*.sh.zip stm32cubeide_*.zip 2>/dev/null | head -n 1 || true)
@@ -96,21 +97,20 @@ else
   exit 1
 fi
 
-# 8. Create desktop launcher (.desktop)
-echo "==> Creating .desktop launcher..."
-mkdir -p "$DESKTOP_DIR"
-
-# Set up high-res PNG icon
-ICON_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
+# 8. Set up high-res PNG icon
+echo "==> Setting up launcher icon..."
 mkdir -p "$ICON_DIR" "$DESKTOP_DIR"
 
+# Purge old duplicate launchers
+rm -f "$DESKTOP_DIR"/STM32*.desktop "$DESKTOP_DIR"/st-com-stm32cubeide.desktop
+
 # Locate the official 256px icon from Eclipse configuration or fallback to root XPM
-IDE_256=$(find "$TARGET_DIR" -type f -name "STM32CubeIDE_icon_256px.png" 2>/dev/null | head -n 1 || true)
+IDE_256=$(find "$IDE_TARGET_DIR" -type f -name "STM32CubeIDE_icon_256px.png" 2>/dev/null | head -n 1 || true)
 
 if [ -n "$IDE_256" ]; then
   cp -f "$IDE_256" "$ICON_DIR/stm32cubeide.png"
 else
-  cp -f "$TARGET_DIR/icon.xpm" "$ICON_DIR/stm32cubeide.png" 2>/dev/null || true
+  cp -f "$IDE_TARGET_DIR/icon.xpm" "$ICON_DIR/stm32cubeide.png" 2>/dev/null || true
 fi
 
 # Generate launcher with absolute icon path
@@ -120,8 +120,8 @@ Version=1.0
 Type=Application
 Name=STM32CubeIDE
 Comment=STMicroelectronics Integrated Development Environment for STM32
-Exec=$TARGET_DIR/stm32cubeide %F
-Path=$TARGET_DIR
+Exec=$IDE_TARGET_DIR/stm32cubeide %F
+Path=$IDE_TARGET_DIR
 Icon=$ICON_DIR/stm32cubeide.png
 Terminal=false
 Categories=Development;IDE;
@@ -130,10 +130,12 @@ EOF
 
 chmod +x "$DESKTOP_DIR/st-com-stm32cubeide.desktop"
 
-# Update desktop application database if utility is available
+# 9. Refresh icon cache, desktop database, and reset COSMIC service cache
+gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
 if command -v update-desktop-database &>/dev/null; then
   update-desktop-database "$DESKTOP_DIR" || true
 fi
+killall cosmic-app-library 2>/dev/null || true
 
 echo "==> Success! STM32CubeIDE installed directly to $IDE_TARGET_DIR"
 echo "==> Symlinked to $HOME/.local/bin/stm32cubeide"
