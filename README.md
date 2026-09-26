@@ -48,7 +48,7 @@ Install STM32CubeMX
 ```bash
 chmod +x install_stm32_cube_mx.sh && ./install_stm32_cube_mx.sh
 ```
-Install STM32CubeProg
+Install STM32CubeProgrammer
 ```bash
 chmod +x install_stm32_cube_prog.sh && ./install_stm32_cube_prog.sh
 ```
