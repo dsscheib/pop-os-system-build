@@ -100,15 +100,29 @@ fi
 echo "==> Creating .desktop launcher..."
 mkdir -p "$DESKTOP_DIR"
 
-ICON_PATH=$(find "$IDE_TARGET_DIR" -name "icon.xpm" -o -name "st_logo.png" -o -name "icon.png" 2>/dev/null | head -n 1 || true)
+# Set up high-res PNG icon
+ICON_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
+mkdir -p "$ICON_DIR" "$DESKTOP_DIR"
 
+# Locate the official 256px icon from Eclipse configuration or fallback to root XPM
+IDE_256=$(find "$TARGET_DIR" -type f -name "STM32CubeIDE_icon_256px.png" 2>/dev/null | head -n 1 || true)
+
+if [ -n "$IDE_256" ]; then
+  cp -f "$IDE_256" "$ICON_DIR/stm32cubeide.png"
+else
+  cp -f "$TARGET_DIR/icon.xpm" "$ICON_DIR/stm32cubeide.png" 2>/dev/null || true
+fi
+
+# Generate launcher with absolute icon path
 cat << EOF > "$DESKTOP_DIR/st-com-stm32cubeide.desktop"
 [Desktop Entry]
+Version=1.0
 Type=Application
 Name=STM32CubeIDE
 Comment=STMicroelectronics Integrated Development Environment for STM32
-Exec=$IDE_TARGET_DIR/stm32cubeide %F
-Icon=${ICON_PATH:-$IDE_TARGET_DIR/icon.xpm}
+Exec=$TARGET_DIR/stm32cubeide %F
+Path=$TARGET_DIR
+Icon=$ICON_DIR/stm32cubeide.png
 Terminal=false
 Categories=Development;IDE;
 StartupWMClass=stm32cubeide
