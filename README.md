@@ -83,11 +83,11 @@ sudo apt update && sudo apt install -y zenity
 yes | sudo ./stm32cubeide_*.sh --quiet --target /usr/local/STMicroelectronics/stm32cubeide
 rm -f stm32cubeide_*.sh
 ```
+
+Fix the permissions (not typically needed)
 ```diff
 --Not Tested!--
 ```
-
-Fix the permissions (not typically needed)
 ```bash
 sudo chmod -R a+rX /usr/local/STMicroelectronics/stm32cubeide
 sudo apt update && sudo apt install -y libcanberra-gtk-module libcanberra-gtk3-module libgtk-3-0 zenity
