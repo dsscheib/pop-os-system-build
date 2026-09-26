@@ -78,7 +78,8 @@ Silent Installation of STM32CubeIDE
 ```bash
 unzip stm32cubeide_*.zip
 chmod +x stm32cubeide_*.sh
-
+```
+```bash
 # Run shell script installer headlessly
 sudo apt update && sudo apt install -y zenity
 yes | sudo ./stm32cubeide_*.sh --quiet --target /usr/local/STMicroelectronics/stm32cubeide
