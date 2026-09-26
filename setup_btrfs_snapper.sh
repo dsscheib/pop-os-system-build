@@ -159,7 +159,7 @@ migrate_subvolumes() {
 setup_snapper_root() {
   log_info "Configuring Snapper for pre-mounted @snapshots layout..."
 
-  # 1. Ensure config template directory and destination exist
+  # 1. Ensure config template directory exists
   $SUDO mkdir -p /etc/snapper/configs
 
   # 2. Copy the template to create /etc/snapper/configs/root if missing
@@ -175,21 +175,18 @@ setup_snapper_root() {
     echo 'SNAPPER_CONFIGS="root"' | $SUDO tee -a /etc/default/snapper >/dev/null
   fi
 
-  # 4. Set correct mount point inside the Snapper config file directly
-  $SUDO sed -i 's/^SUBVOLUME=.*/SUBVOLUME="\/"/' /etc/snapper/configs/root
-  $SUDO sed -i 's/^FSTYPE=.*/FSTYPE="btrfs"/' /etc/snapper/configs/root
+  # 4. Set mount point, filesystem type, and limits directly inside the config file
+  $SUDO sed -i 's|^SUBVOLUME=.*|SUBVOLUME="/"|' /etc/snapper/configs/root
+  $SUDO sed -i 's|^FSTYPE=.*|FSTYPE="btrfs"|' /etc/snapper/configs/root
+  $SUDO sed -i 's|^NUMBER_MIN_AGE=.*|NUMBER_MIN_AGE="1800"|' /etc/snapper/configs/root
+  $SUDO sed -i 's|^NUMBER_LIMIT=.*|NUMBER_LIMIT="10"|' /etc/snapper/configs/root
+  $SUDO sed -i 's|^NUMBER_LIMIT_IMPORTANT=.*|NUMBER_LIMIT_IMPORTANT="5"|' /etc/snapper/configs/root
+  $SUDO sed -i 's|^TIMELINE_CREATE=.*|TIMELINE_CREATE="no"|' /etc/snapper/configs/root
+  $SUDO sed -i 's|^TIMELINE_CLEANUP=.*|TIMELINE_CLEANUP="yes"|' /etc/snapper/configs/root
 
   # 5. Lock permissions on /.snapshots
   $SUDO chmod 750 /.snapshots
   $SUDO chown root:root /.snapshots
-
-  # 6. Apply retention and timeline limits via snapper CLI
-  $SUDO snapper -c root set-config \
-    "NUMBER_MIN_AGE=1800" \
-    "NUMBER_LIMIT=10" \
-    "NUMBER_LIMIT_IMPORTANT=5" \
-    "TIMELINE_CREATE=no" \
-    "TIMELINE_CLEANUP=yes"
 }
 
 # ------------------------------------------------------------------------------
