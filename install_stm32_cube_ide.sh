@@ -5,7 +5,6 @@ set -euo pipefail
 IDE_TARGET_DIR="$HOME/STMicroelectronics/STM32Cube/stm32cubeide"
 TEMP_DIR="/tmp/stm32cubeide_extract"
 DESKTOP_DIR="$HOME/.local/share/applications"
-SVG_ICON_DIR="$HOME/.local/share/icons/hicolor/scalable/apps"
 
 # 1. Locate the downloaded zip archive
 ARCHIVE_ZIP=$(ls stm32cubeide_*.sh.zip stm32cubeide_*.zip 2>/dev/null | head -n 1 || true)
@@ -41,7 +40,6 @@ mkdir -p "$IDE_TARGET_DIR"
 DEB_FILE=$(find "$TEMP_DIR" -name "*.deb" | head -n 1 || true)
 
 if [ -n "$DEB_FILE" ]; then
-  # Unpack .deb archive directly using ar and tar (bypasses dpkg version syntax check)
   WORKDIR="/tmp/deb_unpack"
   rm -rf "$WORKDIR" && mkdir -p "$WORKDIR"
   
@@ -50,7 +48,6 @@ if [ -n "$DEB_FILE" ]; then
   TAR_DATA=$(find "$WORKDIR" -name "data.tar.*" | head -n 1)
   tar -xf "$TAR_DATA" -C "$WORKDIR"
   
-  # Locate internal stm32cubeide installation folder within extracted deb
   INTERNAL_DIR=$(find "$WORKDIR" -type d -name "stm32cubeide_*" | head -n 1 || true)
   if [ -z "$INTERNAL_DIR" ]; then
     INTERNAL_DIR=$(find "$WORKDIR" -type f -name "stm32cubeide" -exec dirname {} \; | head -n 1 || true)
@@ -64,7 +61,6 @@ if [ -n "$DEB_FILE" ]; then
   fi
   rm -rf "$WORKDIR"
 else
-  # Fallback if payload contains raw tarballs instead of a .deb file
   TAR_FILE=$(find "$TEMP_DIR" -name "*.tar.gz" -o -name "*.tar.bz2" | head -n 1 || true)
   if [ -n "$TAR_FILE" ]; then
     tar -xf "$TAR_FILE" -C "$IDE_TARGET_DIR" --strip-components=1
@@ -97,26 +93,25 @@ else
   exit 1
 fi
 
-# 8. Set up launcher icon & desktop file
-echo "==> Setting up scalable launcher icon..."
-mkdir -p "$SVG_ICON_DIR" "$DESKTOP_DIR"
+# 8. Extract and sanitize official high-res PNG icon
+echo "==> Setting up official launcher icon..."
+mkdir -p "$HOME/.local/share/icons/hicolor/256x256/apps" "$DESKTOP_DIR"
 
-# Clean legacy launchers
 rm -f "$DESKTOP_DIR"/st-com-stm32cubeide.desktop "$DESKTOP_DIR"/STM32CubeIDE*.desktop
 
-# Create clean, scalable SVG icon
-cat << 'EOF' > "$SVG_ICON_DIR/stm32cubeide.svg"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
-  <rect width="256" height="256" rx="40" fill="#00205B"/>
-  <path d="M40 180 L128 40 L216 180 Z" fill="none" stroke="#00A3E0" stroke-width="18" stroke-linejoin="round"/>
-  <circle cx="128" cy="130" r="28" fill="#00A3E0"/>
-  <text x="128" y="222" font-family="sans-serif" font-weight="bold" font-size="28" fill="#FFFFFF" text-anchor="middle">CUBE IDE</text>
-</svg>
-EOF
+IDE_256=$(find "$IDE_TARGET_DIR" -type f -name "STM32CubeIDE_icon_256px.png" 2>/dev/null | head -n 1 || true)
+ICON_DEST="$HOME/.local/share/icons/hicolor/256x256/apps/stm32cubeide.png"
 
-chmod 644 "$SVG_ICON_DIR/stm32cubeide.svg"
+if [ -n "$IDE_256" ]; then
+  python3 -c "
+from PIL import Image
+img = Image.open('$IDE_256').convert('RGBA')
+img.save('$ICON_DEST', 'PNG')
+" 2>/dev/null || cp -f "$IDE_256" "$ICON_DEST"
+  chmod 644 "$ICON_DEST"
+  echo "✔ Official STM32CubeIDE icon sanitized and installed."
+fi
 
-# Write desktop entry using short named icon and unique desktop filename
 DESKTOP_FILE="$DESKTOP_DIR/stm32cubeide-app.desktop"
 
 cat << EOF > "$DESKTOP_FILE"
