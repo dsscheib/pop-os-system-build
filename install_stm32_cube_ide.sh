@@ -76,6 +76,7 @@ fi
 # 5. Clean up temporary directories
 rm -f "$INSTALLER"
 rm -rf "$TEMP_DIR"
+rm -f "$ARCHIVE_ZIP"
 
 # 6. Install udev rules manually if present
 UDEV_RULE=$(find "$IDE_TARGET_DIR" -name "*stlink*.rules" 2>/dev/null | head -n 1 || true)
