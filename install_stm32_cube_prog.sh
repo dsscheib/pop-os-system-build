@@ -5,7 +5,9 @@ set -euo pipefail
 TARGET_DIR="$HOME/STMicroelectronics/STM32Cube/STM32CubeProgrammer"
 DESKTOP_DIR="$HOME/.local/share/applications"
 
-# 1. Locate the downloaded zip archive
+# 1. Clean up old artifacts and extract zip archive
+rm -f SetupSTM32CubeProgrammer-*.linux SetupSTM32CubeProgrammer-*.bin SetupSTM32CubeProgrammer-*.exe 2>/dev/null || true
+
 ARCHIVE_ZIP=$(ls SetupSTM32CubeProgrammer_*.zip SetupSTM32CubeProgrammer-*.zip 2>/dev/null | head -n 1 || true)
 
 if [ -z "$ARCHIVE_ZIP" ]; then
@@ -13,13 +15,10 @@ if [ -z "$ARCHIVE_ZIP" ]; then
   exit 1
 fi
 
-# Clean up old extraction artifacts before unzipping
-rm -f SetupSTM32CubeProgrammer-*.linux SetupSTM32CubeProgrammer-*.bin SetupSTM32CubeProgrammer-*.exe 2>/dev/null || true
-
 echo "==> Extracting $ARCHIVE_ZIP..."
 unzip -q -o "$ARCHIVE_ZIP"
 
-# 2. Identify the Linux installer binary
+# 2. Identify the Linux installer binary (explicitly ignoring Windows .exe installers)
 INSTALLER=$(find . -maxdepth 2 \( -name "SetupSTM32CubeProgrammer-*.linux" -o -name "SetupSTM32CubeProgrammer-*.bin" -o -name "*.linux" \) ! -name "*.exe" ! -name "*.zip" -type f 2>/dev/null | head -n 1 || true)
 
 if [ -z "$INSTALLER" ]; then
@@ -79,9 +78,11 @@ if [ -d "$TARGET_DIR/bin" ]; then
   fi
 fi
 
-# Create GUI wrapper script in ~/.local/bin
+# Create GUI wrapper script with Java Wayland/GTK compatibility flags
 cat << 'EOF' > "$HOME/.local/bin/stm32cubeprogrammer"
 #!/usr/bin/env bash
+export GDK_BACKEND=x11
+export _JAVA_OPTIONS="-Djdk.gtk.version=2"
 cd "$HOME/STMicroelectronics/STM32Cube/STM32CubeProgrammer/bin" && ./STM32CubeProgrammerLauncher "$@"
 EOF
 chmod +x "$HOME/.local/bin/stm32cubeprogrammer"
@@ -112,7 +113,7 @@ Version=1.0
 Type=Application
 Name=STM32CubeProgrammer
 Comment=STMicroelectronics Flash Programming Tool for STM32
-Exec=$TARGET_DIR/bin/STM32CubeProgrammerLauncher %F
+Exec=env GDK_BACKEND=x11 _JAVA_OPTIONS="-Djdk.gtk.version=2" $TARGET_DIR/bin/STM32CubeProgrammerLauncher %F
 Path=$TARGET_DIR/bin
 Icon=stm32cubeprogrammer
 Terminal=false
@@ -130,4 +131,5 @@ fi
 
 echo "==> Installation complete!"
 echo "==> CLI linked to $HOME/.local/bin/STM32_Programmer_CLI"
-echo "==> GUI Launcher created at $DESKTOP_DIR/st-com-stm32cubeprogrammer.desktop"
+echo "==> GUI Wrapper created at $HOME/.local/bin/stm32cubeprogrammer"
+echo "==> Launcher created at $DESKTOP_DIR/st-com-stm32cubeprogrammer.desktop"
