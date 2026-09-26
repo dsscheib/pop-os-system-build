@@ -5,7 +5,7 @@ set -euo pipefail
 TARGET_DIR="$HOME/STMicroelectronics/sw4stm32"
 DESKTOP_DIR="$HOME/.local/share/applications"
 ICON_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
-TEMP_DIR="/tmp/sw4stm32_extract"
+TMP_SW4_ICON="/tmp/sw4_icon_extract"
 
 # 1. Locate installer binary
 INSTALLER=$(ls install_sw4stm32_linux_64bits.run sw4stm32_*.run 2>/dev/null | head -n 1 || true)
@@ -17,43 +17,74 @@ fi
 
 chmod +x "$INSTALLER"
 
-# 2. Extract BitRock installer payload in user space
+# 2. Generate IzPack auto-install response XML
+echo "==> Generating response configuration..."
+mkdir -p "$TARGET_DIR" "$ICON_DIR" "$DESKTOP_DIR" "$TMP_SW4_ICON"
+
+cat <<EOF >auto-install.xml
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<AutomatedInstallation langpack="eng">
+    <com.izforge.izpack.panels.htmlinfo.HTMLInfoPanel id="info"/>
+    <com.izforge.izpack.panels.licence.LicencePanel id="licence"/>
+    <com.izforge.izpack.panels.target.TargetPanel id="target">
+        <installpath>${TARGET_DIR}</installpath>
+    </com.izforge.izpack.panels.target.TargetPanel>
+    <com.izforge.izpack.panels.packs.PacksPanel id="packs">
+        <pack index="0" name="System Workbench for STM32" selected="true"/>
+    </com.izforge.izpack.panels.packs.PacksPanel>
+    <com.izforge.izpack.panels.shortcut.ShortcutPanel id="shortcut">
+        <createMenuShortcuts>false</createMenuShortcuts>
+        <createDesktopShortcuts>false</createDesktopShortcuts>
+    </com.izforge.izpack.panels.shortcut.ShortcutPanel>
+    <com.izforge.izpack.panels.install.InstallPanel id="install"/>
+    <com.izforge.izpack.panels.finish.FinishPanel id="finish"/>
+</AutomatedInstallation>
+EOF
+
+# 3. Execute silent IzPack installation
 echo "==> Unpacking installer payload to $TARGET_DIR..."
-mkdir -p "$TARGET_DIR" "$ICON_DIR" "$DESKTOP_DIR" "$TEMP_DIR"
+./"$INSTALLER" auto-install.xml
 
-# Execute installer in unattended mode targeting user space
-./"$INSTALLER" --mode unattended --prefix "$TARGET_DIR" || true
+# Cleanup temporary response file
+rm -f auto-install.xml
 
-# 3. Clean up generic or duplicated launchers created by BitRock
-rm -f "$DESKTOP_DIR"/sw4stm32*.desktop \
-      "$DESKTOP_DIR"/*SystemWorkbench*.desktop \
+# 4. Target ALL variants of sw4stm32 launchers to prevent duplication
+rm -f "$DESKTOP_DIR"/st-com-sw4stm32.desktop \
+      "$DESKTOP_DIR"/sw4stm32*.desktop \
+      "$DESKTOP_DIR"/*[S|s]ystem*[W|w]orkbench*.desktop \
       "$HOME/Desktop"/sw4stm32*.desktop
 
-# 4. Extract and register launcher icon
-echo "==> Setting up application icon..."
-ICON_SRC=$(find "$TARGET_DIR" -type f -name "icon.xpm" -o -name "logo.png" -o -name "icon.png" 2>/dev/null | head -n 1 || true)
+# 5. Extract application PNG icon from installed plugins/JARs
+echo "==> Setting up launcher icon..."
+SW4_JAR=$(find "$TARGET_DIR" -type f -name "*.jar" ! -path "*/jre/*" 2>/dev/null | head -n 1 || true)
 
-if [ -n "$ICON_SRC" ] && command -v convert &>/dev/null && [[ "$ICON_SRC" == *.xpm ]]; then
-  # Convert legacy XPM icon to high-res PNG if ImageMagick is available
-  convert "$ICON_SRC" "$ICON_DIR/sw4stm32.png" 2>/dev/null || true
-elif [ -n "$ICON_SRC" ]; then
-  cp -f "$ICON_SRC" "$ICON_DIR/sw4stm32.png"
+if [ -n "$SW4_JAR" ]; then
+  unzip -q -o "$SW4_JAR" "*icon*.png" "*logo*.png" -d "$TMP_SW4_ICON" 2>/dev/null || true
+  
+  # Select the largest extracted PNG
+  EXTRACTED_PNG=$(find "$TMP_SW4_ICON" -type f -name "*.png" -exec ls -s {} + 2>/dev/null | sort -nr | head -n 1 | awk '{print $2}' || true)
+  if [ -n "$EXTRACTED_PNG" ]; then
+    cp -f "$EXTRACTED_PNG" "$ICON_DIR/sw4stm32.png"
+    echo "✔ Icon extracted and installed."
+  fi
 fi
 
-# Fallback branding icon if local image extraction fails
+rm -rf "$TMP_SW4_ICON"
+
+# Fallback branding icon if extraction fails
 if [ ! -f "$ICON_DIR/sw4stm32.png" ]; then
   curl -sSL "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/STMicroelectronics_logo.svg/512px-STMicroelectronics_logo.svg.png" -o "$ICON_DIR/sw4stm32.png" 2>/dev/null || true
 fi
 
-# 5. Create symlink in ~/.local/bin
+# 6. Locate main binary and create symlink in ~/.local/bin
 mkdir -p "$HOME/.local/bin"
-SW4_BIN=$(find "$TARGET_DIR" -maxdepth 2 -type f -name "sw4stm32" -o -name "eclipse" 2>/dev/null | head -n 1 || true)
+SW4_BIN=$(find "$TARGET_DIR" -maxdepth 2 -type f \( -name "sw4stm32" -o -name "eclipse" \) 2>/dev/null | head -n 1 || true)
 
 if [ -n "$SW4_BIN" ]; then
   ln -sf "$SW4_BIN" "$HOME/.local/bin/sw4stm32"
 fi
 
-# 6. Install udev rules for ST-LINK if present inside installation payload
+# 7. Install ST-LINK udev rules if included
 UDEV_RULE=$(find "$TARGET_DIR" -name "*stlink*.rules" 2>/dev/null | head -n 1 || true)
 if [ -n "$UDEV_RULE" ]; then
   echo "==> Installing ST-LINK udev rules..."
@@ -62,7 +93,7 @@ if [ -n "$UDEV_RULE" ]; then
   sudo udevadm trigger 2>/dev/null || true
 fi
 
-# 7. Generate single clean .desktop launcher
+# 8. Create single clean .desktop launcher
 echo "==> Creating .desktop launcher..."
 cat << EOF > "$DESKTOP_DIR/st-com-sw4stm32.desktop"
 [Desktop Entry]
@@ -80,7 +111,7 @@ EOF
 
 chmod +x "$DESKTOP_DIR/st-com-sw4stm32.desktop"
 
-# 8. Refresh caches & reload COSMIC launcher app library
+# 9. Refresh icon cache & restart COSMIC app library
 gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
 if command -v update-desktop-database &>/dev/null; then
   update-desktop-database "$DESKTOP_DIR" || true
