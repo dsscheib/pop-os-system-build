@@ -33,7 +33,8 @@ rm -rf "$TEMP_DIR"
 ./"$INSTALLER" --noexec --target "$TEMP_DIR"
 
 # 4. Extract binaries directly without dpkg / apt validation
-echo "==> Extracting files directly to $IDE_TARGET_DIR..."
+echo "==> Preparing target directory $IDE_TARGET_DIR..."
+rm -rf "$IDE_TARGET_DIR"
 mkdir -p "$IDE_TARGET_DIR"
 
 DEB_FILE=$(find "$TEMP_DIR" -name "*.deb" | head -n 1 || true)
