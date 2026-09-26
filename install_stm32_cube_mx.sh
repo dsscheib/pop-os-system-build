@@ -68,8 +68,8 @@ TMP_MX_ICON="/tmp/mx_icon_extract"
 
 mkdir -p "$ICON_DIR" "$DESKTOP_DIR" "$TMP_MX_ICON"
 
-# Purge ALL existing ST launcher duplicates to clear bad entries
-rm -f "$DESKTOP_DIR"/*stm32*.desktop "$DESKTOP_DIR"/*STM32*.desktop "$DESKTOP_DIR"/st-com-*.desktop
+# Target ONLY CubeMX launchers to prevent wiping other installed tools
+rm -f "$DESKTOP_DIR"/st-com-stm32cubemx.desktop "$DESKTOP_DIR"/STM32CubeMX*.desktop
 
 # Locate the primary application JAR (skipping database packs)
 MX_JAR=$(find "$TARGET_DIR" -type f -name "*.jar" ! -path "*/db/*" 2>/dev/null | head -n 1 || true)
