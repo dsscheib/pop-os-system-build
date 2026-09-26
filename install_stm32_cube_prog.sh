@@ -102,10 +102,19 @@ echo "==> Creating .desktop launcher..."
 mkdir -p "$DESKTOP_DIR"
 mkdir -p "$HOME/.local/share/icons/hicolor/256x256/apps"
 
-ICON_SRC=$(find "$TARGET_DIR" -type f \( -name "STM32CubeProgrammer.png" -o -name "icon.png" -o -name "logo.png" \) 2>/dev/null | head -n 1 || true)
+ICON_TARGET="$HOME/.local/share/icons/hicolor/256x256/apps/stm32cubeprogrammer.png"
 
-if [ -n "$ICON_SRC" ]; then
-  cp "$ICON_SRC" "$HOME/.local/share/icons/hicolor/256x256/apps/stm32cubeprogrammer.png"
+# Check for ICO/XPM/PNG assets in install dir, else fallback to downloading branding icon
+LOCAL_ICON=$(find "$TARGET_DIR" -type f \( -name "*.ico" -o -name "*.png" -o -name "*.xpm" \) ! -path "*/jre/*" 2>/dev/null | head -n 1 || true)
+
+if [ -n "$LOCAL_ICON" ] && [[ "$LOCAL_ICON" == *.png ]]; then
+  cp -f "$LOCAL_ICON" "$ICON_TARGET"
+elif [ -n "$LOCAL_ICON" ] && command -v convert &>/dev/null; then
+  convert "$LOCAL_ICON[0]" "$ICON_TARGET" 2>/dev/null || true
+fi
+
+if [ ! -f "$ICON_TARGET" ]; then
+  curl -sSL "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/STMicroelectronics_logo.svg/512px-STMicroelectronics_logo.svg.png" -o "$ICON_TARGET" 2>/dev/null || true
 fi
 
 cat << EOF > "$DESKTOP_DIR/st-com-stm32cubeprogrammer.desktop"
@@ -116,7 +125,7 @@ Name=STM32CubeProgrammer
 Comment=STMicroelectronics Flash Programming Tool for STM32
 Exec=env GDK_BACKEND=x11 _JAVA_OPTIONS="-Djdk.gtk.version=2" $TARGET_DIR/bin/STM32CubeProgrammerLauncher %F
 Path=$TARGET_DIR/bin
-Icon=stm32cubeprogrammer
+Icon=$ICON_TARGET
 Terminal=false
 Categories=Development;IDE;
 StartupWMClass=com-st-stm32cube-programmer-STM32CubeProgrammer
