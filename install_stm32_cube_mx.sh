@@ -26,7 +26,7 @@ fi
 
 chmod +x "$INSTALLER"
 
-# 3. Create the IzPack response file (unquoted EOF allows ${TARGET_DIR} expansion)
+# 3. Create the IzPack response file (explicitly disabling default shortcut creation)
 echo "==> Generating response configuration..."
 mkdir -p "$TARGET_DIR"
 
@@ -39,7 +39,10 @@ cat <<EOF >auto-install.xml
     <com.st.microxplorer.install.MXTargetPanel id="target.panel">
         <installpath>${TARGET_DIR}</installpath>
     </com.st.microxplorer.install.MXTargetPanel>
-    <com.st.microxplorer.install.MXShortcutPanel id="shortcut.panel"/>
+    <com.st.microxplorer.install.MXShortcutPanel id="shortcut.panel">
+        <createMenuShortcuts>false</createMenuShortcuts>
+        <createDesktopShortcuts>false</createDesktopShortcuts>
+    </com.st.microxplorer.install.MXShortcutPanel>
     <com.st.microxplorer.install.MXInstallPanel id="install.panel"/>
     <com.st.microxplorer.install.MXFinishPanel id="finish.panel"/>
 </AutomatedInstallation>
@@ -68,8 +71,11 @@ TMP_MX_ICON="/tmp/mx_icon_extract"
 
 mkdir -p "$ICON_DIR" "$DESKTOP_DIR" "$TMP_MX_ICON"
 
-# Target ONLY CubeMX launchers to prevent wiping other installed tools
-rm -f "$DESKTOP_DIR"/st-com-stm32cubemx.desktop "$DESKTOP_DIR"/STM32CubeMX*.desktop
+# Target ALL variants of CubeMX launchers created by IzPack or custom scripts
+rm -f "$DESKTOP_DIR"/st-com-stm32cubemx.desktop \
+      "$DESKTOP_DIR"/STM32CubeMX*.desktop \
+      "$DESKTOP_DIR"/*[S|s][T|t]*STM32CubeMX*.desktop \
+      "$HOME/Desktop"/STM32CubeMX*.desktop
 
 # Locate the primary application JAR (skipping database packs)
 MX_JAR=$(find "$TARGET_DIR" -type f -name "*.jar" ! -path "*/db/*" 2>/dev/null | head -n 1 || true)
@@ -92,7 +98,7 @@ if [ ! -f "$ICON_DIR/stm32cubemx.png" ]; then
   curl -sSL "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/STMicroelectronics_logo.svg/512px-STMicroelectronics_logo.svg.png" -o "$ICON_DIR/stm32cubemx.png" 2>/dev/null || true
 fi
 
-# Generate launcher with absolute icon path
+# Generate single launcher with absolute icon path
 cat << EOF > "$DESKTOP_DIR/st-com-stm32cubemx.desktop"
 [Desktop Entry]
 Version=1.0
