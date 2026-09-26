@@ -71,9 +71,6 @@ rm -rf SetupSTM32CubeMX-*
 ```
 
 Silent Installation of STM32CubeIDE
-```diff
---Not Tested!--
-```
 
 ```bash
 unzip stm32cubeide_*.zip
@@ -85,6 +82,9 @@ rm -f stm32cubeide_*.zip
 sudo apt update && sudo apt install -y zenity
 yes | sudo ./stm32cubeide_*.sh --quiet --target /usr/local/STMicroelectronics/stm32cubeide
 rm -f stm32cubeide_*.sh
+```
+```diff
+--Not Tested!--
 ```
 
 Fix the permissions (not typically needed)
