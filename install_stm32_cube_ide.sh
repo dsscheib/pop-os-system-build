@@ -5,7 +5,7 @@ set -euo pipefail
 IDE_TARGET_DIR="$HOME/STMicroelectronics/STM32Cube/stm32cubeide"
 TEMP_DIR="/tmp/stm32cubeide_extract"
 DESKTOP_DIR="$HOME/.local/share/applications"
-ICON_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
+SVG_ICON_DIR="$HOME/.local/share/icons/hicolor/scalable/apps"
 
 # 1. Locate the downloaded zip archive
 ARCHIVE_ZIP=$(ls stm32cubeide_*.sh.zip stm32cubeide_*.zip 2>/dev/null | head -n 1 || true)
@@ -97,23 +97,29 @@ else
   exit 1
 fi
 
-# 8. Set up high-res PNG icon
-echo "==> Setting up launcher icon..."
-mkdir -p "$ICON_DIR" "$DESKTOP_DIR"
+# 8. Set up launcher icon & desktop file
+echo "==> Setting up scalable launcher icon..."
+mkdir -p "$SVG_ICON_DIR" "$DESKTOP_DIR"
 
-# Target ONLY CubeIDE launchers to prevent wiping CubeMX or Programmer
+# Clean legacy launchers
 rm -f "$DESKTOP_DIR"/st-com-stm32cubeide.desktop "$DESKTOP_DIR"/STM32CubeIDE*.desktop
 
-# Locate the official 256px icon from Eclipse configuration
-IDE_256=$(find "$IDE_TARGET_DIR" -type f -name "STM32CubeIDE_icon_256px.png" 2>/dev/null | head -n 1 || true)
+# Create clean, scalable SVG icon
+cat << 'EOF' > "$SVG_ICON_DIR/stm32cubeide.svg"
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <rect width="256" height="256" rx="40" fill="#00205B"/>
+  <path d="M40 180 L128 40 L216 180 Z" fill="none" stroke="#00A3E0" stroke-width="18" stroke-linejoin="round"/>
+  <circle cx="128" cy="130" r="28" fill="#00A3E0"/>
+  <text x="128" y="222" font-family="sans-serif" font-weight="bold" font-size="28" fill="#FFFFFF" text-anchor="middle">CUBE IDE</text>
+</svg>
+EOF
 
-if [ -n "$IDE_256" ]; then
-  cp -f "$IDE_256" "$ICON_DIR/stm32cubeide.png"
-  echo "✔ STM32CubeIDE icon installed."
-fi
+chmod 644 "$SVG_ICON_DIR/stm32cubeide.svg"
 
-# Generate launcher with absolute icon path
-cat << EOF > "$DESKTOP_DIR/st-com-stm32cubeide.desktop"
+# Write desktop entry using short named icon and unique desktop filename
+DESKTOP_FILE="$DESKTOP_DIR/stm32cubeide-app.desktop"
+
+cat << EOF > "$DESKTOP_FILE"
 [Desktop Entry]
 Version=1.0
 Type=Application
@@ -121,21 +127,25 @@ Name=STM32CubeIDE
 Comment=STMicroelectronics Integrated Development Environment for STM32
 Exec=$IDE_TARGET_DIR/stm32cubeide %F
 Path=$IDE_TARGET_DIR
-Icon=$ICON_DIR/stm32cubeide.png
+Icon=stm32cubeide
 Terminal=false
 Categories=Development;IDE;
-StartupWMClass=stm32cubeide
+StartupWMClass=Eclipse
 EOF
 
-chmod +x "$DESKTOP_DIR/st-com-stm32cubeide.desktop"
+chmod 755 "$DESKTOP_FILE"
 
-# 9. Refresh icon cache, desktop database, and reset COSMIC launcher service cache
+# 9. Refresh icon cache & purge COSMIC launcher daemon cache
+echo "==> Refreshing databases and clearing COSMIC launcher cache..."
 gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
 if command -v update-desktop-database &>/dev/null; then
   update-desktop-database "$DESKTOP_DIR" || true
 fi
-killall cosmic-app-library 2>/dev/null || true
+
+# Purge COSMIC local app grid cache & restart shell components
+rm -rf "$HOME/.cache/cosmic" "$HOME/.cache/pop-launcher" 2>/dev/null || true
+killall -9 cosmic-app-library pop-launcher cosmic-panel cosmic-applet-applications 2>/dev/null || true
 
 echo "==> Success! STM32CubeIDE installed directly to $IDE_TARGET_DIR"
 echo "==> Symlinked to $HOME/.local/bin/stm32cubeide"
-echo "==> Launcher created at $DESKTOP_DIR/st-com-stm32cubeide.desktop"
+echo "==> Launcher created at $DESKTOP_FILE"
