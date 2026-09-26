@@ -99,24 +99,36 @@ fi
 
 # 8. Create desktop launcher (.desktop) & set up icon
 echo "==> Creating .desktop launcher..."
-mkdir -p "$DESKTOP_DIR"
-mkdir -p "$HOME/.local/share/icons/hicolor/256x256/apps"
+ICON_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
+TMP_PROG_ICON="/tmp/prog_icon_extract"
 
-ICON_TARGET="$HOME/.local/share/icons/hicolor/256x256/apps/stm32cubeprogrammer.png"
+mkdir -p "$ICON_DIR" "$DESKTOP_DIR" "$TMP_PROG_ICON"
 
-# Check for ICO/XPM/PNG assets in install dir, else fallback to downloading branding icon
-LOCAL_ICON=$(find "$TARGET_DIR" -type f \( -name "*.ico" -o -name "*.png" -o -name "*.xpm" \) ! -path "*/jre/*" 2>/dev/null | head -n 1 || true)
+# Target ONLY Programmer launchers to avoid deleting CubeIDE or CubeMX
+rm -f "$DESKTOP_DIR"/st-com-stm32cubeprogrammer.desktop "$DESKTOP_DIR"/STM32CubeProgrammer*.desktop
 
-if [ -n "$LOCAL_ICON" ] && [[ "$LOCAL_ICON" == *.png ]]; then
-  cp -f "$LOCAL_ICON" "$ICON_TARGET"
-elif [ -n "$LOCAL_ICON" ] && command -v convert &>/dev/null; then
-  convert "$LOCAL_ICON[0]" "$ICON_TARGET" 2>/dev/null || true
+# Locate the primary application JAR and extract internal PNG icons
+PROG_JAR=$(find "$TARGET_DIR" -type f -name "*.jar" ! -path "*/jre/*" 2>/dev/null | head -n 1 || true)
+
+if [ -n "$PROG_JAR" ]; then
+  unzip -q -o "$PROG_JAR" "*icon*.png" "*Programmer*.png" "*logo*.png" -d "$TMP_PROG_ICON" 2>/dev/null || true
+  
+  # Select the largest extracted PNG image
+  PROG_EXTRACTED=$(find "$TMP_PROG_ICON" -type f -name "*.png" -exec ls -s {} + 2>/dev/null | sort -nr | head -n 1 | awk '{print $2}' || true)
+  if [ -n "$PROG_EXTRACTED" ]; then
+    cp -f "$PROG_EXTRACTED" "$ICON_DIR/stm32cubeprogrammer.png"
+    echo "✔ STM32CubeProgrammer icon extracted and installed."
+  fi
 fi
 
-if [ ! -f "$ICON_TARGET" ]; then
-  curl -sSL "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/STMicroelectronics_logo.svg/512px-STMicroelectronics_logo.svg.png" -o "$ICON_TARGET" 2>/dev/null || true
+rm -rf "$TMP_PROG_ICON"
+
+# Fallback branding image if archive extraction fails
+if [ ! -f "$ICON_DIR/stm32cubeprogrammer.png" ]; then
+  curl -sSL "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/STMicroelectronics_logo.svg/512px-STMicroelectronics_logo.svg.png" -o "$ICON_DIR/stm32cubeprogrammer.png" 2>/dev/null || true
 fi
 
+# Generate launcher with absolute icon path
 cat << EOF > "$DESKTOP_DIR/st-com-stm32cubeprogrammer.desktop"
 [Desktop Entry]
 Version=1.0
@@ -125,7 +137,7 @@ Name=STM32CubeProgrammer
 Comment=STMicroelectronics Flash Programming Tool for STM32
 Exec=env GDK_BACKEND=x11 _JAVA_OPTIONS="-Djdk.gtk.version=2" $TARGET_DIR/bin/STM32CubeProgrammerLauncher %F
 Path=$TARGET_DIR/bin
-Icon=$ICON_TARGET
+Icon=$ICON_DIR/stm32cubeprogrammer.png
 Terminal=false
 Categories=Development;IDE;
 StartupWMClass=com-st-stm32cube-programmer-STM32CubeProgrammer
@@ -133,11 +145,12 @@ EOF
 
 chmod +x "$DESKTOP_DIR/st-com-stm32cubeprogrammer.desktop"
 
-# Refresh icon cache & application list
+# Refresh icon cache & restart COSMIC app library service
 gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
 if command -v update-desktop-database &>/dev/null; then
   update-desktop-database "$DESKTOP_DIR" || true
 fi
+killall cosmic-app-library 2>/dev/null || true
 
 echo "==> Installation complete!"
 echo "==> CLI linked to $HOME/.local/bin/STM32_Programmer_CLI"
