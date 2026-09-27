@@ -133,7 +133,7 @@ cat << EOF > "$DESKTOP_DIR/st-com-stm32cubeprogrammer.desktop"
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=STM32CubeProgrammer
+Name=STM32CubeProg
 Comment=STMicroelectronics Flash Programming Tool for STM32
 Exec=env GDK_BACKEND=x11 _JAVA_OPTIONS="-Djdk.gtk.version=2" $TARGET_DIR/bin/STM32CubeProgrammerLauncher %F
 Path=$TARGET_DIR/bin
