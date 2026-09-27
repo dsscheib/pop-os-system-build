@@ -95,43 +95,40 @@ else
   exit 1
 fi
 
-# 8. Extract official product icon directly from branding bundles or high-res vector fallback
-echo "==> Extracting official STM32CubeIDE icon..."
-mkdir -p "$HICOLOR_DIR" "$DESKTOP_DIR" "$TMP_IDE_ICON"
+# 8. Convert the exact native icon.xpm from the IDE root directory
+echo "==> Setting up launcher icon using native icon.xpm..."
+HICOLOR_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
+mkdir -p "$HICOLOR_DIR" "$DESKTOP_DIR"
 
-# Clean legacy desktop entries
+# Explicit target path to the root icon.xpm
+NATIVE_XPM="$IDE_TARGET_DIR/icon.xpm"
+ICON_DEST="$HICOLOR_DIR/stm32cubeide.png"
+
+# Purge legacy launcher entries
 rm -f "$DESKTOP_DIR"/st-com-stm32cubeide*.desktop \
       "$DESKTOP_DIR"/stm32cubeide*.desktop \
       "$DESKTOP_DIR"/STM32CubeIDE*.desktop \
       "$HOME/Desktop"/STM32CubeIDE*.desktop
 
-ICON_DEST="$HICOLOR_DIR/stm32cubeide.png"
-
-# Unpack branding icons from all potential product/branding plugins
-find "$IDE_TARGET_DIR/plugins" -type f \( -name "*branding*.jar" -o -name "*product*.jar" \) 2>/dev/null | while read -r jar; do
-  unzip -q -o "$jar" "*stm32cubeide.png" "*ide_icon*.png" "*product.png" -d "$TMP_IDE_ICON" 2>/dev/null || true
-done
-
-# Locate extracted high-res PNG candidate
-EXTRACTED_ICON=$(find "$TMP_IDE_ICON" -type f -name "*.png" ! -name "*small*" ! -name "*16*" -exec ls -s {} + 2>/dev/null | sort -nr | head -n 1 | awk '{print $2}' || true)
-
-if [ -n "$EXTRACTED_ICON" ]; then
+if [ -f "$NATIVE_XPM" ]; then
+  echo "✔ Found root icon.xpm at $NATIVE_XPM"
+  
+  # Convert XPM to high-res PNG using Python PIL (falls back to ImageMagick)
   python3 -c "
 from PIL import Image
-img = Image.open('$EXTRACTED_ICON').convert('RGBA')
-img.resize((256, 256)).save('$ICON_DEST', 'PNG')
-" 2>/dev/null || cp -f "$EXTRACTED_ICON" "$ICON_DEST"
-  echo "✔ Official STM32CubeIDE icon extracted from internal branding bundle."
+img = Image.open('$NATIVE_XPM').convert('RGBA')
+img = img.resize((256, 256), Image.Resampling.LANCZOS)
+img.save('$ICON_DEST', 'PNG')
+" 2>/dev/null || convert "$NATIVE_XPM" -resize 256x256 "$ICON_DEST" 2>/dev/null || cp -f "$NATIVE_XPM" "$ICON_DEST"
+
+  chmod 644 "$ICON_DEST"
+  echo "✔ Converted $NATIVE_XPM -> $ICON_DEST"
 else
-  # Direct fallback to official high-res ST product logo asset
-  echo "==> Downloading official high-resolution STM32CubeIDE icon fallback..."
-  curl -sSL "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/STMicroelectronics_logo.svg/512px-STMicroelectronics_logo.svg.png" -o "$ICON_DEST" 2>/dev/null || true
+  echo "Error: Native $NATIVE_XPM not found after installation."
+  exit 1
 fi
 
-rm -rf "$TMP_IDE_ICON"
-chmod 644 "$ICON_DEST" 2>/dev/null || true
-
-# Generate launcher using base icon name
+# Generate launcher adhering to Freedesktop standards
 DESKTOP_FILE="$DESKTOP_DIR/stm32cubeide.desktop"
 
 cat << EOF > "$DESKTOP_FILE"
@@ -145,13 +142,13 @@ Path=$IDE_TARGET_DIR
 Icon=stm32cubeide
 Terminal=false
 Categories=Development;IDE;
-StartupWMClass=Eclipse
+StartupWMClass=stm32cubeide
 EOF
 
 chmod 755 "$DESKTOP_FILE"
 
-# 9. Refresh databases & restart COSMIC services
-echo "==> Refreshing databases and clearing COSMIC launcher cache..."
+# 9. Refresh databases & restart COSMIC desktop components
+echo "==> Refreshing icon cache and clearing COSMIC launcher state..."
 gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
 if command -v update-desktop-database &>/dev/null; then
   update-desktop-database "$DESKTOP_DIR" || true
