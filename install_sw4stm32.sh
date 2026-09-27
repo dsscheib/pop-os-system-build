@@ -57,40 +57,39 @@ rm -f "$DESKTOP_DIR"/st-com-sw4stm32.desktop \
       "$DESKTOP_DIR"/*system*workbench*.desktop \
       "$HOME/Desktop"/sw4stm32*.desktop
 
-# 5. Convert native icon.xpm from installation root to PNG
-echo "==> Setting up launcher icon using native icon.xpm..."
-NATIVE_XPM="$TARGET_DIR/icon.xpm"
+# 5. Convert native logo_openstm32 icon from installation root to PNG
+echo "==> Setting up launcher icon using native logo_openstm32..."
 ICON_DEST="$HICOLOR_DIR/sw4stm32.png"
 
-if [ -f "$NATIVE_XPM" ]; then
-  echo "✔ Found root icon.xpm at $NATIVE_XPM"
+# Priority check for root logo_openstm32 files
+XPM_SRC="$TARGET_DIR/logo_openstm32.xpm"
+ICO_SRC="$TARGET_DIR/logo_openstm32.ico"
+
+if [ -f "$XPM_SRC" ]; then
+  SRC_ICON="$XPM_SRC"
+elif [ -f "$ICO_SRC" ]; then
+  SRC_ICON="$ICO_SRC"
+else
+  # Fallback to recursive find if pathing varies
+  SRC_ICON=$(find "$TARGET_DIR" -type f \( -name "logo_openstm32.xpm" -o -name "logo_openstm32.ico" \) 2>/dev/null | head -n 1 || true)
+fi
+
+if [ -n "$SRC_ICON" ] && [ -f "$SRC_ICON" ]; then
+  echo "✔ Found native logo at $SRC_ICON"
   
-  # Convert XPM to high-res PNG using Python PIL (falls back to ImageMagick)
+  # Convert XPM/ICO to high-res PNG using Python PIL (falls back to ImageMagick)
   python3 -c "
 from PIL import Image
-img = Image.open('$NATIVE_XPM').convert('RGBA')
+img = Image.open('$SRC_ICON').convert('RGBA')
 img = img.resize((256, 256), Image.Resampling.LANCZOS)
 img.save('$ICON_DEST', 'PNG')
-" 2>/dev/null || convert "$NATIVE_XPM" -resize 256x256 "$ICON_DEST" 2>/dev/null || cp -f "$NATIVE_XPM" "$ICON_DEST"
+" 2>/dev/null || convert "$SRC_ICON" -resize 256x256 "$ICON_DEST" 2>/dev/null || cp -f "$SRC_ICON" "$ICON_DEST"
 
   chmod 644 "$ICON_DEST"
-  echo "✔ Converted $NATIVE_XPM -> $ICON_DEST"
+  echo "✔ Converted $SRC_ICON -> $ICON_DEST"
 else
-  # Search recursively if icon.xpm is located in a subdirectory
-  ALT_XPM=$(find "$TARGET_DIR" -type f -name "icon.xpm" 2>/dev/null | head -n 1 || true)
-  if [ -n "$ALT_XPM" ]; then
-    python3 -c "
-from PIL import Image
-img = Image.open('$ALT_XPM').convert('RGBA')
-img = img.resize((256, 256), Image.Resampling.LANCZOS)
-img.save('$ICON_DEST', 'PNG')
-" 2>/dev/null || convert "$ALT_XPM" -resize 256x256 "$ICON_DEST" 2>/dev/null || cp -f "$ALT_XPM" "$ICON_DEST"
-    chmod 644 "$ICON_DEST"
-    echo "✔ Converted $ALT_XPM -> $ICON_DEST"
-  else
-    echo "Error: Native icon.xpm not found in $TARGET_DIR after installation."
-    exit 1
-  fi
+  echo "Error: Neither logo_openstm32.xpm nor logo_openstm32.ico found in $TARGET_DIR"
+  exit 1
 fi
 
 # 6. Locate main binary and create symlink in ~/.local/bin
@@ -146,4 +145,4 @@ killall -9 cosmic-app-library pop-launcher cosmic-panel cosmic-applet-applicatio
 echo "==> Installation complete!"
 echo "==> Installed to $TARGET_DIR"
 echo "==> Symlinked to $HOME/.local/bin/sw4stm32"
-echo "==> Launcher created at $DESKTOP_FILE with full icon path."
+echo "==> Launcher created at $DESKTOP_FILE using $ICON_DEST"
