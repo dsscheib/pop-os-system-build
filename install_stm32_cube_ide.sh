@@ -5,7 +5,7 @@ set -euo pipefail
 IDE_TARGET_DIR="$HOME/STMicroelectronics/STM32Cube/stm32cubeide"
 TEMP_DIR="/tmp/stm32cubeide_extract"
 DESKTOP_DIR="$HOME/.local/share/applications"
-ICON_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
+HICOLOR_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
 TMP_IDE_ICON="/tmp/ide_icon_extract"
 
 # 1. Locate the downloaded zip archive
@@ -95,46 +95,54 @@ else
   exit 1
 fi
 
-# 8. Extract official icon directly & register in Freedesktop icon theme
+# 8. Extract official product icon directly from product branding bundle
 echo "==> Setting up official launcher icon..."
-HICOLOR_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
 mkdir -p "$HICOLOR_DIR" "$DESKTOP_DIR" "$TMP_IDE_ICON"
 
-# Target ALL legacy/duplicate CubeIDE launchers to prevent stale cache hits
+# Clean legacy desktop entries
 rm -f "$DESKTOP_DIR"/st-com-stm32cubeide*.desktop \
       "$DESKTOP_DIR"/stm32cubeide*.desktop \
       "$DESKTOP_DIR"/STM32CubeIDE*.desktop \
       "$HOME/Desktop"/STM32CubeIDE*.desktop
 
-# Check for explicit icon installed directly in the root or plugins folder
-IDE_OFFICIAL_ICON=$(find "$IDE_TARGET_DIR" -type f \( -name "STM32CubeIDE_icon_256px.png" -o -name "stm32cubeide.png" \) 2>/dev/null | head -n 1 || true)
-
 ICON_DEST="$HICOLOR_DIR/stm32cubeide.png"
 
-if [ -n "$IDE_OFFICIAL_ICON" ]; then
-  cp -f "$IDE_OFFICIAL_ICON" "$ICON_DEST"
-  echo "✔ STM32CubeIDE icon copied to icon theme."
-else
-  # Fall back to extracting icon from the primary branding launcher JAR
-  IDE_JAR=$(find "$IDE_TARGET_DIR/plugins" -type f -name "*st.stm32cube.ide.mcu.product*.jar" 2>/dev/null | head -n 1 || true)
-  if [ -z "$IDE_JAR" ]; then
-    IDE_JAR=$(find "$IDE_TARGET_DIR" -type f -name "*.jar" ! -path "*/jre/*" 2>/dev/null | head -n 1 || true)
-  fi
+# Target the official product plugin JAR directly
+PRODUCT_JAR=$(find "$IDE_TARGET_DIR/plugins" -type f -name "st.stm32cube.ide.mcu.product_*.jar" 2>/dev/null | head -n 1 || true)
 
-  if [ -n "$IDE_JAR" ]; then
-    unzip -q -o "$IDE_JAR" "*icon*.png" "*logo*.png" "*256*.png" -d "$TMP_IDE_ICON" 2>/dev/null || true
-    EXTRACTED_PNG=$(find "$TMP_IDE_ICON" -type f -name "*.png" -exec ls -s {} + 2>/dev/null | sort -nr | head -n 1 | awk '{print $2}' || true)
-    if [ -n "$EXTRACTED_PNG" ]; then
-      cp -f "$EXTRACTED_PNG" "$ICON_DEST"
-      echo "✔ Official STM32CubeIDE icon extracted from plugin."
-    fi
+if [ -n "$PRODUCT_JAR" ]; then
+  # Extract product branding PNGs
+  unzip -q -o "$PRODUCT_JAR" "st.stm32cube.ide.mcu.product.png" "icon.png" "icons/stm32cubeide.png" -d "$TMP_IDE_ICON" 2>/dev/null || true
+fi
+
+# Find extracted official image
+EXTRACTED_ICON=$(find "$TMP_IDE_ICON" -type f \( -name "st.stm32cube.ide.mcu.product.png" -o -name "icon.png" -o -name "stm32cubeide.png" \) 2>/dev/null | head -n 1 || true)
+
+if [ -n "$EXTRACTED_ICON" ]; then
+  # Sanitize and convert image to clean RGBA via Pillow to guarantee Wayland/COSMIC compatibility
+  python3 -c "
+from PIL import Image
+img = Image.open('$EXTRACTED_ICON').convert('RGBA')
+img.resize((256, 256)).save('$ICON_DEST', 'PNG')
+" 2>/dev/null || cp -f "$EXTRACTED_ICON" "$ICON_DEST"
+  echo "✔ Official STM32CubeIDE branding icon extracted and installed."
+else
+  # Hard fallback: direct high-res official branding icon copy
+  echo "==> Falling back to icon search across target dir..."
+  FALLBACK_ICON=$(find "$IDE_TARGET_DIR" -type f -name "STM32CubeIDE_icon_256px.png" 2>/dev/null | head -n 1 || true)
+  if [ -n "$FALLBACK_ICON" ]; then
+    python3 -c "
+from PIL import Image
+img = Image.open('$FALLBACK_ICON').convert('RGBA')
+img.save('$ICON_DEST', 'PNG')
+" 2>/dev/null || cp -f "$FALLBACK_ICON" "$ICON_DEST"
   fi
 fi
 
 rm -rf "$TMP_IDE_ICON"
 chmod 644 "$ICON_DEST" 2>/dev/null || true
 
-# Generate launcher using base icon name for COSMIC/Wayland compatibility
+# Generate launcher using base icon name
 DESKTOP_FILE="$DESKTOP_DIR/stm32cubeide.desktop"
 
 cat << EOF > "$DESKTOP_FILE"
@@ -153,14 +161,14 @@ EOF
 
 chmod 755 "$DESKTOP_FILE"
 
-# 9. Update GTK icon database & purge COSMIC state cache
-echo "==> Updating desktop databases and restarting COSMIC components..."
+# 9. Refresh databases & restart COSMIC services
+echo "==> Refreshing databases and clearing COSMIC launcher cache..."
 gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
 if command -v update-desktop-database &>/dev/null; then
   update-desktop-database "$DESKTOP_DIR" || true
 fi
 
-# Clear COSMIC launcher state cache so it re-reads icon metadata from hicolor
+# Purge COSMIC local app grid cache & restart shell components
 rm -rf "$HOME/.cache/cosmic" "$HOME/.cache/pop-launcher" 2>/dev/null || true
 killall -9 cosmic-app-library pop-launcher cosmic-panel cosmic-applet-applications 2>/dev/null || true
 
