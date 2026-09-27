@@ -39,6 +39,7 @@ Download Files:
 - <https://www.st.com/en/development-tools/stm32cubeide.html>
 - <https://www.st.com/en/development-tools/stm32cubemx.html>
 - <https://www.st.com/en/development-tools/stm32cubeprog.html>
+- <https://www.openstm32.org/System+Workbench+for+STM32>
 
 Install STM32CubeIDE
 ```bash
@@ -51,4 +52,8 @@ chmod +x install_stm32_cube_mx.sh && ./install_stm32_cube_mx.sh
 Install STM32CubeProgrammer
 ```bash
 chmod +x install_stm32_cube_prog.sh && ./install_stm32_cube_prog.sh
+```
+Install System Workbench for STM32
+```bash
+chmod +x install_sw4stm32.sh && ./install_sw4stm32.sh
 ```
