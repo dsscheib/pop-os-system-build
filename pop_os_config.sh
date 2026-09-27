@@ -118,6 +118,7 @@ install_dependencies() {
     zsh-autosuggestions \
     zsh-syntax-highlighting \
     fzf \
+    zoxide \
     ripgrep \
     bat \
     eza \
