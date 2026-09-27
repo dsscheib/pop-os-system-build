@@ -473,9 +473,12 @@ install_go_completions() {
   
   go install github.com/posener/complete/gocomplete@latest
 
-  # Pass 'y' non-interactively and suppress exit errors if completions already exist
-  if command -v gocomplete &>/dev/null; then
-    yes | gocomplete -install 2>/dev/null || true
+  # Append dynamic, version-agnostic completion hook if not already present
+  local GOCOMP_STUB='if command -v gocomplete &>/dev/null; then complete -o nospace -C gocomplete go; fi'
+
+  if [[ -f "$HOME/.bashrc" ]] && ! grep -q "gocomplete" "$HOME/.bashrc"; then
+    log_info "Adding dynamic gocomplete hook to .bashrc..."
+    echo -e "\n# Go Completion Integration\n$GOCOMP_STUB" >> "$HOME/.bashrc"
   fi
 }
 
