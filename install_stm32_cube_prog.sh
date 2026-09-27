@@ -97,62 +97,77 @@ if [ -n "$UDEV_RULE" ]; then
   sudo udevadm trigger || true
 fi
 
-# 8. Create desktop launcher (.desktop) & set up icon
-echo "==> Creating .desktop launcher..."
+# 8. Create desktop launcher (.desktop) & convert native Programmer.ico
+echo "==> Setting up launcher icon using native Programmer.ico..."
 ICON_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
-TMP_PROG_ICON="/tmp/prog_icon_extract"
-
-mkdir -p "$ICON_DIR" "$DESKTOP_DIR" "$TMP_PROG_ICON"
+mkdir -p "$ICON_DIR" "$DESKTOP_DIR"
 
 # Target ONLY Programmer launchers to avoid deleting CubeIDE or CubeMX
 rm -f "$DESKTOP_DIR"/st-com-stm32cubeprogrammer.desktop "$DESKTOP_DIR"/STM32CubeProgrammer*.desktop
 
-# Locate the primary application JAR and extract internal PNG icons
-PROG_JAR=$(find "$TARGET_DIR" -type f -name "*.jar" ! -path "*/jre/*" 2>/dev/null | head -n 1 || true)
+ICO_SRC="$TARGET_DIR/util/Programmer.ico"
+ICON_DEST="$ICON_DIR/stm32cubeprogrammer.png"
 
-if [ -n "$PROG_JAR" ]; then
-  unzip -q -o "$PROG_JAR" "*icon*.png" "*Programmer*.png" "*logo*.png" -d "$TMP_PROG_ICON" 2>/dev/null || true
+if [ -f "$ICO_SRC" ]; then
+  echo "✔ Found native icon at $ICO_SRC"
   
-  # Select the largest extracted PNG image
-  PROG_EXTRACTED=$(find "$TMP_PROG_ICON" -type f -name "*.png" -exec ls -s {} + 2>/dev/null | sort -nr | head -n 1 | awk '{print $2}' || true)
-  if [ -n "$PROG_EXTRACTED" ]; then
-    cp -f "$PROG_EXTRACTED" "$ICON_DIR/stm32cubeprogrammer.png"
-    echo "✔ STM32CubeProgrammer icon extracted and installed."
+  # Convert ICO to 256x256 PNG via Python PIL (falls back to ImageMagick)
+  python3 -c "
+from PIL import Image
+img = Image.open('$ICO_SRC').convert('RGBA')
+img = img.resize((256, 256), Image.Resampling.LANCZOS)
+img.save('$ICON_DEST', 'PNG')
+" 2>/dev/null || convert "$ICO_SRC" -resize 256x256 "$ICON_DEST" 2>/dev/null || cp -f "$ICO_SRC" "$ICON_DEST"
+
+  chmod 644 "$ICON_DEST"
+  echo "✔ Converted $ICO_SRC -> $ICON_DEST"
+else
+  # Recursive fallback search if util directory structure moves
+  ALT_ICO=$(find "$TARGET_DIR" -type f -iname "Programmer.ico" 2>/dev/null | head -n 1 || true)
+  if [ -n "$ALT_ICO" ]; then
+    python3 -c "
+from PIL import Image
+img = Image.open('$ALT_ICO').convert('RGBA')
+img = img.resize((256, 256), Image.Resampling.LANCZOS)
+img.save('$ICON_DEST', 'PNG')
+" 2>/dev/null || convert "$ALT_ICO" -resize 256x256 "$ICON_DEST" 2>/dev/null || cp -f "$ALT_ICO" "$ICON_DEST"
+    chmod 644 "$ICON_DEST"
+    echo "✔ Converted $ALT_ICO -> $ICON_DEST"
+  else
+    echo "Error: Native Programmer.ico not found in $TARGET_DIR"
+    exit 1
   fi
 fi
 
-rm -rf "$TMP_PROG_ICON"
-
-# Fallback branding image if archive extraction fails
-if [ ! -f "$ICON_DIR/stm32cubeprogrammer.png" ]; then
-  curl -sSL "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/STMicroelectronics_logo.svg/512px-STMicroelectronics_logo.svg.png" -o "$ICON_DIR/stm32cubeprogrammer.png" 2>/dev/null || true
-fi
-
-# Generate launcher with absolute icon path
+# Generate launcher with full icon path
 cat << EOF > "$DESKTOP_DIR/st-com-stm32cubeprogrammer.desktop"
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=STM32CubeProg
+Name=STM32CubeProgrammer
 Comment=STMicroelectronics Flash Programming Tool for STM32
 Exec=env GDK_BACKEND=x11 _JAVA_OPTIONS="-Djdk.gtk.version=2" $TARGET_DIR/bin/STM32CubeProgrammerLauncher %F
 Path=$TARGET_DIR/bin
-Icon=$ICON_DIR/stm32cubeprogrammer.png
+Icon=$ICON_DEST
 Terminal=false
 Categories=Development;IDE;
 StartupWMClass=com-st-stm32cube-programmer-STM32CubeProgrammer
 EOF
 
-chmod +x "$DESKTOP_DIR/st-com-stm32cubeprogrammer.desktop"
+chmod 755 "$DESKTOP_DIR/st-com-stm32cubeprogrammer.desktop"
 
-# Refresh icon cache & restart COSMIC app library service
+# Refresh icon cache & clear COSMIC launcher cache
+echo "==> Updating desktop databases & restarting COSMIC components..."
 gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
 if command -v update-desktop-database &>/dev/null; then
   update-desktop-database "$DESKTOP_DIR" || true
 fi
-killall cosmic-app-library 2>/dev/null || true
+
+# Purge COSMIC local app grid cache & restart shell components
+rm -rf "$HOME/.cache/cosmic" "$HOME/.cache/pop-launcher" 2>/dev/null || true
+killall -9 cosmic-app-library pop-launcher cosmic-panel cosmic-applet-applications 2>/dev/null || true
 
 echo "==> Installation complete!"
 echo "==> CLI linked to $HOME/.local/bin/STM32_Programmer_CLI"
 echo "==> GUI Wrapper created at $HOME/.local/bin/stm32cubeprogrammer"
-echo "==> Launcher created at $DESKTOP_DIR/st-com-stm32cubeprogrammer.desktop"
+echo "==> Launcher created at $DESKTOP_DIR/st-com-stm32cubeprogrammer.desktop using $ICON_DEST"
