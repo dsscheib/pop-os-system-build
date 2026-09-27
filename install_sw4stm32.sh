@@ -4,7 +4,7 @@ set -euo pipefail
 # Target installation directory
 TARGET_DIR="$HOME/STMicroelectronics/sw4stm32"
 DESKTOP_DIR="$HOME/.local/share/applications"
-SVG_ICON_DIR="$HOME/.local/share/icons/hicolor/scalable/apps"
+HICOLOR_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
 
 # 1. Locate installer binary
 INSTALLER=$(ls install_sw4stm32_linux_64bits.run sw4stm32_*.run 2>/dev/null | head -n 1 || true)
@@ -18,7 +18,7 @@ chmod +x "$INSTALLER"
 
 # 2. Generate IzPack auto-install response XML
 echo "==> Generating response configuration..."
-mkdir -p "$TARGET_DIR" "$DESKTOP_DIR" "$SVG_ICON_DIR"
+mkdir -p "$TARGET_DIR" "$DESKTOP_DIR" "$HICOLOR_DIR"
 
 cat <<EOF >auto-install.xml
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
@@ -57,18 +57,41 @@ rm -f "$DESKTOP_DIR"/st-com-sw4stm32.desktop \
       "$DESKTOP_DIR"/*system*workbench*.desktop \
       "$HOME/Desktop"/sw4stm32*.desktop
 
-# 5. Generate scalable SVG logo for COSMIC compatibility
-echo "==> Setting up scalable launcher icon..."
-cat << 'EOF' > "$SVG_ICON_DIR/sw4stm32.svg"
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
-  <rect width="256" height="256" rx="40" fill="#00205B"/>
-  <path d="M40 180 L128 40 L216 180 Z" fill="none" stroke="#00A3E0" stroke-width="18" stroke-linejoin="round"/>
-  <circle cx="128" cy="130" r="28" fill="#00A3E0"/>
-  <text x="128" y="222" font-family="sans-serif" font-weight="bold" font-size="28" fill="#FFFFFF" text-anchor="middle">STM32</text>
-</svg>
-EOF
+# 5. Convert native icon.xpm from installation root to PNG
+echo "==> Setting up launcher icon using native icon.xpm..."
+NATIVE_XPM="$TARGET_DIR/icon.xpm"
+ICON_DEST="$HICOLOR_DIR/sw4stm32.png"
 
-chmod 644 "$SVG_ICON_DIR/sw4stm32.svg"
+if [ -f "$NATIVE_XPM" ]; then
+  echo "✔ Found root icon.xpm at $NATIVE_XPM"
+  
+  # Convert XPM to high-res PNG using Python PIL (falls back to ImageMagick)
+  python3 -c "
+from PIL import Image
+img = Image.open('$NATIVE_XPM').convert('RGBA')
+img = img.resize((256, 256), Image.Resampling.LANCZOS)
+img.save('$ICON_DEST', 'PNG')
+" 2>/dev/null || convert "$NATIVE_XPM" -resize 256x256 "$ICON_DEST" 2>/dev/null || cp -f "$NATIVE_XPM" "$ICON_DEST"
+
+  chmod 644 "$ICON_DEST"
+  echo "✔ Converted $NATIVE_XPM -> $ICON_DEST"
+else
+  # Search recursively if icon.xpm is located in a subdirectory
+  ALT_XPM=$(find "$TARGET_DIR" -type f -name "icon.xpm" 2>/dev/null | head -n 1 || true)
+  if [ -n "$ALT_XPM" ]; then
+    python3 -c "
+from PIL import Image
+img = Image.open('$ALT_XPM').convert('RGBA')
+img = img.resize((256, 256), Image.Resampling.LANCZOS)
+img.save('$ICON_DEST', 'PNG')
+" 2>/dev/null || convert "$ALT_XPM" -resize 256x256 "$ICON_DEST" 2>/dev/null || cp -f "$ALT_XPM" "$ICON_DEST"
+    chmod 644 "$ICON_DEST"
+    echo "✔ Converted $ALT_XPM -> $ICON_DEST"
+  else
+    echo "Error: Native icon.xpm not found in $TARGET_DIR after installation."
+    exit 1
+  fi
+fi
 
 # 6. Locate main binary and create symlink in ~/.local/bin
 mkdir -p "$HOME/.local/bin"
@@ -89,7 +112,7 @@ if [ -n "$UDEV_RULE" ]; then
   sudo udevadm trigger 2>/dev/null || true
 fi
 
-# 8. Create single clean .desktop launcher
+# 8. Create single clean .desktop launcher using full icon path
 echo "==> Creating .desktop launcher..."
 DESKTOP_FILE="$DESKTOP_DIR/sw4stm32-ide.desktop"
 
@@ -101,10 +124,10 @@ Name=System Workbench for STM32
 Comment=Open Development Environment for STM32 (AC6 / SW4STM32)
 Exec=$SW4_BIN %F
 Path=$TARGET_DIR
-Icon=sw4stm32
+Icon=$ICON_DEST
 Terminal=false
 Categories=Development;IDE;
-StartupWMClass=Eclipse
+StartupWMClass=sw4stm32
 EOF
 
 chmod 755 "$DESKTOP_FILE"
@@ -123,4 +146,4 @@ killall -9 cosmic-app-library pop-launcher cosmic-panel cosmic-applet-applicatio
 echo "==> Installation complete!"
 echo "==> Installed to $TARGET_DIR"
 echo "==> Symlinked to $HOME/.local/bin/sw4stm32"
-echo "==> Launcher created at $DESKTOP_FILE"
+echo "==> Launcher created at $DESKTOP_FILE with full icon path."
