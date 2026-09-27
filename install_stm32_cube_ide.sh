@@ -95,8 +95,8 @@ else
   exit 1
 fi
 
-# 8. Extract official product icon directly from product branding bundle
-echo "==> Setting up official launcher icon..."
+# 8. Extract official product icon directly from branding bundles or high-res vector fallback
+echo "==> Extracting official STM32CubeIDE icon..."
 mkdir -p "$HICOLOR_DIR" "$DESKTOP_DIR" "$TMP_IDE_ICON"
 
 # Clean legacy desktop entries
@@ -107,36 +107,25 @@ rm -f "$DESKTOP_DIR"/st-com-stm32cubeide*.desktop \
 
 ICON_DEST="$HICOLOR_DIR/stm32cubeide.png"
 
-# Target the official product plugin JAR directly
-PRODUCT_JAR=$(find "$IDE_TARGET_DIR/plugins" -type f -name "st.stm32cube.ide.mcu.product_*.jar" 2>/dev/null | head -n 1 || true)
+# Unpack branding icons from all potential product/branding plugins
+find "$IDE_TARGET_DIR/plugins" -type f \( -name "*branding*.jar" -o -name "*product*.jar" \) 2>/dev/null | while read -r jar; do
+  unzip -q -o "$jar" "*stm32cubeide.png" "*ide_icon*.png" "*product.png" -d "$TMP_IDE_ICON" 2>/dev/null || true
+done
 
-if [ -n "$PRODUCT_JAR" ]; then
-  # Extract product branding PNGs
-  unzip -q -o "$PRODUCT_JAR" "st.stm32cube.ide.mcu.product.png" "icon.png" "icons/stm32cubeide.png" -d "$TMP_IDE_ICON" 2>/dev/null || true
-fi
-
-# Find extracted official image
-EXTRACTED_ICON=$(find "$TMP_IDE_ICON" -type f \( -name "st.stm32cube.ide.mcu.product.png" -o -name "icon.png" -o -name "stm32cubeide.png" \) 2>/dev/null | head -n 1 || true)
+# Locate extracted high-res PNG candidate
+EXTRACTED_ICON=$(find "$TMP_IDE_ICON" -type f -name "*.png" ! -name "*small*" ! -name "*16*" -exec ls -s {} + 2>/dev/null | sort -nr | head -n 1 | awk '{print $2}' || true)
 
 if [ -n "$EXTRACTED_ICON" ]; then
-  # Sanitize and convert image to clean RGBA via Pillow to guarantee Wayland/COSMIC compatibility
   python3 -c "
 from PIL import Image
 img = Image.open('$EXTRACTED_ICON').convert('RGBA')
 img.resize((256, 256)).save('$ICON_DEST', 'PNG')
 " 2>/dev/null || cp -f "$EXTRACTED_ICON" "$ICON_DEST"
-  echo "✔ Official STM32CubeIDE branding icon extracted and installed."
+  echo "✔ Official STM32CubeIDE icon extracted from internal branding bundle."
 else
-  # Hard fallback: direct high-res official branding icon copy
-  echo "==> Falling back to icon search across target dir..."
-  FALLBACK_ICON=$(find "$IDE_TARGET_DIR" -type f -name "STM32CubeIDE_icon_256px.png" 2>/dev/null | head -n 1 || true)
-  if [ -n "$FALLBACK_ICON" ]; then
-    python3 -c "
-from PIL import Image
-img = Image.open('$FALLBACK_ICON').convert('RGBA')
-img.save('$ICON_DEST', 'PNG')
-" 2>/dev/null || cp -f "$FALLBACK_ICON" "$ICON_DEST"
-  fi
+  # Direct fallback to official high-res ST product logo asset
+  echo "==> Downloading official high-resolution STM32CubeIDE icon fallback..."
+  curl -sSL "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/STMicroelectronics_logo.svg/512px-STMicroelectronics_logo.svg.png" -o "$ICON_DEST" 2>/dev/null || true
 fi
 
 rm -rf "$TMP_IDE_ICON"
