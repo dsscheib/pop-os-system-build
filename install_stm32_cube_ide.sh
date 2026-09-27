@@ -95,22 +95,25 @@ else
   exit 1
 fi
 
-# 8. Extract official icon directly (CubeMX-style pattern)
+# 8. Extract official icon directly & register in Freedesktop icon theme
 echo "==> Setting up official launcher icon..."
-mkdir -p "$ICON_DIR" "$DESKTOP_DIR" "$TMP_IDE_ICON"
+HICOLOR_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
+mkdir -p "$HICOLOR_DIR" "$DESKTOP_DIR" "$TMP_IDE_ICON"
 
-# Target ALL variants of CubeIDE launchers
-rm -f "$DESKTOP_DIR"/st-com-stm32cubeide.desktop \
+# Target ALL legacy/duplicate CubeIDE launchers to prevent stale cache hits
+rm -f "$DESKTOP_DIR"/st-com-stm32cubeide*.desktop \
       "$DESKTOP_DIR"/stm32cubeide*.desktop \
       "$DESKTOP_DIR"/STM32CubeIDE*.desktop \
       "$HOME/Desktop"/STM32CubeIDE*.desktop
 
 # Check for explicit icon installed directly in the root or plugins folder
-IDE_OFFICIAL_ICON=$(find "$IDE_TARGET_DIR" -type f -name "STM32CubeIDE_icon_256px.png" -o -name "stm32cubeide.png" 2>/dev/null | head -n 1 || true)
+IDE_OFFICIAL_ICON=$(find "$IDE_TARGET_DIR" -type f \( -name "STM32CubeIDE_icon_256px.png" -o -name "stm32cubeide.png" \) 2>/dev/null | head -n 1 || true)
+
+ICON_DEST="$HICOLOR_DIR/stm32cubeide.png"
 
 if [ -n "$IDE_OFFICIAL_ICON" ]; then
-  cp -f "$IDE_OFFICIAL_ICON" "$ICON_DIR/stm32cubeide.png"
-  echo "✔ STM32CubeIDE icon copied."
+  cp -f "$IDE_OFFICIAL_ICON" "$ICON_DEST"
+  echo "✔ STM32CubeIDE icon copied to icon theme."
 else
   # Fall back to extracting icon from the primary branding launcher JAR
   IDE_JAR=$(find "$IDE_TARGET_DIR/plugins" -type f -name "*st.stm32cube.ide.mcu.product*.jar" 2>/dev/null | head -n 1 || true)
@@ -122,16 +125,19 @@ else
     unzip -q -o "$IDE_JAR" "*icon*.png" "*logo*.png" "*256*.png" -d "$TMP_IDE_ICON" 2>/dev/null || true
     EXTRACTED_PNG=$(find "$TMP_IDE_ICON" -type f -name "*.png" -exec ls -s {} + 2>/dev/null | sort -nr | head -n 1 | awk '{print $2}' || true)
     if [ -n "$EXTRACTED_PNG" ]; then
-      cp -f "$EXTRACTED_PNG" "$ICON_DIR/stm32cubeide.png"
+      cp -f "$EXTRACTED_PNG" "$ICON_DEST"
       echo "✔ Official STM32CubeIDE icon extracted from plugin."
     fi
   fi
 fi
 
 rm -rf "$TMP_IDE_ICON"
+chmod 644 "$ICON_DEST" 2>/dev/null || true
 
-# Generate launcher using exact CubeMX pattern
-cat << EOF > "$DESKTOP_DIR/st-com-stm32cubeide.desktop"
+# Generate launcher using base icon name for COSMIC/Wayland compatibility
+DESKTOP_FILE="$DESKTOP_DIR/stm32cubeide.desktop"
+
+cat << EOF > "$DESKTOP_FILE"
 [Desktop Entry]
 Version=1.0
 Type=Application
@@ -139,21 +145,25 @@ Name=STM32CubeIDE
 Comment=STMicroelectronics Integrated Development Environment for STM32
 Exec=$IDE_TARGET_DIR/stm32cubeide %F
 Path=$IDE_TARGET_DIR
-Icon=$ICON_DIR/stm32cubeide.png
+Icon=stm32cubeide
 Terminal=false
 Categories=Development;IDE;
-StartupWMClass=stm32cubeide
+StartupWMClass=Eclipse
 EOF
 
-chmod +x "$DESKTOP_DIR/st-com-stm32cubeide.desktop"
+chmod 755 "$DESKTOP_FILE"
 
-# 9. Refresh icon cache & restart COSMIC launcher
+# 9. Update GTK icon database & purge COSMIC state cache
+echo "==> Updating desktop databases and restarting COSMIC components..."
 gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
 if command -v update-desktop-database &>/dev/null; then
   update-desktop-database "$DESKTOP_DIR" || true
 fi
-killall cosmic-app-library 2>/dev/null || true
+
+# Clear COSMIC launcher state cache so it re-reads icon metadata from hicolor
+rm -rf "$HOME/.cache/cosmic" "$HOME/.cache/pop-launcher" 2>/dev/null || true
+killall -9 cosmic-app-library pop-launcher cosmic-panel cosmic-applet-applications 2>/dev/null || true
 
 echo "==> Success! STM32CubeIDE installed directly to $IDE_TARGET_DIR"
 echo "==> Symlinked to $HOME/.local/bin/stm32cubeide"
-echo "==> Launcher created at $DESKTOP_DIR/st-com-stm32cubeide.desktop"
+echo "==> Launcher created at $DESKTOP_FILE"
