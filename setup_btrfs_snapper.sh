@@ -7,9 +7,9 @@
 
 set -euo pipefail
 
-log_info()  { echo -e "\033[0;34m[INFO]\033[0m $1"; }
-log_warn()  { echo -e "\033[0;33m[WARN]\033[0m $1"; }
-log_error() { echo -e "\033[0;31m[ERROR]\033[0m $1"; }
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=common.sh
+source "$SCRIPT_DIR/common.sh"
 
 if [[ $EUID -ne 0 ]]; then
   SUDO="sudo"
@@ -32,21 +32,33 @@ install_packages() {
     python3 \
     git
 
-  log_info "Installing snapper-rollback directly to /usr/local/bin..."
+  log_info "Installing pinned snapper-rollback to /usr/local/bin..."
   
-  TEMP_DIR=$(mktemp -d)
-  git clone https://github.com/jrabinow/snapper-rollback.git "$TEMP_DIR/snapper-rollback"
+  local TEMP_DIR
+  TEMP_DIR=$(create_secure_tmpdir "snapper_rollback")
   
-  $SUDO cp "$TEMP_DIR/snapper-rollback/snapper-rollback.py" /usr/local/bin/snapper-rollback
-  $SUDO chmod +x /usr/local/bin/snapper-rollback
+  # Pin to immutable verified commit hash (supply-chain hardening)
+  local ROLLBACK_COMMIT="04488f2350e8ec214277fe7de608492a9ee665a7"
+  if git clone https://github.com/jrabinow/snapper-rollback.git "$TEMP_DIR/snapper-rollback"; then
+    (
+      cd "$TEMP_DIR/snapper-rollback"
+      git checkout -q "$ROLLBACK_COMMIT"
+    )
+    $SUDO install -o root -g root -m 0755 "$TEMP_DIR/snapper-rollback/snapper-rollback.py" /usr/local/bin/snapper-rollback
+    log_info "Installed snapper-rollback pinned at $ROLLBACK_COMMIT."
+  else
+    log_warn "Failed to clone snapper-rollback repository."
+  fi
+  rm -rf "$TEMP_DIR"
 
   # Detect primary Btrfs block device automatically
+  local RAW_DEV
   RAW_DEV=$(findmnt -n -o SOURCE / | cut -d'[' -f1)
 
   # If config exists, create a timestamped backup before updating
   if [ -f /etc/snapper-rollback.conf ]; then
-      echo "Existing config found. Creating backup at /etc/snapper-rollback.conf.bak..."
-      $SUDO cp /etc/snapper-rollback.conf "/etc/snapper-rollback.conf.bak_$(date +%Y%m%d_%H%M%S)"
+    log_info "Existing config found. Creating backup at /etc/snapper-rollback.conf.bak..."
+    $SUDO cp /etc/snapper-rollback.conf "/etc/snapper-rollback.conf.bak_$(date +%Y%m%d_%H%M%S)"
   fi
 
   # Write updated configuration
@@ -60,97 +72,34 @@ EOF
 
   # Verify section header matches what snapper-rollback expects
   if ! grep -q "^\[root\]" /etc/snapper-rollback.conf; then
-      echo "WARNING: /etc/snapper-rollback.conf is missing the [root] section header!"
+    log_warn "/etc/snapper-rollback.conf is missing the [root] section header!"
   fi
-
-  rm -rf "$TEMP_DIR"
 }
 
 # ------------------------------------------------------------------------------
-# 2. SUBVOLUME VERIFICATION / MIGRATION FALLBACK
+# 2. SUBVOLUME VERIFICATION (Protects against corrupted live root migrations)
 # ------------------------------------------------------------------------------
-migrate_subvolumes() {
+verify_subvolumes() {
   log_info "Checking current Btrfs subvolume layout..."
 
+  local ROOT_SUBVOL
   ROOT_SUBVOL=$(findmnt -n -o OPTIONS / | grep -o 'subvol=[^,]*' || true)
 
-  if [[ "$ROOT_SUBVOL" == "subvol=/@" ]]; then
-    log_info "Subvolume '/@' is active."
+  if [[ "$ROOT_SUBVOL" =~ subvol=/?@($|/) ]]; then
+    log_info "Subvolume '/@' is verified and active."
     return 0
   fi
 
-  if sudo btrfs subvolume list / | grep -q 'path @$'; then
-    log_info "Subvolume '/@' exists. Ensuring active mount..."
+  if $SUDO btrfs subvolume list / 2>/dev/null | grep -q 'path @$'; then
+    log_warn "Subvolume '/@' exists on disk but root is currently mounted without it."
+    log_warn "Please ensure your kernelstub boot options include 'rootflags=subvol=@' and reboot."
     return 0
   fi
 
-  log_warn "Flat Btrfs structure detected. Beginning non-destructive subvolume migration..."
-
-  ROOT_DEV=$(findmnt -n -o SOURCE /)
-  MNT_DIR=$(mktemp -d /tmp/btrfs-migrate.XXXXXX)
-
-  log_info "Mounting top-level Btrfs volume (subvolid=5) at ${MNT_DIR}..."
-  $SUDO mount -o subvolid=5 "$ROOT_DEV" "$MNT_DIR"
-
-  pushd "$MNT_DIR" >/dev/null
-
-  # Create /@ if missing
-  if [ ! -d "@" ]; then
-    log_info "Creating '/@' subvolume..."
-    $SUDO btrfs subvolume create @
-    
-    log_info "Copying root files into '/@' using Btrfs reflinks..."
-    for item in *; do
-      if [[ "$item" != "@" && "$item" != "@home" && "$item" != "home" ]]; then
-        $SUDO cp -a --reflink=always "$item" @/ 2>/dev/null || $SUDO cp -a --reflink=auto "$item" @/
-      fi
-    done
-  fi
-
-  # Create /@home if missing
-  if [ ! -d "@home" ]; then
-    log_info "Creating '/@home' subvolume..."
-    $SUDO btrfs subvolume create @home
-    
-    if [ -d "home" ] && [ "$(ls -A home 2>/dev/null)" ]; then
-      log_info "Copying user data into '/@home'..."
-      $SUDO cp -a --reflink=always home/* @home/ 2>/dev/null || $SUDO cp -a --reflink=auto home/* @home/ 2>/dev/null || true
-    fi
-  fi
-
-  # Create /@snapshots sibling subvolume on subvolid=5
-  if [ ! -d "@snapshots" ]; then
-    log_info "Creating '/@snapshots' sibling subvolume..."
-    $SUDO btrfs subvolume create @snapshots
-  fi
-
-  # Update /etc/fstab inside the new @ subvolume
-  log_info "Updating /etc/fstab inside '/@' subvolume..."
-  $SUDO sed -i '/\s\/\s/ s/defaults/defaults,subvol=@/' "@/etc/fstab"
-  
-  if ! grep -q '/home' "@/etc/fstab"; then
-    UUID=$(findmnt -n -o UUID /)
-    echo "UUID=${UUID}  /home  btrfs  defaults,subvol=@home  0  0" | $SUDO tee -a "@/etc/fstab" >/dev/null
-  else
-    $SUDO sed -i '/\s\/home\s/ s/defaults/defaults,subvol=@home/' "@/etc/fstab"
-  fi
-
-  # Add /.snapshots mount backed by @snapshots
-  if ! grep -q '/.snapshots' "@/etc/fstab"; then
-    log_info "Adding '@snapshots' mountpoint to /etc/fstab..."
-    echo "UUID=${UUID}  /.snapshots  btrfs  defaults,subvol=@snapshots,noatime  0  0" | $SUDO tee -a "@/etc/fstab" >/dev/null
-  fi
-
-  popd >/dev/null
-  $SUDO umount "$MNT_DIR"
-  rm -rf "$MNT_DIR"
-
-  # Ensure target mountpoint exists and is mounted before Snapper setup
-  $SUDO mkdir -p /.snapshots
-  $SUDO mount /.snapshots 2>/dev/null || true
-
-  log_warn "Subvolumes '/@', '/@home' and '/@snapshots' prepared. Reboot required to switch."
-  exit 0
+  log_error "Flat Btrfs structure detected on active root filesystem."
+  log_error "To prevent data corruption, subvolumes must be created from the Pop!_OS Live USB installer."
+  log_error "Please run: sudo ./setup_btrfs_live_install.sh /dev/sdXN before continuing."
+  exit 1
 }
 
 # ------------------------------------------------------------------------------
@@ -175,45 +124,67 @@ setup_snapper_root() {
     echo 'SNAPPER_CONFIGS="root"' | $SUDO tee -a /etc/default/snapper >/dev/null
   fi
 
-  # 4. Set mount point, filesystem type, and limits directly inside the config file
+  # 4. Set mount point, filesystem type, group permissions, and retention limits
   $SUDO sed -i 's|^SUBVOLUME=.*|SUBVOLUME="/"|' /etc/snapper/configs/root
   $SUDO sed -i 's|^FSTYPE=.*|FSTYPE="btrfs"|' /etc/snapper/configs/root
+  $SUDO sed -i 's|^ALLOW_GROUPS=.*|ALLOW_GROUPS="sudo"|' /etc/snapper/configs/root
   $SUDO sed -i 's|^NUMBER_MIN_AGE=.*|NUMBER_MIN_AGE="1800"|' /etc/snapper/configs/root
   $SUDO sed -i 's|^NUMBER_LIMIT=.*|NUMBER_LIMIT="10"|' /etc/snapper/configs/root
   $SUDO sed -i 's|^NUMBER_LIMIT_IMPORTANT=.*|NUMBER_LIMIT_IMPORTANT="5"|' /etc/snapper/configs/root
   $SUDO sed -i 's|^TIMELINE_CREATE=.*|TIMELINE_CREATE="no"|' /etc/snapper/configs/root
   $SUDO sed -i 's|^TIMELINE_CLEANUP=.*|TIMELINE_CLEANUP="yes"|' /etc/snapper/configs/root
 
-  # 5. Lock permissions on /.snapshots
+  # 5. Set permissions on /.snapshots allowing sudo group access for snapper-gui
+  $SUDO chown root:sudo /.snapshots 2>/dev/null || $SUDO chown root:root /.snapshots
   $SUDO chmod 750 /.snapshots
-  $SUDO chown root:root /.snapshots
 }
 
 # ------------------------------------------------------------------------------
-# 4. ENABLE AUTOMATIC PRE/POST APT SNAPSHOTS
+# 4. HARDENED AUTOMATIC PRE/POST APT SNAPSHOTS (Prevents /var/tmp TOCTOU & DoS)
 # ------------------------------------------------------------------------------
 setup_apt_snapshots() {
-  log_info "Configuring APT hooks for automatic system upgrade snapshots..."
+  log_info "Configuring hardened paired APT hook for Snapper..."
 
-  if [ -f "/etc/apt/apt.conf.d/80snapper" ]; then
-    log_info "APT Snapper integration successfully active (/etc/apt/apt.conf.d/80snapper)."
-  else
-    log_info "Creating custom APT hook for Snapper..."
-    cat <<'HOOK' | $SUDO tee /etc/apt/apt.conf.d/80snapper > /dev/null
-// Automatic Snapper snapshots before and after APT operations
-DPkg::Pre-Invoke { "if [ -x /usr/bin/snapper ]; then snapper -c root create -t pre -p -d 'APT Pre-Update Snapshot'; fi"; };
-DPkg::Post-Invoke { "if [ -x /usr/bin/snapper ]; then snapper -c root create -t post --cleanup-algorithm=number -d 'APT Post-Update Snapshot'; fi"; };
+  # Create secure state directory on tmpfs (/run)
+  $SUDO mkdir -p /run/snapper
+  $SUDO chmod 0755 /run/snapper
+
+  cat <<'HOOK' | $SUDO tee /etc/apt/apt.conf.d/80snapper > /dev/null
+// Hardened Automatic Snapper snapshots before and after APT operations
+DPkg::Pre-Invoke {
+  "if [ -x /usr/bin/snapper ] && [ -e /etc/snapper/configs/root ]; then \
+    mkdir -p /run/snapper && chmod 0755 /run/snapper; \
+    rm -f /run/snapper/apt-pre.num 2>/dev/null || true; \
+    PRE_NUM=$(snapper -c root create -t pre -c number -p -d 'APT Pre-Update Snapshot' 2>/dev/null || true); \
+    if [ -n \"$PRE_NUM\" ]; then \
+      echo \"$PRE_NUM\" > /run/snapper/apt-pre.num; \
+      chmod 0600 /run/snapper/apt-pre.num; \
+    fi; \
+    snapper -c root cleanup number 2>/dev/null || true; \
+  fi";
+};
+
+DPkg::Post-Invoke {
+  "if [ -x /usr/bin/snapper ] && [ -f /run/snapper/apt-pre.num ]; then \
+    PRE_NUM=$(cat /run/snapper/apt-pre.num 2>/dev/null || true); \
+    if echo \"$PRE_NUM\" | grep -qE '^[0-9]+$'; then \
+      snapper -c root create -t post -c number --pre-number=\"$PRE_NUM\" -d 'APT Post-Update Snapshot' 2>/dev/null || true; \
+    fi; \
+    rm -f /run/snapper/apt-pre.num 2>/dev/null || true; \
+    snapper -c root cleanup number 2>/dev/null || true; \
+  fi";
+};
 HOOK
-  fi
 }
 
 # ------------------------------------------------------------------------------
-# 5. ENABLE SNAPPER CLEANUP TIMERS
+# 5. ENABLE SNAPPER CLEANUP & BOOT TIMERS
 # ------------------------------------------------------------------------------
 enable_services() {
   log_info "Enabling Snapper automatic maintenance timers..."
   $SUDO systemctl daemon-reload
   $SUDO systemctl enable --now snapper-cleanup.timer
+  $SUDO systemctl enable --now snapper-boot.timer 2>/dev/null || true
 }
 
 # ------------------------------------------------------------------------------
@@ -222,6 +193,7 @@ enable_services() {
 main() {
   install_packages
 
+  local ROOT_FSTYPE
   ROOT_FSTYPE=$(findmnt -n -o FSTYPE /)
   if [[ "$ROOT_FSTYPE" != "btrfs" ]]; then
     log_error "Root filesystem '/' is currently '$ROOT_FSTYPE', not Btrfs."
@@ -229,7 +201,7 @@ main() {
     exit 1
   fi
 
-  migrate_subvolumes
+  verify_subvolumes
   setup_snapper_root
   setup_apt_snapshots
   enable_services

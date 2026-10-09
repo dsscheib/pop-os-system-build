@@ -1,49 +1,62 @@
 #!/usr/bin/env bash
+# ==============================================================================
+# INSTALL STM32CubeIDE
+# Targets: Pop!_OS / Ubuntu x86_64
+# ==============================================================================
+
 set -euo pipefail
 
-# Target installation directory
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=common.sh
+source "$SCRIPT_DIR/common.sh"
+
 IDE_TARGET_DIR="$HOME/STMicroelectronics/STM32Cube/stm32cubeide"
-TEMP_DIR="/tmp/stm32cubeide_extract"
 DESKTOP_DIR="$HOME/.local/share/applications"
 HICOLOR_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
-TMP_IDE_ICON="/tmp/ide_icon_extract"
 
-# 1. Locate the downloaded zip archive
-ARCHIVE_ZIP=$(ls stm32cubeide_*.sh.zip stm32cubeide_*.zip 2>/dev/null | head -n 1 || true)
+# 1. Locate the downloaded zip archive (searches $1, current dir, and ~/Downloads)
+EXPLICIT_ARG="${1:-}"
+ARCHIVE_ZIP=$(find_archive "$EXPLICIT_ARG" "stm32cubeide_*.sh.zip" "stm32cubeide_*.zip" || true)
 
-if [ -z "$ARCHIVE_ZIP" ]; then
-  echo "Error: No 'stm32cubeide_*.zip' file found in current directory."
+if [[ -z "$ARCHIVE_ZIP" || ! -f "$ARCHIVE_ZIP" ]]; then
+  log_error "No 'stm32cubeide_*.zip' found in current directory or ~/Downloads."
+  log_error "Usage: $0 [path/to/stm32cubeide_*.zip]"
   exit 1
 fi
 
-echo "==> Unzipping $ARCHIVE_ZIP..."
-unzip -q -o "$ARCHIVE_ZIP"
+# Set up isolated secure temporary directory
+BUILD_TMP=$(create_secure_tmpdir "stm32cubeide")
+trap 'rm -rf "$BUILD_TMP"' EXIT
 
-# 2. Locate shell installer script
-INSTALLER=$(ls stm32cubeide_*.sh 2>/dev/null | head -n 1 || true)
+log_info "Unzipping $ARCHIVE_ZIP into secure temporary directory..."
+unzip -q -o "$ARCHIVE_ZIP" -d "$BUILD_TMP"
 
-if [ -z "$INSTALLER" ]; then
-  echo "Error: STM32CubeIDE shell installer (.sh) not found after extraction."
+# 2. Locate shell installer script inside temporary directory
+INSTALLER=$(find "$BUILD_TMP" -maxdepth 2 -name "stm32cubeide_*.sh" 2>/dev/null | head -n 1 || true)
+
+if [[ -z "$INSTALLER" || ! -f "$INSTALLER" ]]; then
+  log_error "STM32CubeIDE shell installer (.sh) not found after extraction."
   exit 1
 fi
 
 chmod +x "$INSTALLER"
 
 # 3. Unpack installer payload to temp folder
-echo "==> Unpacking makeself payload..."
-rm -rf "$TEMP_DIR"
-./"$INSTALLER" --noexec --target "$TEMP_DIR"
+EXTRACT_DIR="$BUILD_TMP/payload_extract"
+mkdir -p "$EXTRACT_DIR"
+log_info "Unpacking makeself payload..."
+"$INSTALLER" --noexec --target "$EXTRACT_DIR"
 
 # 4. Extract binaries directly without dpkg / apt validation
-echo "==> Preparing target directory $IDE_TARGET_DIR..."
+log_info "Preparing target directory $IDE_TARGET_DIR..."
 rm -rf "$IDE_TARGET_DIR"
 mkdir -p "$IDE_TARGET_DIR"
 
-DEB_FILE=$(find "$TEMP_DIR" -name "*.deb" | head -n 1 || true)
+DEB_FILE=$(find "$EXTRACT_DIR" -name "*.deb" 2>/dev/null | head -n 1 || true)
 
-if [ -n "$DEB_FILE" ]; then
-  WORKDIR="/tmp/deb_unpack"
-  rm -rf "$WORKDIR" && mkdir -p "$WORKDIR"
+if [[ -n "$DEB_FILE" ]]; then
+  WORKDIR="$BUILD_TMP/deb_unpack"
+  mkdir -p "$WORKDIR"
   
   ar x "$DEB_FILE" --output="$WORKDIR"
   
@@ -51,84 +64,57 @@ if [ -n "$DEB_FILE" ]; then
   tar -xf "$TAR_DATA" -C "$WORKDIR"
   
   INTERNAL_DIR=$(find "$WORKDIR" -type d -name "stm32cubeide_*" | head -n 1 || true)
-  if [ -z "$INTERNAL_DIR" ]; then
+  if [[ -z "$INTERNAL_DIR" ]]; then
     INTERNAL_DIR=$(find "$WORKDIR" -type f -name "stm32cubeide" -exec dirname {} \; | head -n 1 || true)
   fi
   
-  if [ -n "$INTERNAL_DIR" ]; then
+  if [[ -n "$INTERNAL_DIR" ]]; then
     cp -r "$INTERNAL_DIR"/* "$IDE_TARGET_DIR/"
   else
-    echo "Error: Could not locate stm32cubeide directory inside extracted .deb payload."
+    log_error "Could not locate stm32cubeide directory inside extracted .deb payload."
     exit 1
   fi
-  rm -rf "$WORKDIR"
 else
-  TAR_FILE=$(find "$TEMP_DIR" -name "*.tar.gz" -o -name "*.tar.bz2" | head -n 1 || true)
-  if [ -n "$TAR_FILE" ]; then
+  TAR_FILE=$(find "$EXTRACT_DIR" -name "*.tar.gz" -o -name "*.tar.bz2" 2>/dev/null | head -n 1 || true)
+  if [[ -n "$TAR_FILE" ]]; then
     tar -xf "$TAR_FILE" -C "$IDE_TARGET_DIR" --strip-components=1
   else
-    echo "Error: Neither .deb nor tarball payload found inside installer."
+    log_error "Neither .deb nor tarball payload found inside installer."
     exit 1
   fi
 fi
 
-# 5. Clean up temporary installer artifacts
-rm -f "$INSTALLER"
-rm -rf "$TEMP_DIR"
-rm -f "$ARCHIVE_ZIP"
+# 5. Install udev rules securely if present
+install_stlink_rules "$IDE_TARGET_DIR"
 
-# 6. Install udev rules manually if present
-UDEV_RULE=$(find "$IDE_TARGET_DIR" -name "*stlink*.rules" 2>/dev/null | head -n 1 || true)
-if [ -n "$UDEV_RULE" ]; then
-  echo "==> Installing ST-LINK udev rules..."
-  sudo cp "$UDEV_RULE" /etc/udev/rules.d/ 2>/dev/null || true
-  sudo udevadm control --reload-rules || true
-  sudo udevadm trigger || true
-fi
-
-# 7. Create symlink in ~/.local/bin
+# 6. Create symlink in ~/.local/bin
 mkdir -p "$HOME/.local/bin"
-if [ -f "$IDE_TARGET_DIR/stm32cubeide" ]; then
+if [[ -f "$IDE_TARGET_DIR/stm32cubeide" ]]; then
   ln -sf "$IDE_TARGET_DIR/stm32cubeide" "$HOME/.local/bin/stm32cubeide"
 else
-  echo "Error: stm32cubeide executable not found in $IDE_TARGET_DIR."
+  log_error "stm32cubeide executable not found in $IDE_TARGET_DIR."
   exit 1
 fi
 
-# 8. Convert the exact native icon.xpm from the IDE root directory
-echo "==> Setting up launcher icon using native icon.xpm..."
-HICOLOR_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
+# 7. Setup launcher icon using native icon.xpm
+log_info "Setting up launcher icon..."
 mkdir -p "$HICOLOR_DIR" "$DESKTOP_DIR"
-
-# Explicit target path to the root icon.xpm
-NATIVE_XPM="$IDE_TARGET_DIR/icon.xpm"
 ICON_DEST="$HICOLOR_DIR/stm32cubeide.png"
+NATIVE_XPM="$IDE_TARGET_DIR/icon.xpm"
 
 # Purge legacy launcher entries
 rm -f "$DESKTOP_DIR"/st-com-stm32cubeide*.desktop \
       "$DESKTOP_DIR"/stm32cubeide*.desktop \
       "$DESKTOP_DIR"/STM32CubeIDE*.desktop \
-      "$HOME/Desktop"/STM32CubeIDE*.desktop
+      "$HOME/Desktop"/STM32CubeIDE*.desktop 2>/dev/null || true
 
-if [ -f "$NATIVE_XPM" ]; then
-  echo "✔ Found root icon.xpm at $NATIVE_XPM"
-  
-  # Convert XPM to high-res PNG using Python PIL (falls back to ImageMagick)
-  python3 -c "
-from PIL import Image
-img = Image.open('$NATIVE_XPM').convert('RGBA')
-img = img.resize((256, 256), Image.Resampling.LANCZOS)
-img.save('$ICON_DEST', 'PNG')
-" 2>/dev/null || convert "$NATIVE_XPM" -resize 256x256 "$ICON_DEST" 2>/dev/null || cp -f "$NATIVE_XPM" "$ICON_DEST"
-
-  chmod 644 "$ICON_DEST"
-  echo "✔ Converted $NATIVE_XPM -> $ICON_DEST"
+if [[ -f "$NATIVE_XPM" ]]; then
+  convert_icon_to_png "$NATIVE_XPM" "$ICON_DEST"
 else
-  echo "Error: Native $NATIVE_XPM not found after installation."
-  exit 1
+  log_warn "Native icon.xpm not found at $NATIVE_XPM."
 fi
 
-# Generate launcher adhering to Freedesktop standards
+# Generate Freedesktop .desktop launcher
 DESKTOP_FILE="$DESKTOP_DIR/stm32cubeide.desktop"
 
 cat << EOF > "$DESKTOP_FILE"
@@ -147,17 +133,9 @@ EOF
 
 chmod 755 "$DESKTOP_FILE"
 
-# 9. Refresh databases & restart COSMIC desktop components
-echo "==> Refreshing icon cache and clearing COSMIC launcher state..."
-gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
-if command -v update-desktop-database &>/dev/null; then
-  update-desktop-database "$DESKTOP_DIR" || true
-fi
+# 8. Refresh icon cache & COSMIC desktop state
+refresh_desktop_environment "$DESKTOP_DIR"
 
-# Purge COSMIC local app grid cache & restart shell components
-rm -rf "$HOME/.cache/cosmic" "$HOME/.cache/pop-launcher" 2>/dev/null || true
-killall -9 cosmic-app-library pop-launcher cosmic-panel cosmic-applet-applications 2>/dev/null || true
-
-echo "==> Success! STM32CubeIDE installed directly to $IDE_TARGET_DIR"
-echo "==> Symlinked to $HOME/.local/bin/stm32cubeide"
-echo "==> Launcher created at $DESKTOP_FILE"
+log_info "Success! STM32CubeIDE installed to $IDE_TARGET_DIR"
+log_info "Symlinked to $HOME/.local/bin/stm32cubeide"
+log_info "Launcher created at $DESKTOP_FILE"

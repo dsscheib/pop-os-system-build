@@ -1,0 +1,18 @@
+# Local environment configuration
+config.env
+.env
+
+# Downloaded installer archives & executables
+*.zip
+*.run
+*.deb
+*.iso
+
+# Temporary installer response files
+auto-install.xml
+installer.auto
+
+# OS and Editor artifacts
+.DS_Store
+*.swp
+*.bak*
