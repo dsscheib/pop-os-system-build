@@ -211,5 +211,5 @@ else
   rmdir "$MNT" 2>/dev/null || rm -rf "$MNT" 2>/dev/null || true
 fi
 
-log_info "Success! Btrfs subvolumes /@ and /@home are prepared."
+log_info "Success! Btrfs subvolumes /@, /@home and /@snapshots are prepared."
 log_info "You may now safely reboot into your new Pop!_OS installation."
