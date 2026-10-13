@@ -22,7 +22,8 @@ Open a terminal in the Live USB environment:
 ```bash
 # Create Btrfs subvolumes '/@', '/@home', and '/@snapshots', update fstab & boot flags:
 sudo ./setup_btrfs_live_install.sh /dev/nvme0n1p3
-
+```
+```bash
 # Reboot into the new installation
 sudo reboot
 ```
