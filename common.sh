@@ -141,6 +141,7 @@ install_deb() (
 # and publish a stable symlink only after validation; retain the previous version.
 begin_install() {
   local target=$1 parent base
+  INSTALL_DIR="" INSTALL_COMMITTED=0
   parent=$(dirname "$target"); base=${target##*/}
   mkdir -p -- "$parent/.${base}.versions" || return
   INSTALL_DIR=$(mktemp -d "$parent/.${base}.versions/install.XXXXXX") || return

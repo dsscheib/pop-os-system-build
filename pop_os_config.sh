@@ -7,7 +7,7 @@ source "$SCRIPT_DIR/common.sh"
 # shellcheck source=resources/tool-versions.env
 source "$SCRIPT_DIR/resources/tool-versions.env"
 OPTIONAL_FAILURES=()
-STAGES=(system fonts git dependencies dotfiles tmux languages neovim firefox applications arm avr riscv arm-avr)
+STAGES=(system fonts git dependencies dotfiles tmux languages neovim firefox applications arm avr riscv antigravity claudecode codex arm-avr)
 
 optional() {
   local description=$1
@@ -234,6 +234,71 @@ install_uv() {
     install -m 0755 "$WORK_DIR/uv/uv-x86_64-unknown-linux-gnu/uvx" "$HOME/.local/bin/uvx"
   fi
 }
+
+verify_ai_cli() {
+  local binary
+  binary=$(command -v "$1") || die "Installation did not provide the $1 CLI."
+  timeout --foreground 30s "$binary" --version || die "The $1 CLI failed its version check: $binary"
+  log_info "Verified $1 CLI: $binary"
+}
+
+install_antigravity_cli() {
+  if command -v agy >/dev/null; then verify_ai_cli agy; return; fi
+  fetch_locked antigravity-cli "$WORK_DIR/antigravity-cli.tar.gz" || return
+  begin_install "$HOME/.local/share/pop-workstation/antigravity-cli" || return
+  python3 "$SCRIPT_DIR/scripts/st_assets.py" tar "$WORK_DIR/antigravity-cli.tar.gz" "$INSTALL_DIR" || return
+  check_executable "$INSTALL_DIR/antigravity" || return
+  timeout --foreground 30s "$INSTALL_DIR/antigravity" --version || return
+  publish_install || return
+  python3 "$SCRIPT_DIR/scripts/user_launcher.py" "$HOME/.local/bin/agy" "$INSTALL_DIR/antigravity" || return
+  hash -r
+  verify_ai_cli agy
+}
+
+install_claude_code() {
+  if command -v claude >/dev/null; then verify_ai_cli claude; return; fi
+  # The official latest-channel APT repository supplies a native CLI and signed
+  # updates without Node.js or a shell bootstrap running against the user's HOME.
+  install_repository claude-code claude-code-key \
+    'deb [arch=amd64 signed-by=/etc/apt/keyrings/claude-code.asc] https://downloads.claude.ai/claude-code/apt/latest latest main' || return
+  sudo apt-get install -y claude-code || return
+  hash -r
+  verify_ai_cli claude
+}
+
+ensure_node_runtime() {
+  if command -v node >/dev/null && command -v npm >/dev/null &&
+    node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 22 ? 0 : 1)'; then return; fi
+  if ! command -v mise >/dev/null; then
+    fetch_locked mise "$WORK_DIR/mise" || return
+    install -m 0755 "$WORK_DIR/mise" "$HOME/.local/bin/mise" || return
+  fi
+  local mise directory
+  mise=$(command -v mise) || return
+  "$mise" use --global "node@$NODE_VERSION" || return
+  directory=$("$mise" where "node@$NODE_VERSION") || return
+  export PATH="$directory/bin:$PATH"
+  require_commands node npm
+}
+
+install_codex_cli() {
+  if command -v codex >/dev/null; then verify_ai_cli codex; return; fi
+  ensure_node_runtime || return
+  local node binary
+  node=$(command -v node) || return
+  begin_install "$HOME/.local/share/pop-workstation/codex" || return
+  npm install --global --prefix "$INSTALL_DIR" --include=optional "@openai/codex@$CODEX_VERSION" || return
+  binary="$INSTALL_DIR/lib/node_modules/@openai/codex/bin/codex.js"
+  [[ -s "$binary" ]] || die "Codex npm installation did not provide $binary"
+  timeout --foreground 30s "$node" "$binary" --version || return
+  publish_install || return
+  # Pin the Node executable in the launcher so a standalone codex stage also
+  # works in a fresh shell before Mise activation or language setup.
+  python3 "$SCRIPT_DIR/scripts/user_launcher.py" "$HOME/.local/bin/codex" "$node" "$binary" || return
+  hash -r
+  verify_ai_cli codex
+}
+
 install_languages_and_tools() {
   export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
   if ! command -v rustup >/dev/null; then
@@ -402,7 +467,7 @@ install_django_completions() {
 }
 
 main() {
-  local selected='system,fonts,git,dependencies,dotfiles,tmux,languages,neovim,firefox,applications,arm,avr,riscv' stage
+  local selected='system,fonts,git,dependencies,dotfiles,tmux,languages,neovim,firefox,applications,arm,avr,riscv,antigravity,claudecode,codex' stage
   case ${1:-} in
     --list-stages) [[ $# -eq 1 ]] || die "--list-stages takes no arguments."; printf '%s\n' "${STAGES[@]}"; return ;;
     --stages) [[ $# -eq 2 && -n $2 ]] || die "Usage: $0 --stages comma,separated,stages"; selected=$2 ;;
@@ -433,6 +498,7 @@ main() {
       firefox) install_firefox_dev ;; applications) install_applications ;;
       arm) install_arm_toolchain ;; avr) install_avr_toolchain ;;
       arm-avr) install_avr_and_arm_toolchain ;; riscv) install_riscv_toolchain ;;
+      antigravity) install_antigravity_cli ;; claudecode) install_claude_code ;; codex) install_codex_cli ;;
     esac
   done
   python3 "$SCRIPT_DIR/scripts/shell_integration.py" "$HOME" "$SCRIPT_DIR/resources"

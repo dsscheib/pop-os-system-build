@@ -23,6 +23,7 @@ assets = importlib.import_module('st_assets')
 snapper_config = importlib.import_module('configure_snapper')
 shell_integration = importlib.import_module('shell_integration')
 neovim_wrapper = importlib.import_module('neovim_wrapper')
+user_launcher = importlib.import_module('user_launcher')
 
 
 class RepositoryTests(unittest.TestCase):
@@ -616,6 +617,187 @@ if install_build_tools; then exit 0; else exit "$?"; fi
 ''', script='pop_os_config.sh')
         self.assertEqual(result.returncode, 42, result.stderr)
         self.assertNotIn('should not run', result.stdout)
+
+    def ai_stage(self, stage, *, status=0, present=False):
+        directory = self.root / '.local/bin'
+        directory.mkdir(parents=True)
+        work = self.root / 'work'
+        work.mkdir()
+        source = self.root / 'source'
+        source.mkdir()
+        native = source / 'antigravity'
+        native.write_text('#!/bin/sh\necho fixture-version\nexit ' + str(status) + '\n')
+        native.chmod(0o755)
+        archive = self.root / 'antigravity.tar.gz'
+        with tarfile.open(archive, 'w:gz') as stream:
+            stream.add(native, arcname='antigravity')
+        name = {'antigravity': 'agy', 'claudecode': 'claude', 'codex': 'codex'}[stage]
+        if present:
+            (directory / name).write_bytes(native.read_bytes())
+            (directory / name).chmod(0o755)
+        return self.bash('''
+export HOME="$1" WORK_DIR="$1/work"
+export PATH="$HOME/.local/bin:$PATH"
+# Isolate these names from the host's installed AI clients.
+command() {
+    if [[ $1 == -v && $2 =~ ^(agy|claude|codex)$ ]]; then
+        [[ -x "$HOME/.local/bin/$2" ]] || return 1
+        printf '%s\\n' "$HOME/.local/bin/$2"
+    else builtin command "$@"; fi
+}
+fetch_locked() { cp "$HOME/antigravity.tar.gz" "$2"; }
+ensure_node_runtime() { :; }
+npm() {
+    [[ $1 == install && $2 == --global && $3 == --prefix && $5 == --include=optional && $6 == "@openai/codex@$CODEX_VERSION" ]] || return 90
+    mkdir -p "$4/lib/node_modules/@openai/codex/bin"
+    printf 'console.log("fixture-version"); process.exit(%s);\\n' "$AI_TEST_STATUS" > "$4/lib/node_modules/@openai/codex/bin/codex.js"
+}
+install_repository() { printf '%s\\n' "$@" > "$HOME/repository-args"; }
+sudo() {
+    [[ $* == 'apt-get install -y claude-code' ]] || return 91
+    cp "$HOME/source/antigravity" "$HOME/.local/bin/claude"
+}
+case "$2" in
+    antigravity) install_antigravity_cli;;
+    claudecode) install_claude_code;;
+    codex) install_codex_cli;;
+esac
+''', self.root, stage, script='pop_os_config.sh', env={'AI_TEST_STATUS': str(status)})
+
+    def test_failed_install_after_published_stage_cleans_only_new_staging(self):
+        result = self.bash('''
+start_workspace install-test
+begin_install "$1/first"
+printf preserved > "$INSTALL_DIR/content"
+publish_install
+begin_install "$1/second"
+printf partial > "$INSTALL_DIR/content"
+exit 42
+''', self.root)
+        self.assertEqual(result.returncode, 42, result.stderr)
+        self.assertEqual((self.root / 'first/content').read_text(), 'preserved')
+        self.assertFalse((self.root / 'second').exists())
+        self.assertEqual(list((self.root / '.second.versions').iterdir()), [])
+
+    def test_staging_directory_failure_preserves_previous_published_install(self):
+        result = self.bash('''
+start_workspace install-test
+begin_install "$1/first"
+printf preserved > "$INSTALL_DIR/content"
+publish_install
+mkdir() { return 43; }
+begin_install "$1/second"
+''', self.root)
+        self.assertEqual(result.returncode, 43, result.stderr)
+        self.assertEqual((self.root / 'first/content').read_text(), 'preserved')
+
+    def test_ai_cli_stages_are_listed(self):
+        result = subprocess.run(['bash', str(REPO / 'pop_os_config.sh'), '--list-stages'], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for stage in ('antigravity', 'claudecode', 'codex'):
+            self.assertIn(stage, result.stdout.splitlines())
+
+    def test_antigravity_stage_installs_and_verifies_native_cli(self):
+        result = self.ai_stage('antigravity')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.root / '.local/bin/agy').is_file())
+        self.assertFalse((self.root / '.local/bin/antigravity').exists())
+        self.assertFalse((self.root / '.local/share/applications').exists())
+
+    def test_antigravity_failed_native_check_does_not_publish(self):
+        result = self.ai_stage('antigravity', status=42)
+        self.assertEqual(result.returncode, 42, result.stderr)
+        self.assertFalse((self.root / '.local/bin/agy').exists())
+        self.assertFalse((self.root / '.local/share/pop-workstation/antigravity-cli').exists())
+
+    def test_codex_stage_installs_and_verifies_pinned_package(self):
+        result = self.ai_stage('codex')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.root / '.local/bin/codex').is_file())
+        self.assertIn('Verified codex CLI', result.stdout)
+
+    def test_codex_failed_native_check_does_not_publish(self):
+        result = self.ai_stage('codex', status=42)
+        self.assertEqual(result.returncode, 42, result.stderr)
+        self.assertFalse((self.root / '.local/bin/codex').exists())
+        self.assertFalse((self.root / '.local/share/pop-workstation/codex').exists())
+
+    def test_claude_stage_uses_official_latest_signed_repository(self):
+        result = self.ai_stage('claudecode')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        source = (self.root / 'repository-args').read_text()
+        self.assertIn('claude-code-key', source)
+        self.assertIn('signed-by=/etc/apt/keyrings/claude-code.asc', source)
+        self.assertIn('https://downloads.claude.ai/claude-code/apt/latest latest main', source)
+        self.assertIn('Verified claude CLI', result.stdout)
+
+    def test_ai_existing_cli_is_verified_without_installation(self):
+        for stage in ('antigravity', 'claudecode', 'codex'):
+            with self.subTest(stage=stage), tempfile.TemporaryDirectory() as directory:
+                # Give each case its own HOME and download workspace.
+                previous = self.root
+                self.root = Path(directory)
+                try:
+                    result = self.ai_stage(stage, present=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertFalse((self.root / '.local/share/pop-workstation').exists())
+                    self.assertFalse((self.root / 'repository-args').exists())
+                finally:
+                    self.root = previous
+
+    def test_codex_runtime_can_be_installed_without_language_stage(self):
+        runtime = self.root / 'node-runtime'
+        (runtime / 'bin').mkdir(parents=True)
+        for name in ('node', 'npm'):
+            path = runtime / 'bin' / name
+            path.write_text('#!/bin/sh\nexit 0\n')
+            path.chmod(0o755)
+        result = self.bash('''
+export HOME="$1"
+command() {
+    if [[ $1 == -v && ($2 == node || $2 == npm) ]]; then
+        [[ ${PATH%%:*} == "$HOME/node-runtime/bin" ]] || return 1
+        printf '%s\\n' "$HOME/node-runtime/bin/$2"
+    else builtin command "$@"; fi
+}
+mise() {
+    case $1 in
+        use) printf '%s\\n' "$@";;
+        where) printf '%s\\n' "$HOME/node-runtime";;
+        *) return 99;;
+    esac
+}
+ensure_node_runtime
+printf 'node-path:%s\\n' "${PATH%%:*}"
+''', self.root, script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('node@', result.stdout)
+        self.assertIn('node-path:' + str(runtime / 'bin'), result.stdout)
+        self.assertNotIn('go@', result.stdout)
+
+    def test_codex_runtime_download_failure_is_preserved(self):
+        result = self.bash('''
+command() {
+    if [[ $1 == -v && ($2 == node || $2 == npm || $2 == mise) ]]; then return 1; fi
+    builtin command "$@"
+}
+fetch_locked() { return 43; }
+export WORK_DIR="$1"
+if ensure_node_runtime; then exit 0; else exit "$?"; fi
+''', self.root, script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 43, result.stderr)
+
+    def test_user_cli_launcher_preserves_cwd_arguments_and_runtime(self):
+        binary = self.root / "runtime with spaces'quote"
+        binary.write_text('#!/bin/sh\nprintf "%s\\n" "$PWD" "$@"\n')
+        binary.chmod(0o755)
+        wrapper = self.root / 'launcher'
+        user_launcher.write(wrapper, [str(binary), 'script with spaces.js'])
+        project = self.root / 'project'
+        project.mkdir()
+        result = subprocess.run([str(wrapper), 'file name.asm'], cwd=project, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), [str(project), 'script with spaces.js', 'file name.asm'])
 
     def test_neovim_setup_uses_explicit_tool_verification(self):
         config = self.root / '.config/nvim'

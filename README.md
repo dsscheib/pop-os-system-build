@@ -116,6 +116,7 @@ List or select stages:
 ./pop_os_config.sh --list-stages
 ./pop_os_config.sh --stages dependencies,languages,neovim
 ./pop_os_config.sh --stages system,arm,avr,riscv
+./pop_os_config.sh --stages antigravity,claudecode,codex
 ```
 
 The `arm` stage includes ARM32 bare-metal tools (`arm-none-eabi-gcc`),
@@ -156,6 +157,35 @@ links and existing compiler packages are preserved. Older versions may be pulled
 in by `build-essential` or other package dependencies. Cross-compilers in the
 ARM/AVR/RISC-V stages also use their current APT candidates and keep their target
 prefixes.
+
+The default setup includes three independent AI CLI stages:
+
+| Stage | Command | Installation |
+| :--- | :--- | :--- |
+| `antigravity` | `agy` | Verified, pinned official Antigravity CLI release |
+| `claudecode` | `claude` | Anthropic's signed APT repository, latest channel |
+| `codex` | `codex` | Pinned official `@openai/codex` npm package |
+
+These stages install CLIs only. Antigravity's desktop app and standalone IDE are
+separate products and are not installed. Each stage checks `--version` and stops
+on a missing or broken CLI. An existing CLI on `PATH` is verified and preserved.
+No sign-in runs during setup; launch `agy`, `claude`, or `codex` afterward to
+authenticate with your account.
+
+Antigravity and Codex install under `~/.local/share/pop-workstation` with launchers
+in `~/.local/bin`, preserving the project's working directory. Codex installs its
+Node runtime through Mise when a suitable Node/npm pair is unavailable, so the
+stage can run without selecting `languages`. Its launcher uses the selected Node
+executable directly. Claude Code's native APT package does not require Node.
+Network access is required for these downloads and package repositories.
+
+Installation sources: [Antigravity CLI](https://www.antigravity.google/docs/cli/install/),
+[Claude Code](https://code.claude.com/docs/en/setup#install-with-linux-package-managers),
+and [Codex CLI](https://learn.chatgpt.com/docs/codex/cli). Antigravity's SHA-256 pin
+was calculated after verifying the archive against Google's published SHA-512
+manifest. Anthropic's signing key is checksum-pinned; its fingerprint is
+`31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE`. Update release pins deliberately;
+Claude Code's APT package follows its repository's latest channel.
 
 The personal `dotfiles` and `astronvim_v6` repositories have recently been fixed
 but still need their own validation. This repository's checks do not execute or
