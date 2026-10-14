@@ -191,6 +191,12 @@ its fingerprint is
 `31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE`. Update release pins deliberately;
 Claude Code's APT package follows its repository's latest channel.
 
+The `languages` stage explicitly installs and verifies Rust's `rust-analyzer`,
+`rustfmt`, Clippy, and `rust-src` components for its pinned toolchain before
+selecting it as the default. This also works with an existing minimal Rustup
+profile. The AstroNvim configuration includes Rustaceanvim, CodeLLDB, and Neotest;
+run its `scripts/check_rust.sh` for real Rust build/test/debug verification.
+
 The personal AstroNvim configuration enables Copilot inline suggestions separately
 from the CLI. Set `NVIM_CONFIG_REPO="https://github.com/dsscheib/astronvim_v6"` in
 `config.env`, then select `dependencies,languages,neovim,copilot` to install both.

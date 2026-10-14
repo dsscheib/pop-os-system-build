@@ -849,6 +849,31 @@ initialize_neovim_config
             'timeout', '--foreground', '5m', str(self.root / '.local/bin/nvim'),
             '--headless', '-c', 'quitall'])
 
+    def test_rust_toolchain_explicitly_installs_and_verifies_editor_components(self):
+        result = self.bash('''
+rustup() { printf '%s\\n' "$*"; }
+install_rust_toolchain
+''', script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        version = dict(line.split('=', 1) for line in (REPO / 'resources/tool-versions.env').read_text().splitlines())['RUST_VERSION']
+        lines = result.stdout.splitlines()
+        self.assertIn(f'component add --toolchain {version} rust-analyzer rustfmt clippy rust-src', lines)
+        for tool in ('rustc', 'cargo', 'rust-analyzer', 'rustfmt'):
+            self.assertIn(f'run {version} {tool} --version', lines)
+        self.assertIn(f'run {version} cargo clippy --version', lines)
+        self.assertEqual(lines[-1], f'default {version}')
+
+    def test_failed_rust_component_install_keeps_previous_default_toolchain(self):
+        result = self.bash('''
+rustup() {
+    [[ $1 != component ]] || return 44
+    printf '%s\\n' "$*"
+}
+if install_rust_toolchain; then exit 0; else exit "$?"; fi
+''', script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 44, result.stderr)
+        self.assertNotIn('default ', result.stdout)
+
     def test_arm_stage_installs_arm32_and_aarch64_toolchains(self):
         result = self.bash('sudo() { printf "%s\\n" "$@"; }; install_arm_toolchain', script='pop_os_config.sh')
         self.assertEqual(result.returncode, 0, result.stderr)

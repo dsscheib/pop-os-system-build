@@ -317,6 +317,17 @@ install_copilot_cli() {
   verify_ai_cli copilot
 }
 
+install_rust_toolchain() {
+  rustup toolchain install "$RUST_VERSION" || return
+  rustup component add --toolchain "$RUST_VERSION" rust-analyzer rustfmt clippy rust-src || return
+  local tool
+  for tool in rustc cargo rust-analyzer rustfmt; do
+    rustup run "$RUST_VERSION" "$tool" --version || return
+  done
+  rustup run "$RUST_VERSION" cargo clippy --version || return
+  rustup default "$RUST_VERSION"
+}
+
 install_languages_and_tools() {
   export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
   if ! command -v rustup >/dev/null; then
@@ -325,9 +336,7 @@ install_languages_and_tools() {
     "$WORK_DIR/rustup-init" -y --default-toolchain "$RUST_VERSION"
   fi
   require_commands rustup cargo
-  rustup toolchain install "$RUST_VERSION"
-  rustup default "$RUST_VERSION"
-  rustup component add --toolchain "$RUST_VERSION" rust-analyzer
+  install_rust_toolchain
   if ! command -v asm-lsp >/dev/null; then cargo install asm-lsp --version "$ASM_LSP_VERSION" --locked; fi
   install_rust_completions
   if ! command -v mise >/dev/null; then fetch_locked mise "$WORK_DIR/mise"; install -m 0755 "$WORK_DIR/mise" "$HOME/.local/bin/mise"; fi
