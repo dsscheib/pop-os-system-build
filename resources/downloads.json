@@ -78,5 +78,10 @@
     "version": "2026-10-14",
     "url": "https://downloads.claude.ai/keys/claude-code.asc",
     "sha256": "bd70a5e4a268002704024ceba7f8446024114e94f3f0bdd11c23a9e592be81c6"
+  },
+  "arduino-ide": {
+    "version": "2.3.10",
+    "url": "https://github.com/arduino/arduino-ide/releases/download/2.3.10/arduino-ide_2.3.10_Linux_64bit.zip",
+    "sha256": "cc8a0b01e763d4646b670ce70c1bc8c389a0fa14ab556dcc0749c03f475a7975"
   }
 }

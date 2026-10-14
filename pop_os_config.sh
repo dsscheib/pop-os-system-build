@@ -415,6 +415,31 @@ install_freecad() {
   flatpak --user remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo || return
   flatpak --user install -y flathub org.freecad.FreeCAD
 }
+install_arduino_ide() {
+  local archive="$WORK_DIR/arduino-ide.zip"
+  local app_dir icon
+  local desktop="$HOME/.local/share/applications/arduino-ide.desktop"
+
+  fetch_locked arduino-ide "$archive" || return
+  begin_install "$HOME/Applications/arduino-ide" || return
+  app_dir="$INSTALL_DIR/arduino-ide_${ARDUINO_IDE_VERSION}_Linux_64bit"
+  icon="$app_dir/resources/app/resources/icons/512x512.png"
+  python3 "$SCRIPT_DIR/scripts/st_assets.py" zip "$archive" "$INSTALL_DIR" || return
+  check_executable "$app_dir/arduino-ide" || return
+  [[ -s "$icon" ]] || { log_error "Arduino IDE application icon is missing from the release archive."; return 1; }
+
+  write_desktop "$WORK_DIR/arduino-ide.desktop" 'Arduino IDE 2' \
+    "$HOME/.local/bin/arduino-ide" "$app_dir" "$icon" arduino-ide || return
+  desktop-file-validate "$WORK_DIR/arduino-ide.desktop" || return
+
+  publish_install || return
+  mkdir -p "$HOME/.local/bin" "$(dirname "$desktop")" || return
+  write_wrapper "$HOME/.local/bin/arduino-ide" "$app_dir" "$app_dir/arduino-ide" || return
+  write_desktop "$desktop" 'Arduino IDE 2' "$HOME/.local/bin/arduino-ide" \
+    "$app_dir" "$icon" arduino-ide || return
+  refresh_desktop_environment "$(dirname "$desktop")"
+  log_info "Arduino IDE $ARDUINO_IDE_VERSION installed at $INSTALL_TARGET."
+}
 install_applications() {
   mkdir -p "$HOME/Applications" "$HOME/Projects" "$HOME/Downloads"
   optional Dropbox sudo apt-get install -y nautilus-dropbox
@@ -426,7 +451,8 @@ install_applications() {
     fetch_locked appimagelauncher "$WORK_DIR/appimagelauncher.deb"
     optional AppImageLauncher install_deb "$WORK_DIR/appimagelauncher.deb"
   fi
-  optional 'Arduino packages' sudo apt-get install -y arduino arduino-builder avra avrdude-doc
+  optional 'Arduino IDE 2' install_arduino_ide
+  optional 'AVR assembler/documentation packages' sudo apt-get install -y avra avrdude-doc
   fetch_locked saleae "$HOME/Applications/Logic2-linux-x64.AppImage"
   chmod 0755 "$HOME/Applications/Logic2-linux-x64.AppImage"
   install_system_file "$SCRIPT_DIR/resources/udev/99-SaleaeLogic.rules" /etc/udev/rules.d/99-SaleaeLogic.rules

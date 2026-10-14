@@ -238,6 +238,10 @@ Saleae/Synology downloads and repository keys have SHA-256 baselines from their
 HTTPS upstream endpoints, recorded on 2026-10-13. A checksum detects an unexpected
 artifact; it does not independently authenticate its publisher.
 
+The applications stage installs the pinned Arduino IDE 2 release from its official
+Linux archive and creates an application-menu entry with the bundled 512-pixel icon.
+It does not install the legacy IDE 1 package from Ubuntu's `arduino` package.
+
 Local Debian packages are copied into a temporary root-owned directory readable
 by APT's `_apt` user, then removed after installation. Download workspaces remain
 private. This avoids APT's “Download is performed unsandboxed as root” warning
