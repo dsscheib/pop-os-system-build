@@ -515,6 +515,108 @@ setup_tmux
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.splitlines(), [str(directory), str(directory / 'bin/install_plugins')])
 
+    def gcc_selection(self, candidate='16.2.0', cxx_candidate='16.2.0'):
+        return self.bash('''
+apt-cache() {
+    case "$1" in
+        pkgnames) printf '%s\\n' gcc-9 gcc-14 gcc-16 g++-9 g++-14 g++-16 gcc-99-aarch64-linux-gnu gcc-20;;
+        policy)
+            printf '%s:\\n' "$2"
+            case "$2" in
+                gcc-16) printf '  Candidate: %s\\n' "$GCC_CANDIDATE";;
+                g++-16) printf '  Candidate: %s\\n' "$CXX_CANDIDATE";;
+                *) printf '  Candidate: 14.2.0\\n';;
+            esac;;
+    esac
+}
+latest_native_gcc
+''', script='pop_os_config.sh', env={'GCC_CANDIDATE': candidate, 'CXX_CANDIDATE': cxx_candidate})
+
+    def test_latest_gcc_selects_highest_matching_native_pair(self):
+        result = self.gcc_selection()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), '16')
+
+    def test_latest_gcc_skips_unavailable_c_and_cxx_candidates(self):
+        for gcc, cxx in [('(none)', '16.2.0'), ('16.2.0', '(none)')]:
+            with self.subTest(gcc=gcc, cxx=cxx):
+                result = self.gcc_selection(gcc, cxx)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.strip(), '14')
+
+    def test_latest_gcc_rejects_empty_repositories(self):
+        result = self.bash('apt-cache() { return 0; }; latest_native_gcc', script='pop_os_config.sh')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('No installable native GCC/G++ pair', result.stderr)
+
+    def test_gcc_candidate_does_not_accept_apt_pattern_matches(self):
+        result = self.bash('''
+apt-cache() { printf 'unrelated-package:\\n  Candidate: 99.0\\n'; }
+apt_candidate gcc-99
+''', script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, '')
+
+    def compiler_tools(self, major):
+        directory = self.root / 'compiler-bin'
+        directory.mkdir(exist_ok=True)
+        for name in ('gcc', 'g++', 'gcc-ar', 'gcc-nm', 'gcc-ranlib', 'gcov', 'gcov-dump', 'gcov-tool'):
+            path = directory / f'{name}-{major}'
+            path.write_text('#!/bin/sh\nexit 0\n')
+            path.chmod(0o755)
+        return directory
+
+    def test_native_compiler_links_upgrade_together(self):
+        binaries = self.compiler_tools('14')
+        self.compiler_tools('16')
+        result = self.bash('''
+export HOME="$1"
+configure_native_gcc 14 "$2"
+configure_native_gcc 16 "$2"
+''', self.root, binaries, script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for name, target in [('gcc', 'gcc'), ('g++', 'g++'), ('cc', 'gcc'), ('c++', 'g++'),
+                             ('gcc-ar', 'gcc-ar'), ('gcc-nm', 'gcc-nm'), ('gcc-ranlib', 'gcc-ranlib'),
+                             ('gcov', 'gcov'), ('gcov-dump', 'gcov-dump'), ('gcov-tool', 'gcov-tool')]:
+            self.assertEqual((self.root / '.local/bin' / name).readlink(), binaries / f'{target}-16')
+
+    def test_native_compiler_links_preserve_foreign_commands(self):
+        binaries = self.compiler_tools('16')
+        directory = self.root / '.local/bin'
+        directory.mkdir(parents=True)
+        foreign = directory / 'gcc'
+        foreign.write_text('custom wrapper')
+        result = self.bash('export HOME="$1"; configure_native_gcc 16 "$2"',
+                           self.root, binaries, script='pop_os_config.sh')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(foreign.read_text(), 'custom wrapper')
+        self.assertEqual(list(directory.iterdir()), [foreign])
+
+    def test_build_tools_do_not_explicitly_request_old_compilers(self):
+        result = self.bash('''
+latest_native_gcc() { printf '16\\n'; }
+sudo() { printf '%s\\n' "$@"; }
+configure_native_gcc() { printf 'selected:%s\\n' "$1"; }
+install_build_tools
+''', script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        packages = result.stdout.splitlines()
+        for package in ('build-essential', 'binutils', 'make', 'dpkg-dev', 'libc6-dev', 'gcc-16', 'g++-16'):
+            self.assertIn(package, packages)
+        self.assertIn('selected:16', packages)
+        self.assertNotIn('gcc-14', packages)
+        self.assertNotIn('g++-14', packages)
+
+    def test_failed_build_tool_install_does_not_change_compiler_commands(self):
+        result = self.bash('''
+latest_native_gcc() { printf '16\\n'; }
+sudo() { return 42; }
+configure_native_gcc() { printf 'should not run'; }
+if install_build_tools; then exit 0; else exit "$?"; fi
+''', script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 42, result.stderr)
+        self.assertNotIn('should not run', result.stdout)
+
     def test_neovim_setup_uses_explicit_tool_verification(self):
         config = self.root / '.config/nvim'
         (config / 'scripts').mkdir(parents=True)

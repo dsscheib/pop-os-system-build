@@ -117,9 +117,69 @@ install_fastfetch() {
   command -v fastfetch >/dev/null || die "Fastfetch installation did not provide the fastfetch command."
 }
 
+apt_candidate() {
+  local policy
+  policy=$(LC_ALL=C apt-cache policy "$1") || return
+  # Match the exact package header: APT can otherwise treat unknown names as
+  # patterns and report candidates for unrelated packages.
+  awk -v package="$1" '$0 == package ":" {matched=1; next} matched && $1 == "Candidate:" {print $2; exit}' <<< "$policy"
+}
+
+latest_native_gcc() {
+  local names package major candidate
+  names=$(apt-cache pkgnames) || return
+  while IFS= read -r package; do
+    major=${package#gcc-}
+    grep -Fxq "g++-$major" <<< "$names" || continue
+    candidate=$(apt_candidate "$package") || return
+    [[ -n $candidate && $candidate != '(none)' ]] || continue
+    candidate=$(apt_candidate "g++-$major") || return
+    [[ -n $candidate && $candidate != '(none)' ]] || continue
+    printf '%s\n' "$major"
+    return
+  done < <(awk '/^gcc-[0-9]+$/' <<< "$names" | sort -u -t- -k2,2nr)
+  die "No installable native GCC/G++ pair found in the configured APT repositories."
+}
+
+configure_native_gcc() {
+  local major=$1 binaries=${2:-/usr/bin} directory="$HOME/.local/bin" name target existing
+  local -a names=(gcc g++ cc c++ gcc-ar gcc-nm gcc-ranlib gcov gcov-dump gcov-tool)
+  local -a targets=(gcc g++ gcc g++ gcc-ar gcc-nm gcc-ranlib gcov gcov-dump gcov-tool)
+  local index
+  mkdir -p "$directory"
+  # Validate all tools and destinations before changing any links. Keep foreign
+  # executables and custom compiler wrappers intact.
+  for index in "${!names[@]}"; do
+    name=${names[$index]} target=${targets[$index]}
+    [[ -x "$binaries/$target-$major" ]] || die "Missing compiler tool: $binaries/$target-$major"
+    if [[ -e "$directory/$name" || -L "$directory/$name" ]]; then
+      [[ -L "$directory/$name" ]] || die "Existing compiler command needs manual review: $directory/$name"
+      existing=$(readlink "$directory/$name")
+      [[ $existing == "$binaries/$target" || $existing =~ ^"$binaries/$target"-[0-9]+$ ]] ||
+        die "Existing compiler link needs manual review: $directory/$name -> $existing"
+    fi
+  done
+  for index in "${!names[@]}"; do
+    ln -sfnT -- "$binaries/${targets[$index]}-$major" "$directory/${names[$index]}"
+  done
+  hash -r
+}
+
+install_build_tools() {
+  local major
+  major=$(latest_native_gcc) || return
+  log_info "Installing newest APT native compiler pair: GCC/G++ $major"
+  # Install/upgrade the current APT candidates. Older compiler versions are
+  # requested only indirectly by distribution package dependencies.
+  sudo apt-get install -y --no-install-recommends build-essential binutils make dpkg-dev libc6-dev "gcc-$major" "g++-$major" || return
+  configure_native_gcc "$major" || return
+  log_info "Native compiler commands in ~/.local/bin now select GCC/G++ $major."
+}
+
 install_dependencies() {
+  install_build_tools
   sudo apt-get install -y zsh zsh-autosuggestions zsh-syntax-highlighting fish fzf zoxide ripgrep bat tmux flatpak \
-    build-essential nasm cmake ninja-build gettext fd-find xclip wl-clipboard python3-pip luarocks gdu pkg-config libssl-dev \
+    nasm cmake ninja-build gettext fd-find xclip wl-clipboard python3-pip luarocks gdu pkg-config libssl-dev \
     shellcheck bind9-dnsutils netcat-openbsd network-manager-openvpn-gnome rsync wget kitty libsecret-tools
   if apt-cache show eza >/dev/null 2>&1; then optional eza sudo apt-get install -y eza;
   else log_warn "eza is unavailable in the configured repositories."; OPTIONAL_FAILURES+=(eza); fi

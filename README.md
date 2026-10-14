@@ -141,6 +141,22 @@ SHA-256. An existing Fastfetch command is kept. Bash integration loads the
 installed `bash-completion` package for APT tab completion; linked `.bashrc`
 files must load completion themselves or source the managed integration file.
 
+Native build tools use the latest candidates from the configured APT repositories.
+Setup selects the highest available GCC major with an installable matching G++
+package, then installs/upgrades that pair, `build-essential`, binutils, Make,
+dpkg-dev, and libc development headers. It does not add a toolchain PPA or build
+upstream releases from source. Repository availability and APT pinning determine
+the versions; Ubuntu's default `gcc` package can select an older major than the
+newest packaged compiler.
+
+Managed commands under `~/.local/bin` select the chosen compiler for `gcc`, `g++`,
+`cc`, `c++`, and the matching GCC archive/coverage tools. Keep that directory first
+on `PATH`; custom compiler wrappers there require manual review. System compiler
+links and existing compiler packages are preserved. Older versions may be pulled
+in by `build-essential` or other package dependencies. Cross-compilers in the
+ARM/AVR/RISC-V stages also use their current APT candidates and keep their target
+prefixes.
+
 The personal `dotfiles` and `astronvim_v6` repositories have recently been fixed
 but still need their own validation. This repository's checks do not execute or
 validate their bootstrap, plugins, or language servers. To install tools while
