@@ -7,7 +7,7 @@ source "$SCRIPT_DIR/common.sh"
 # shellcheck source=resources/tool-versions.env
 source "$SCRIPT_DIR/resources/tool-versions.env"
 OPTIONAL_FAILURES=()
-STAGES=(system fonts git dependencies dotfiles tmux languages neovim firefox applications arm-avr riscv)
+STAGES=(system fonts git dependencies dotfiles tmux languages neovim firefox applications arm avr riscv arm-avr)
 
 optional() {
   local description=$1
@@ -264,7 +264,7 @@ install_applications() {
     fetch_locked appimagelauncher "$WORK_DIR/appimagelauncher.deb"
     optional AppImageLauncher install_deb "$WORK_DIR/appimagelauncher.deb"
   fi
-  optional 'Arduino packages' sudo apt-get install -y arduino arduino-builder avra avrdude-doc gdb-avr
+  optional 'Arduino packages' sudo apt-get install -y arduino arduino-builder avra avrdude-doc
   fetch_locked saleae "$HOME/Applications/Logic2-linux-x64.AppImage"
   chmod 0755 "$HOME/Applications/Logic2-linux-x64.AppImage"
   install_system_file "$SCRIPT_DIR/resources/udev/99-SaleaeLogic.rules" /etc/udev/rules.d/99-SaleaeLogic.rules
@@ -276,8 +276,18 @@ install_applications() {
   fi
   sudo apt-get install -y litecli pgcli mycli kicad openscad libreoffice evince
 }
+install_arm_toolchain() {
+  sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi \
+    gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
+    gdb-multiarch openocd stlink-tools libusb-1.0-0-dev libftdi1-2 picocom
+}
+install_avr_toolchain() {
+  sudo apt-get install -y gcc-avr binutils-avr avr-libc avrdude gdb-avr libusb-1.0-0-dev libftdi1-2 picocom
+}
 install_avr_and_arm_toolchain() {
-  sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi gdb-multiarch openocd stlink-tools gcc-avr binutils-avr avr-libc avrdude libusb-1.0-0-dev libftdi1-2 picocom
+  # Compatibility with existing --stages arm-avr commands.
+  install_arm_toolchain
+  install_avr_toolchain
 }
 install_riscv_toolchain() {
   sudo apt-get install -y gcc-riscv64-unknown-elf binutils-riscv64-unknown-elf picolibc-riscv64-unknown-elf qemu-system-misc
@@ -322,7 +332,7 @@ install_django_completions() {
 }
 
 main() {
-  local selected='system,fonts,git,dependencies,dotfiles,tmux,languages,neovim,firefox,applications,arm-avr,riscv' stage
+  local selected='system,fonts,git,dependencies,dotfiles,tmux,languages,neovim,firefox,applications,arm,avr,riscv' stage
   case ${1:-} in
     --list-stages) [[ $# -eq 1 ]] || die "--list-stages takes no arguments."; printf '%s\n' "${STAGES[@]}"; return ;;
     --stages) [[ $# -eq 2 && -n $2 ]] || die "Usage: $0 --stages comma,separated,stages"; selected=$2 ;;
@@ -351,6 +361,7 @@ main() {
       dependencies) install_dependencies ;; dotfiles) setup_dotfiles ;; tmux) setup_tmux ;;
       languages) install_languages_and_tools ;; neovim) install_neovim_and_astronvim ;;
       firefox) install_firefox_dev ;; applications) install_applications ;;
+      arm) install_arm_toolchain ;; avr) install_avr_toolchain ;;
       arm-avr) install_avr_and_arm_toolchain ;; riscv) install_riscv_toolchain ;;
     esac
   done

@@ -515,6 +515,34 @@ setup_tmux
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.splitlines(), [str(directory), str(directory / 'bin/install_plugins')])
 
+    def test_arm_stage_installs_arm32_and_aarch64_toolchains(self):
+        result = self.bash('sudo() { printf "%s\\n" "$@"; }; install_arm_toolchain', script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        packages = result.stdout.splitlines()
+        for package in ('gcc-arm-none-eabi', 'binutils-arm-none-eabi',
+                        'gcc-aarch64-linux-gnu', 'binutils-aarch64-linux-gnu', 'gdb-multiarch'):
+            self.assertIn(package, packages)
+        self.assertNotIn('gcc-avr', packages)
+        self.assertNotIn('avrdude', packages)
+
+    def test_avr_stage_does_not_install_arm_toolchains(self):
+        result = self.bash('sudo() { printf "%s\\n" "$@"; }; install_avr_toolchain', script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        packages = result.stdout.splitlines()
+        for package in ('gcc-avr', 'binutils-avr', 'avr-libc', 'avrdude', 'gdb-avr'):
+            self.assertIn(package, packages)
+        self.assertNotIn('gcc-arm-none-eabi', packages)
+        self.assertNotIn('gcc-aarch64-linux-gnu', packages)
+
+    def test_legacy_arm_avr_stage_runs_both_installers(self):
+        result = self.bash('''
+install_arm_toolchain() { printf 'arm\n'; }
+install_avr_toolchain() { printf 'avr\n'; }
+install_avr_and_arm_toolchain
+''', script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), ['arm', 'avr'])
+
     def test_dotfiles_delegates_plugins_only_when_tmux_stage_is_selected(self):
         checkout = self.root / '.dotfiles'
         checkout.mkdir()

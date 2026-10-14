@@ -115,8 +115,16 @@ List or select stages:
 ```bash
 ./pop_os_config.sh --list-stages
 ./pop_os_config.sh --stages dependencies,languages,neovim
-./pop_os_config.sh --stages system,arm-avr,riscv
+./pop_os_config.sh --stages system,arm,avr,riscv
 ```
+
+The `arm` stage includes ARM32 bare-metal tools (`arm-none-eabi-gcc`),
+the AArch64 Linux cross-compiler (`aarch64-linux-gnu-gcc`) and binutils,
+`gdb-multiarch`, OpenOCD, and ST-LINK tools. This supports the corresponding
+GAS assembly task targets in the AstroNvim configuration. The separate `avr`
+stage installs AVR GCC/binutils, avr-libc, avrdude, and `gdb-avr`. The default setup selects
+both stages. Existing `--stages arm-avr` commands still run both as a compatibility
+option.
 
 All selections install the small prerequisite package set first. The `git` stage
 requires your own name, email, and GitHub username. The `dotfiles` and `neovim`
@@ -137,7 +145,7 @@ validate their bootstrap, plugins, or language servers. To install tools while
 keeping those deployments separate, use:
 
 ```bash
-./pop_os_config.sh --stages dependencies,languages,arm-avr,riscv
+./pop_os_config.sh --stages dependencies,languages,arm,avr,riscv
 ```
 
 The `dotfiles` stage executes its bootstrap; the `neovim` stage deploys the selected
