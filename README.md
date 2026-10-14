@@ -133,7 +133,7 @@ stages require the respective repository URLs. Set `DOTFILES_REF` and
 clean checkouts update with `--ff-only`. Foreign origins and local changes are
 reported as errors rather than silently ignored.
 
-The `dependencies` stage installs Fastfetch from APT when a candidate exists;
+The `dependencies` stage includes NASM for x86-64 assembly tasks and installs Fastfetch from APT when a candidate exists;
 otherwise it installs the pinned upstream Debian package after checking its
 SHA-256. An existing Fastfetch command is kept. Bash integration loads the
 installed `bash-completion` package for APT tab completion; linked `.bashrc`
@@ -149,8 +149,12 @@ keeping those deployments separate, use:
 ```
 
 The `dotfiles` stage executes its bootstrap; the `neovim` stage deploys the selected
-configuration and attempts headless plugin initialization. A successful clone or
-headless exit does not establish that the complete editor configuration works.
+configuration and runs its `scripts/setup.sh --install` when the matching
+`lua/setup_checks.lua` helper is present. That command waits for configured Mason
+tools and reports missing packages. Other configurations receive a bounded
+headless initialization only. Verify actual project-file LSP attachment and
+formatter availability using the configuration's documented checks; installation
+alone does not establish that the complete editor configuration works.
 
 When the `tmux` stage is selected, the dotfiles bootstrap delegates plugin setup
 to that stage. Both repositories use `~/.local/share/tmux/plugins` and the same

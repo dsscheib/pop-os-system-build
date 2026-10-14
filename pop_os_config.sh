@@ -119,7 +119,7 @@ install_fastfetch() {
 
 install_dependencies() {
   sudo apt-get install -y zsh zsh-autosuggestions zsh-syntax-highlighting fish fzf zoxide ripgrep bat tmux flatpak \
-    build-essential cmake ninja-build gettext fd-find xclip wl-clipboard python3-pip luarocks gdu pkg-config libssl-dev
+    build-essential nasm cmake ninja-build gettext fd-find xclip wl-clipboard python3-pip luarocks gdu pkg-config libssl-dev
   if apt-cache show eza >/dev/null 2>&1; then optional eza sudo apt-get install -y eza;
   else log_warn "eza is unavailable in the configured repositories."; OPTIONAL_FAILURES+=(eza); fi
   install_fastfetch
@@ -227,7 +227,16 @@ install_neovim_and_astronvim() {
     [[ -z ${NVIM_CONFIG_REF:-} ]] || git -C "$INSTALL_DIR" checkout --detach "$NVIM_CONFIG_REF"
     publish_install
   else update_repository "$NVIM_CONFIG_REPO" "$HOME/.config/nvim" "${NVIM_CONFIG_REF:-}"; fi
-  optional 'Neovim plugin initialization' "$HOME/.local/bin/nvim" --headless -c quitall
+  initialize_neovim_config
+}
+
+initialize_neovim_config() {
+  local config="$HOME/.config/nvim" binary="$HOME/.local/bin/nvim"
+  if [[ -f "$config/scripts/setup.sh" && -f "$config/lua/setup_checks.lua" ]]; then
+    optional 'Neovim tools installation and verification' env NVIM_BIN="$binary" bash "$config/scripts/setup.sh" --install
+  else
+    optional 'Neovim plugin initialization (language tools unverified)' timeout --foreground 5m "$binary" --headless -c quitall
+  fi
 }
 
 install_repository() {

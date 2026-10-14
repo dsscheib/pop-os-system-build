@@ -515,6 +515,35 @@ setup_tmux
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.splitlines(), [str(directory), str(directory / 'bin/install_plugins')])
 
+    def test_neovim_setup_uses_explicit_tool_verification(self):
+        config = self.root / '.config/nvim'
+        (config / 'scripts').mkdir(parents=True)
+        (config / 'lua').mkdir()
+        (config / 'scripts/setup.sh').touch()
+        (config / 'lua/setup_checks.lua').touch()
+        result = self.bash('''
+export HOME="$1"
+optional() { printf '%s\\n' "$@"; }
+initialize_neovim_config
+''', self.root, script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), [
+            'Neovim tools installation and verification', 'env',
+            'NVIM_BIN=' + str(self.root / '.local/bin/nvim'), 'bash',
+            str(config / 'scripts/setup.sh'), '--install'])
+
+    def test_neovim_foreign_config_uses_bounded_startup(self):
+        result = self.bash('''
+export HOME="$1"
+optional() { printf '%s\\n' "$@"; }
+initialize_neovim_config
+''', self.root, script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), [
+            'Neovim plugin initialization (language tools unverified)',
+            'timeout', '--foreground', '5m', str(self.root / '.local/bin/nvim'),
+            '--headless', '-c', 'quitall'])
+
     def test_arm_stage_installs_arm32_and_aarch64_toolchains(self):
         result = self.bash('sudo() { printf "%s\\n" "$@"; }; install_arm_toolchain', script='pop_os_config.sh')
         self.assertEqual(result.returncode, 0, result.stderr)
