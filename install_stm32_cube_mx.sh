@@ -43,7 +43,9 @@ main() {
   else
     log_warn "Native CubeMX application icon is unavailable; using the desktop theme icon."
   fi
-  st_finish STM32CubeMX "$HOME/.local/bin/stm32cubemx" "$INSTALL_DIR/STM32CubeMX" "$INSTALL_DIR" "$icon" com-st-microxplorer-maingui-STM32CubeMX "$HOME/.local/share/applications/st-com-stm32cubemx.desktop"
+  # ST's working launcher has no StartupWMClass. Let the desktop track the
+  # started window through the launcher instead of guessing the Java window class.
+  st_finish STM32CubeMX "$HOME/.local/bin/stm32cubemx" "$INSTALL_DIR/STM32CubeMX" "$INSTALL_DIR" "$icon" "" "$HOME/.local/share/applications/st-com-stm32cubemx.desktop"
   remove_vendor_launcher
   log_info "STM32CubeMX installed at $INSTALL_TARGET; previous versions are retained."
 }

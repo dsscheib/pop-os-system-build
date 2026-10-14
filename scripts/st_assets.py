@@ -127,7 +127,7 @@ def desktop(destination, name, executable, directory, icon, wmclass):
     content = ('[Desktop Entry]\nVersion=1.0\nType=Application\n' +
                f'Name={value(name)}\nExec="{quoted}" %F\nPath={value(directory)}\n' +
                f'Icon={value(icon)}\nTerminal=false\nCategories=Development;IDE;\n' +
-               f'StartupWMClass={value(wmclass)}\n')
+               (f'StartupWMClass={value(wmclass)}\n' if wmclass else ''))
     atomic_text(destination, content, 0o644)
 
 
