@@ -223,6 +223,14 @@ configure_boot() {
   # shellcheck disable=SC2016 # $1 is the positional argument inside the chroot.
   chroot "$1" /bin/bash -euo pipefail -c '
     kernelstub -e /boot/efi -l -f -o "$1"
+    # Install in the target, after setting boot options so package-triggered
+    # initramfs updates also use the converted root layout.
+    if ! command -v btrfs >/dev/null || ! command -v fsck.btrfs >/dev/null; then
+      apt-get update
+      DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends --reinstall btrfs-progs
+      command -v btrfs >/dev/null
+      command -v fsck.btrfs >/dev/null
+    fi
     update-initramfs -u -k all
     kernelstub -e /boot/efi -l -f
   ' bash "$2"
@@ -346,7 +354,7 @@ main() {
   fi
   render_fstab "$MNT/etc/fstab" "$root_uuid" "$efi_uuid" > "$WORK_DIR/fstab"
   kernel_options=$(render_kernel_options "$MNT/etc/kernelstub/configuration")
-  chroot "$MNT" /bin/bash -eu -c 'command -v kernelstub; command -v update-initramfs; command -v findmnt; command -v bootctl' >/dev/null
+  chroot "$MNT" /bin/bash -eu -c 'command -v kernelstub; command -v update-initramfs; command -v findmnt; command -v bootctl; command -v apt-get' >/dev/null
   local kernel required_space available_space
   local -a kernels
   shopt -s nullglob
@@ -414,7 +422,7 @@ main() {
     fi
   done
 
-  log_info "Configuring boot options and rebuilding initramfs..."
+  log_info "Configuring boot options, ensuring Btrfs tools are installed, and rebuilding initramfs..."
   configure_boot "$MNT" "$kernel_options"
   verify_boot_entry "$MNT/boot/efi" "$root_uuid"
   verify_boot_selection "$MNT/boot/efi"

@@ -219,7 +219,8 @@ trap cleanup EXIT
         self.assertEqual(result.returncode, 42)
         self.assertFalse(mount.exists())
 
-    def boot_commands(self, kernel_status, initramfs_status):
+    def boot_commands(self, kernel_status, initramfs_status, *, missing_tools=False,
+                      apt_update_status=0, apt_install_status=0, install_tools=True):
         commands = self.root / "bin"
         commands.mkdir()
         log = self.root / "commands.log"
@@ -227,8 +228,36 @@ trap cleanup EXIT
             path = commands / name
             path.write_text(f'#!/usr/bin/env bash\nprintf "%s\\n" {name} >> "$BOOT_TEST_LOG"\nexit {status}\n')
             path.chmod(0o755)
+        tool_script = '#!/usr/bin/env bash\nexit 0\n'
+        if not missing_tools:
+            for name in ("btrfs", "fsck.btrfs"):
+                (commands / name).write_text(tool_script)
+                (commands / name).chmod(0o755)
+        apt = commands / "apt-get"
+        apt.write_text(f'''#!/usr/bin/env bash
+printf 'apt-get %s\\n' "$*" >> "$BOOT_TEST_LOG"
+if [[ $1 == update ]]; then exit {apt_update_status}; fi
+[[ $DEBIAN_FRONTEND == noninteractive ]] || exit 90
+if [[ {apt_install_status} != 0 ]]; then exit {apt_install_status}; fi
+if [[ {int(install_tools)} == 1 ]]; then
+    for name in btrfs fsck.btrfs; do
+        printf '#!/usr/bin/env bash\\nexit 0\\n' > "$BOOT_TEST_BIN/$name"
+        chmod +x "$BOOT_TEST_BIN/$name"
+    done
+fi
+''')
+        apt.chmod(0o755)
         result = self.bash('''
-export PATH="$2:$PATH" BOOT_TEST_LOG="$3"
+export PATH="$2:$PATH" BOOT_TEST_BIN="$2" BOOT_TEST_LOG="$3"
+# Keep target-tool detection independent of packages on the test host.
+command() {
+    if [[ $1 == -v && ( $2 == btrfs || $2 == fsck.btrfs ) ]]; then
+        [[ -x "$BOOT_TEST_BIN/$2" ]]
+    else
+        builtin command "$@"
+    fi
+}
+export -f command
 chroot() { shift; "$@"; }
 configure_boot "$1" "quiet rootflags=subvol=@"
 ''', self.root, commands, log)
@@ -248,6 +277,32 @@ configure_boot "$1" "quiet rootflags=subvol=@"
         result, commands = self.boot_commands(0, 0)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(commands, ["kernelstub", "update-initramfs", "kernelstub"])
+
+    def test_missing_btrfs_tools_are_installed_before_initramfs(self):
+        result, commands = self.boot_commands(0, 0, missing_tools=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(commands, [
+            "kernelstub", "apt-get update",
+            "apt-get install -y --no-install-recommends --reinstall btrfs-progs",
+            "update-initramfs", "kernelstub",
+        ])
+
+    def test_apt_update_failure_stops_boot_configuration(self):
+        result, commands = self.boot_commands(0, 0, missing_tools=True, apt_update_status=44)
+        self.assertEqual(result.returncode, 44)
+        self.assertEqual(commands, ["kernelstub", "apt-get update"])
+
+    def test_apt_install_failure_stops_boot_configuration(self):
+        result, commands = self.boot_commands(0, 0, missing_tools=True, apt_install_status=45)
+        self.assertEqual(result.returncode, 45)
+        self.assertEqual(len(commands), 3)
+        self.assertTrue(commands[-1].startswith("apt-get install "))
+
+    def test_package_success_without_utilities_stops_boot_configuration(self):
+        result, commands = self.boot_commands(0, 0, missing_tools=True, install_tools=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(len(commands), 3)
+        self.assertNotIn("update-initramfs", commands)
 
     def test_boot_selection_must_reference_validated_current_entry(self):
         loader = self.root / "loader"

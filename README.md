@@ -42,6 +42,12 @@ It does not require the live USB to have booted through systemd-boot. Configurat
 backups are stored under `/etc/fstab.pre-btrfs.*` and
 `/etc/kernelstub/*.pre-btrfs.*` in the installed root.
 
+Both conversion and boot repair ensure the installed system has `btrfs` and
+`fsck.btrfs` before rebuilding initramfs. If either utility is missing, the script
+updates APT indexes and installs (or reinstalls) `btrfs-progs` inside the target
+system. This requires working networking and package repositories in the chroot;
+package failures stop the script. If both utilities already exist, APT is skipped.
+
 Reboot only after success. If conversion fails after moving data, stay in the live
 environment, mount the filesystem with `subvolid=5`, and inspect/repair the partial
 layout and boot configuration before rerunning or rebooting. Existing layouts are
