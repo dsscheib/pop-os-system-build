@@ -16,3 +16,7 @@ installer.auto
 .DS_Store
 *.swp
 *.bak*
+
+# Python test/import artifacts
+__pycache__/
+*.py[cod]

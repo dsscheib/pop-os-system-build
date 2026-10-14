@@ -1,0 +1,67 @@
+{
+  "mise": {
+    "version": "v2026.10.9",
+    "url": "https://github.com/jdx/mise/releases/download/v2026.10.9/mise-v2026.10.9-linux-x64",
+    "sha256": "6ab6646b52b83f6bbd51c9d0d3ae54264ffa90efd1ac6d7c0ec5a86bbc6a0030"
+  },
+  "gcm": {
+    "version": "v3.0.1",
+    "url": "https://github.com/git-ecosystem/git-credential-manager/releases/download/v3.0.1/gcm-linux-x64-3.0.1.deb",
+    "sha256": "530d7e2a99ddd048b62e71ed4e18e8692287bdb60df2eaace3cd439010b8f624"
+  },
+  "bottom": {
+    "version": "0.14.9",
+    "url": "https://github.com/ClementTsang/bottom/releases/download/0.14.9/bottom_0.14.9-1_amd64.deb",
+    "sha256": "e8312526746c1190c3433e6ce0843f64c6e0c501003ee377552745c040dc6d56"
+  },
+  "font": {
+    "version": "v3.5.1",
+    "url": "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.1/JetBrainsMono.zip",
+    "sha256": "fab782a66f7d3019da64f6572db9fc5d3a4bcb19f9fa13e2d8a62e3693d6396e"
+  },
+  "starship": {
+    "version": "v1.26.0",
+    "url": "https://github.com/starship/starship/releases/download/v1.26.0/starship-x86_64-unknown-linux-gnu.tar.gz",
+    "sha256": "321f0dd7af8340a5f2e6a8fec6538a04f617486f9ec70d878f91c09cd8deef22"
+  },
+  "uv": {
+    "version": "0.13.0",
+    "url": "https://github.com/astral-sh/uv/releases/download/0.13.0/uv-x86_64-unknown-linux-gnu.tar.gz",
+    "sha256": "1468ebd5a5541121837c5a2817b9972ba6090fa6caa3d142620850a47fb75154"
+  },
+  "neovim": {
+    "version": "v0.12.6",
+    "url": "https://github.com/neovim/neovim/releases/download/v0.12.6/nvim-linux-x86_64.tar.gz",
+    "sha256": "474430d53e6264f6d6dd18db42d6dc9df3a1b56ca9e88a325bbf860e1a811d87"
+  },
+  "appimagelauncher": {
+    "version": "v3.0.0-beta-3",
+    "url": "https://github.com/TheAssassin/AppImageLauncher/releases/download/v3.0.0-beta-3/appimagelauncher_3.0.0-beta-2-gha287.96cb937_amd64.deb",
+    "sha256": "4117552105968a8011955d065b5fd55f547a2ed21dac1fe0a046ee9b60220c36"
+  },
+  "rustup": {
+    "version": "1.29.1",
+    "url": "https://static.rust-lang.org/rustup/archive/1.29.1/x86_64-unknown-linux-gnu/rustup-init",
+    "sha256": "dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71"
+  },
+  "saleae": {
+    "version": "2.4.48",
+    "url": "https://downloads2.saleae.com/logic2/Logic-2.4.48-linux-x64.AppImage",
+    "sha256": "dbc2ded63b48d7561d9e2e5c9f1e2bafdc7f5654ee714ad123c69df74863641b"
+  },
+  "synology": {
+    "version": "4.0.1-17885",
+    "url": "https://global.synologydownload.com/download/Utility/SynologyDriveClient/4.0.1-17885/Ubuntu/Installer/synology-drive-client-17885.x86_64.deb",
+    "sha256": "0cc1ea87ca344649d64f27003526cca498f5df7fcc67cb99d7ccad0d955a28c8"
+  },
+  "vscode-key": {
+    "version": "2026-10-13",
+    "url": "https://packages.microsoft.com/keys/microsoft.asc",
+    "sha256": "2fa9c05d591a1582a9aba276272478c262e95ad00acf60eaee1644d93941e3c6"
+  },
+  "mozilla-key": {
+    "version": "2026-10-13",
+    "url": "https://packages.mozilla.org/apt/repo-signing-key.gpg",
+    "sha256": "3ecc63922b7795eb23fdc449ff9396f9114cb3cf186d6f5b53ad4cc3ebfbb11f"
+  }
+}

@@ -1,0 +1,9 @@
+#compdef django-admin manage.py
+_pop_django_complete() {
+  local executable=$words[1]
+  if [[ $executable == manage.py && -x ./manage.py ]]; then executable=./manage.py; fi
+  local -a suggestions
+  suggestions=("${(@f)$(env DJANGO_AUTO_COMPLETE=1 COMP_WORDS="${words[*]}" COMP_CWORD="$((CURRENT - 1))" "$executable" 2>/dev/null)}")
+  compadd -- $suggestions
+}
+_pop_django_complete "$@"

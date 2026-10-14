@@ -1,648 +1,348 @@
 #!/usr/bin/env bash
-
-# ==============================================================================
-# POP!_OS POST-INSTALLATION AUTOMATION SCRIPT
-# Hardened & Fully Automated Setup
-# ==============================================================================
-
+# Selectable workstation setup. User files stay in the desktop user's account.
 set -euo pipefail
-
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=common.sh
 source "$SCRIPT_DIR/common.sh"
+# shellcheck source=resources/tool-versions.env
+source "$SCRIPT_DIR/resources/tool-versions.env"
+OPTIONAL_FAILURES=()
+STAGES=(system fonts git dependencies dotfiles tmux languages neovim firefox applications arm-avr riscv)
 
-# Load local environment configuration if present
-if [[ -f "$SCRIPT_DIR/config.env" ]]; then
-  # shellcheck source=/dev/null
-  source "$SCRIPT_DIR/config.env"
-elif [[ -f "$SCRIPT_DIR/.env" ]]; then
-  # shellcheck source=/dev/null
-  source "$SCRIPT_DIR/.env"
-fi
+optional() {
+  local description=$1
+  shift
+  if "$@"; then return 0; fi
+  log_warn "$description failed or is unavailable."
+  OPTIONAL_FAILURES+=("$description")
+  return 0
+}
 
-# Identity & Repository Configurations (with defaults)
-GIT_NAME="${GIT_NAME:-Daniel Scheib}"
-GIT_EMAIL="${GIT_EMAIL:-dsscheib@gmail.com}"
-GITHUB_USER="${GITHUB_USER:-dsscheib}"
-DOTFILES_REPO="${DOTFILES_REPO:-https://github.com/dsscheib/dotfiles.git}"
-NVIM_CONFIG_REPO="${NVIM_CONFIG_REPO:-https://github.com/dsscheib/astronvim_v6}"
+load_config() {
+  if [[ -f "$SCRIPT_DIR/config.env" ]]; then
+    # shellcheck source=/dev/null
+    source "$SCRIPT_DIR/config.env"
+  elif [[ -f "$SCRIPT_DIR/.env" ]]; then
+    # shellcheck source=/dev/null
+    source "$SCRIPT_DIR/.env"
+  fi
+}
+validate_config() {
+  local stages=$1 key
+  if [[ ,$stages, == *,git,* ]]; then
+    for key in GIT_NAME GIT_EMAIL GITHUB_USER; do
+      [[ -n ${!key:-} && ${!key} != 'Your Full Name' && ${!key} != your.email@example.com && ${!key} != your-github-username ]] || die "Set $key in config.env before selecting the git stage."
+      [[ ${!key} != *$'\n'* && ${!key} != *$'\r'* ]] || die "Invalid multiline identity value: $key"
+    done
+  fi
+  if [[ ,$stages, == *,dotfiles,* ]]; then [[ -n ${DOTFILES_REPO:-} && $DOTFILES_REPO != *your-username* ]] || die "Set DOTFILES_REPO in config.env."; fi
+  if [[ ,$stages, == *,neovim,* ]]; then [[ -n ${NVIM_CONFIG_REPO:-} && $NVIM_CONFIG_REPO != *your-username* ]] || die "Set NVIM_CONFIG_REPO in config.env."; fi
+}
 
-# Elevate privileges up front if needed
-if [[ $EUID -ne 0 ]]; then
-  SUDO="sudo"
-else
-  SUDO=""
-fi
-
-# ------------------------------------------------------------------------------
-# 1. SYSTEM UPDATE, FIREWALL & HARDWARE GROUPS
-# ------------------------------------------------------------------------------
+install_prerequisites() {
+  sudo -v
+  sudo apt-get update
+  sudo apt-get install -y ca-certificates curl git gnupg jq unzip tar xz-utils fontconfig python3 python3-venv python3-pil ufw bash-completion desktop-file-utils
+}
 setup_system() {
-  log_info "Updating system packages..."
-  $SUDO apt update && $SUDO apt upgrade -y
-
-  log_info "Enabling UFW Firewall..."
-  $SUDO ufw --force enable || true
-
-  log_info "Adding current user ($USER) to 'dialout' and 'plugdev' for serial/embedded hardware..."
-  $SUDO usermod -aG dialout,plugdev "$USER" || true
+  sudo apt-get upgrade -y
+  sudo ufw --force enable
+  sudo usermod -aG dialout,plugdev "$(id -un)"
 }
 
-# ------------------------------------------------------------------------------
-# 2. FONTS (JetBrainsMono Nerd Font)
-# ------------------------------------------------------------------------------
 install_fonts() {
-  local FONT_DIR="$HOME/.local/share/fonts/JetBrainsMono"
-  if [[ -d "$FONT_DIR" && "$(ls -A "$FONT_DIR" 2>/dev/null)" ]]; then
-    log_info "JetBrainsMono Nerd Font already installed. Skipping download."
-    return 0
-  fi
-
-  log_info "Installing JetBrainsMono Nerd Font..."
-  mkdir -p "$HOME/.local/share/fonts"
-  
-  local FONT_TMP
-  FONT_TMP=$(create_secure_tmpdir "font")
-  local ZIP_FILE="$FONT_TMP/JetBrainsMono.zip"
-
-  if curl -fsSL "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip" -o "$ZIP_FILE"; then
-    mkdir -p "$FONT_DIR"
-    unzip -q -o "$ZIP_FILE" -d "$FONT_DIR"
-    fc-cache -f "$HOME/.local/share/fonts"
-    log_info "JetBrainsMono Nerd Font installed successfully."
-  else
-    log_warn "Failed to download JetBrainsMono Nerd Font."
-  fi
-  rm -rf "$FONT_TMP"
+  fetch_locked font "$WORK_DIR/font.zip"
+  begin_install "$HOME/.local/share/fonts/JetBrainsMono"
+  python3 "$SCRIPT_DIR/scripts/st_assets.py" zip "$WORK_DIR/font.zip" "$INSTALL_DIR"
+  [[ -n $(find "$INSTALL_DIR" -type f -name '*.ttf' -print -quit) ]] || die "Font archive contains no TTF files."
+  publish_install
+  fc-cache -f "$HOME/.local/share/fonts"
 }
 
-# ------------------------------------------------------------------------------
-# 3. GIT & GIT CREDENTIAL MANAGER (Secured GPG key generation)
-# ------------------------------------------------------------------------------
+secret_fingerprints() {
+  gpg --batch --with-colons --list-secret-keys --fingerprint "$1" |
+    awk -F: '$1 == "sec" {primary=1; next} $1 == "fpr" && primary {print $10; primary=0}'
+}
 setup_git() {
-  log_info "Configuring Git and Git Credential Manager..."
-  
-  $SUDO apt install -y pass gpg wget jq
-
-  local GPG_UID="$GIT_NAME <$GIT_EMAIL>"
-
-  git config --global credential.credentialStore gpg
+  sudo apt-get install -y pass gpg python3-gpg
+  local uid="$GIT_NAME <$GIT_EMAIL>" fingerprints fingerprint
+  fingerprints=$(secret_fingerprints "$uid" 2>/dev/null || true)
+  if [[ -z "$fingerprints" ]]; then
+    log_info "Generating a GPG key for $uid (GPG will request its passphrase)."
+    if [[ -n ${GPG_PASSPHRASE:-} ]]; then
+      gpg --batch --pinentry-mode loopback --passphrase-fd 3 --quick-generate-key "$uid" default default 1y 3<<<"$GPG_PASSPHRASE"
+    else
+      [[ -t 0 ]] || die "Interactive GPG setup requires a terminal or GPG_PASSPHRASE."
+      export GPG_TTY
+      GPG_TTY=$(tty)
+      gpg --quick-generate-key "$uid" default default 1y
+    fi
+    fingerprints=$(secret_fingerprints "$uid")
+  fi
+  fingerprint=${GPG_KEY_FINGERPRINT:-$fingerprints}
+  fingerprint=${fingerprint^^}
+  [[ $fingerprint != *$'\n'* && $fingerprint =~ ^[[:xdigit:]]{40,64}$ ]] || die "Multiple matching keys: set GPG_KEY_FINGERPRINT explicitly."
+  grep -Fxq "$fingerprint" <<< "$fingerprints" || die "GPG_KEY_FINGERPRINT does not match a secret key for the configured identity."
+  local store=${PASSWORD_STORE_DIR:-$HOME/.password-store}
+  export PASSWORD_STORE_DIR="$store"
+  if [[ ! -f "$store/.gpg-id" ]]; then
+    [[ ! -d "$store" || -z $(find "$store" -mindepth 1 -maxdepth 1 -print -quit) ]] || die "Existing password store has no recipient configuration; repair it before continuing."
+    pass init "$fingerprint"
+  else
+    grep -Fxq "$fingerprint" "$store/.gpg-id" || die "Existing pass store uses different recipients; select the matching key or update the store manually."
+  fi
+  if ! command -v git-credential-manager >/dev/null; then
+    fetch_locked gcm "$WORK_DIR/gcm.deb"
+    install_deb "$WORK_DIR/gcm.deb"
+  fi
   git config --global user.name "$GIT_NAME"
   git config --global user.email "$GIT_EMAIL"
+  git config --global credential.credentialStore gpg
   git config --global credential.https://github.com.username "$GITHUB_USER"
   git config --global push.autoSetupRemote true
-
-  # Generate GPG key with passphrase protection
-  if ! gpg --list-secret-keys "$GPG_UID" &>/dev/null; then
-    log_info "Generating passphrase-protected GPG key for $GPG_UID..."
-    local PASSPHRASE="${GPG_PASSPHRASE:-}"
-    
-    if [[ -z "$PASSPHRASE" ]]; then
-      read -r -s -p "Enter passphrase for new GPG secret key (or press Enter to omit): " PASSPHRASE
-      echo
-    fi
-
-    local PASS_DIRECTIVE=""
-    if [[ -n "$PASSPHRASE" ]]; then
-      PASS_DIRECTIVE="Passphrase: $PASSPHRASE"
-    else
-      PASS_DIRECTIVE="%no-protection"
-      log_warn "Notice: Creating unencrypted GPG key (%no-protection). Ensure full disk encryption is active."
-    fi
-
-    gpg --batch --gen-key <<EOF
-Key-Type: RSA
-Key-Length: 4096
-Subkey-Type: RSA
-Subkey-Length: 4096
-Name-Real: $GIT_NAME
-Name-Email: $GIT_EMAIL
-$PASS_DIRECTIVE
-Expire-Date: 0
-%commit
-EOF
-  fi
-
-  # Initialize pass store if uninitialized
-  if [[ ! -d "$HOME/.password-store" ]]; then
-    log_info "Initializing pass password store..."
-    pass init "$GPG_UID"
-  fi
-
-  # Install Git Credential Manager if missing
-  if ! command -v git-credential-manager &>/dev/null; then
-    log_info "Installing Git Credential Manager via secure temporary directory..."
-    local GCM_DEB_URL
-    GCM_DEB_URL=$(curl -s https://api.github.com/repos/git-ecosystem/git-credential-manager/releases/latest \
-      | jq -r '.assets[] | select(.name | test("gcm-linux_amd64.*\\.deb$")) | .browser_download_url' 2>/dev/null || true)
-
-    if [[ -z "$GCM_DEB_URL" || "$GCM_DEB_URL" == "null" ]]; then
-      log_warn "Failed to query GitHub API for GCM. Using static release package..."
-      GCM_DEB_URL="https://github.com/git-ecosystem/git-credential-manager/releases/download/v2.6.0/gcm-linux_amd64.2.6.0.deb"
-    fi
-
-    local GCM_TMP
-    GCM_TMP=$(create_secure_tmpdir "gcm")
-    wget -q "$GCM_DEB_URL" -O "$GCM_TMP/gcm.deb"
-    $SUDO dpkg -i "$GCM_TMP/gcm.deb" || $SUDO apt-get install -f -y
-    rm -rf "$GCM_TMP"
-
-    git-credential-manager configure
-    log_warn "Starting GitHub authentication for Git Credential Manager..."
-    git-credential-manager github login --no-ui || true
-  else
-    log_info "Git Credential Manager already installed."
-  fi
+  git-credential-manager configure
+  # Authentication remains an explicit interactive operation, independent of setup.
+  log_info "Git credentials configured. Authenticate when ready with: git-credential-manager github login"
 }
 
-# ------------------------------------------------------------------------------
-# 4. PACKAGE DEPENDENCIES & SHELLS
-# ------------------------------------------------------------------------------
 install_dependencies() {
-  log_info "Installing core APT dependencies..."
-  $SUDO apt install -y \
-    zsh \
-    zsh-autosuggestions \
-    zsh-syntax-highlighting \
-    fzf \
-    zoxide \
-    ripgrep \
-    bat \
-    eza \
-    fastfetch \
-    fish \
-    tmux \
-    python3-gpg \
-    python3-pil \
-    flatpak \
-    build-essential \
-    cmake \
-    ninja-build \
-    gettext \
-    unzip \
-    tar \
-    fd-find \
-    xclip \
-    wl-clipboard \
-    python3-pip \
-    python3-venv \
-    luarocks \
-    gdu \
-    pkg-config \
-    libssl-dev
-
-  # Install bottom (btm) via secure temporary directory
-  if ! command -v btm &>/dev/null; then
-    log_info "Installing bottom (btm)..."
-    local BTM_DEB_URL
-    BTM_DEB_URL=$(curl -s https://api.github.com/repos/ClementTsang/bottom/releases/latest \
-      | jq -r '.assets[] | select(.name | test("bottom_.*_amd64\\.deb$")) | .browser_download_url' 2>/dev/null || true)
-
-    if [[ -z "$BTM_DEB_URL" || "$BTM_DEB_URL" == "null" ]]; then
-      BTM_DEB_URL="https://github.com/ClementTsang/bottom/releases/download/0.10.2/bottom_0.10.2-1_amd64.deb"
-    fi
-
-    local BTM_TMP
-    BTM_TMP=$(create_secure_tmpdir "bottom")
-    wget -q "$BTM_DEB_URL" -O "$BTM_TMP/bottom.deb"
-    $SUDO dpkg -i "$BTM_TMP/bottom.deb" || $SUDO apt-get install -f -y
-    rm -rf "$BTM_TMP"
-  fi
-
-  # Symlink fd-find to fd if necessary
-  if command -v fdfind &>/dev/null && ! command -v fd &>/dev/null; then
-    $SUDO ln -s "$(command -v fdfind)" /usr/local/bin/fd
-  fi
-
-  # Starship Prompt (avoid pipe-to-shell)
-  if ! command -v starship &>/dev/null; then
-    log_info "Installing Starship Prompt..."
-    local STAR_TMP
-    STAR_TMP=$(create_secure_tmpdir "starship")
-    curl -fsSL https://starship.rs/install.sh -o "$STAR_TMP/starship_install.sh"
-    sh "$STAR_TMP/starship_install.sh" -y
-    rm -rf "$STAR_TMP"
+  sudo apt-get install -y zsh zsh-autosuggestions zsh-syntax-highlighting fish fzf zoxide ripgrep bat tmux flatpak \
+    build-essential cmake ninja-build gettext fd-find xclip wl-clipboard python3-pip luarocks gdu pkg-config libssl-dev
+  local package
+  for package in eza fastfetch; do
+    if apt-cache show "$package" >/dev/null 2>&1; then optional "$package" sudo apt-get install -y "$package";
+    else log_warn "$package is unavailable in the configured repositories."; OPTIONAL_FAILURES+=("$package"); fi
+  done
+  if ! command -v btm >/dev/null; then fetch_locked bottom "$WORK_DIR/bottom.deb"; install_deb "$WORK_DIR/bottom.deb"; fi
+  if command -v fdfind >/dev/null && ! command -v fd >/dev/null; then ln -s "$(command -v fdfind)" "$HOME/.local/bin/fd"; fi
+  if ! command -v starship >/dev/null; then
+    fetch_locked starship "$WORK_DIR/starship.tar.gz"
+    python3 "$SCRIPT_DIR/scripts/st_assets.py" tar "$WORK_DIR/starship.tar.gz" "$WORK_DIR/starship"
+    install -m 0755 "$WORK_DIR/starship/starship" "$HOME/.local/bin/starship"
   fi
 }
 
-# ------------------------------------------------------------------------------
-# 5. DOTFILES
-# ------------------------------------------------------------------------------
+update_repository() {
+  local repo=$1 directory=$2 ref=${3:-}
+  if [[ ! -e "$directory" && ! -L "$directory" ]]; then
+    begin_install "$directory"
+    git clone "$repo" "$INSTALL_DIR"
+    [[ -z "$ref" ]] || git -C "$INSTALL_DIR" checkout --detach "$ref"
+    publish_install
+  else
+    [[ -d "$directory/.git" ]] || die "$directory is not a Git checkout; preserve or relocate it before retrying."
+    [[ $(git -C "$directory" remote get-url origin) == "$repo" ]] || die "Existing repository has a different origin: $directory"
+    [[ -z $(git -C "$directory" status --porcelain) ]] || die "Local changes in $directory; commit or stash them before updating."
+    if [[ -n "$ref" ]]; then
+      git -C "$directory" fetch origin
+      git -C "$directory" checkout --detach "$ref"
+    else git -C "$directory" pull --ff-only; fi
+  fi
+  log_info "$directory is at $(git -C "$directory" rev-parse HEAD)."
+}
 setup_dotfiles() {
-  log_info "Setting up Dotfiles from $DOTFILES_REPO..."
-  mkdir -p "$HOME/github"
-  
-  if [[ ! -d "$HOME/.dotfiles" ]]; then
-    git clone "$DOTFILES_REPO" "$HOME/.dotfiles"
-  else
-    log_info "Dotfiles directory exists; updating..."
-    git -C "$HOME/.dotfiles" pull --ff-only 2>/dev/null || true
-  fi
-
-  if [[ -f "$HOME/.dotfiles/bootstrap.sh" ]]; then
-    chmod +x "$HOME/.dotfiles/bootstrap.sh"
-    "$HOME/.dotfiles/bootstrap.sh"
-  fi
+  update_repository "$DOTFILES_REPO" "$HOME/.dotfiles" "${DOTFILES_REF:-}"
+  if [[ -f "$HOME/.dotfiles/bootstrap.sh" ]]; then bash "$HOME/.dotfiles/bootstrap.sh"; fi
 }
-
-# ------------------------------------------------------------------------------
-# SETUP TMUX & TPM
-# ------------------------------------------------------------------------------
 setup_tmux() {
-  log_info "Configuring Tmux and Tmux Plugin Manager (TPM)..."
-
-  local TMUX_DIR="$HOME/.config/tmux"
-  export TMUX_PLUGIN_MANAGER_PATH="$TMUX_DIR/plugins"
-
-  mkdir -p "$TMUX_DIR/plugins"
-
-  if [[ ! -d "$TMUX_DIR/plugins/tpm" ]]; then
-    log_info "Cloning Tmux Plugin Manager to $TMUX_DIR/plugins/tpm..."
-    git clone https://github.com/tmux-plugins/tpm "$TMUX_DIR/plugins/tpm"
-  fi
-
-  if [[ -f "$TMUX_DIR/plugins/tpm/bin/install_plugins" ]]; then
-    log_info "Installing Tmux plugins..."
-    "$TMUX_DIR/plugins/tpm/bin/install_plugins" || true
-  fi
+  export TMUX_PLUGIN_MANAGER_PATH="$HOME/.config/tmux/plugins"
+  update_repository https://github.com/tmux-plugins/tpm "$TMUX_PLUGIN_MANAGER_PATH/tpm" "$TPM_COMMIT"
+  optional 'Tmux plugins' "$TMUX_PLUGIN_MANAGER_PATH/tpm/bin/install_plugins"
 }
 
-# ------------------------------------------------------------------------------
-# 6. PROGRAMMING LANGUAGES (Rust, Go via Mise, Python/uv)
-# ------------------------------------------------------------------------------
+install_uv() {
+  if ! command -v uv >/dev/null; then
+    fetch_locked uv "$WORK_DIR/uv.tar.gz"
+    python3 "$SCRIPT_DIR/scripts/st_assets.py" tar "$WORK_DIR/uv.tar.gz" "$WORK_DIR/uv"
+    install -m 0755 "$WORK_DIR/uv/uv-x86_64-unknown-linux-gnu/uv" "$HOME/.local/bin/uv"
+    install -m 0755 "$WORK_DIR/uv/uv-x86_64-unknown-linux-gnu/uvx" "$HOME/.local/bin/uvx"
+  fi
+}
 install_languages_and_tools() {
-  log_info "Installing Rust toolchain..."
-  if ! command -v rustc &>/dev/null; then
-    local RUST_TMP
-    RUST_TMP=$(create_secure_tmpdir "rustup")
-    curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs -o "$RUST_TMP/rustup.sh"
-    sh "$RUST_TMP/rustup.sh" -y
-    rm -rf "$RUST_TMP"
+  export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
+  if ! command -v rustup >/dev/null; then
+    fetch_locked rustup "$WORK_DIR/rustup-init"
+    chmod 0755 "$WORK_DIR/rustup-init"
+    "$WORK_DIR/rustup-init" -y --default-toolchain "$RUST_VERSION"
   fi
-  if [[ -f "$HOME/.cargo/env" ]]; then
-    # shellcheck source=/dev/null
-    source "$HOME/.cargo/env"
-  fi
-  rustup component add rust-analyzer 2>/dev/null || true
+  require_commands rustup cargo
+  rustup toolchain install "$RUST_VERSION"
+  rustup default "$RUST_VERSION"
+  rustup component add --toolchain "$RUST_VERSION" rust-analyzer
+  if ! command -v asm-lsp >/dev/null; then cargo install asm-lsp --version "$ASM_LSP_VERSION" --locked; fi
   install_rust_completions
-
-  if ! command -v asm-lsp &>/dev/null; then
-    log_info "Installing asm-lsp via Cargo..."
-    cargo install asm-lsp
-  else
-    log_info "asm-lsp already installed."
-  fi
-
-  log_info "Installing Mise and configuring Go..."
-  if ! command -v mise &>/dev/null; then
-    local MISE_TMP
-    MISE_TMP=$(create_secure_tmpdir "mise")
-    curl -fsSL https://mise.run -o "$MISE_TMP/mise.sh"
-    sh "$MISE_TMP/mise.sh"
-    rm -rf "$MISE_TMP"
-  fi
-  
-  export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
-  eval "$("$HOME/.local/bin/mise" activate bash)"
-  
-  mise use --global go@latest
-
-  if command -v go &>/dev/null; then
-    install_go_completions
-  else
-    log_warn "Go binary not found in PATH after Mise setup."
-  fi
-  
-  log_info "Installing Node.js LTS (Required for Neovim LSPs)..."
-  if ! command -v node &>/dev/null; then
-    local NODE_TMP
-    NODE_TMP=$(create_secure_tmpdir "nodesource")
-    curl -fsSL https://deb.nodesource.com/setup_lts.x -o "$NODE_TMP/setup_lts.sh"
-    $SUDO bash "$NODE_TMP/setup_lts.sh"
-    rm -rf "$NODE_TMP"
-    $SUDO apt install -y nodejs
-  fi
-
-  log_info "Installing uv and Django..."
-  if ! command -v uv &>/dev/null; then
-    local UV_TMP
-    UV_TMP=$(create_secure_tmpdir "uv")
-    curl -fsSL https://astral.sh/uv/install.sh -o "$UV_TMP/uv_install.sh"
-    sh "$UV_TMP/uv_install.sh"
-    rm -rf "$UV_TMP"
-  fi
-  "$HOME/.local/bin/uv" tool install --upgrade django 2>/dev/null || true
+  if ! command -v mise >/dev/null; then fetch_locked mise "$WORK_DIR/mise"; install -m 0755 "$WORK_DIR/mise" "$HOME/.local/bin/mise"; fi
+  local mise
+  mise=$(command -v mise)
+  "$mise" use --global "go@$GO_VERSION" "node@$NODE_VERSION"
+  local go_directory node_directory
+  go_directory=$("$mise" where "go@$GO_VERSION")
+  node_directory=$("$mise" where "node@$NODE_VERSION")
+  export PATH="$go_directory/bin:$node_directory/bin:$PATH"
+  require_commands go node npm
+  install_go_completions
+  install_uv
+  uv tool install --python 3.13 "django==$DJANGO_VERSION"
   install_django_completions
 }
 
-# ------------------------------------------------------------------------------
-# 7. NEOVIM & ASTRONVIM INSTALLATION
-# ------------------------------------------------------------------------------
 install_neovim_and_astronvim() {
-  log_info "Checking Neovim installation..."
-
-  local ARCH
-  ARCH=$(uname -m)
-
-  local TAR_NAME EXTRACT_DIR
-  if [[ "$ARCH" == "x86_64" ]]; then
-    TAR_NAME="nvim-linux-x86_64.tar.gz"
-    EXTRACT_DIR="nvim-linux-x86_64"
-  elif [[ "$ARCH" == "aarch64" ]]; then
-    TAR_NAME="nvim-linux-arm64.tar.gz"
-    EXTRACT_DIR="nvim-linux-arm64"
-  else
-    log_error "Unsupported architecture for Neovim: $ARCH"
-    return 1
+  install_uv
+  local provider="$HOME/.local/share/nvim-python" binary
+  if [[ ! -e "$provider" ]]; then uv venv "$provider"; fi
+  check_executable "$provider/bin/python"
+  uv pip install --python "$provider/bin/python" "pynvim==$PYNVIM_VERSION"
+  # Keep this version in its permanent location, then publish a stable link.
+  fetch_locked neovim "$WORK_DIR/neovim.tar.gz"
+  begin_install "$HOME/.local/share/neovim"
+  python3 "$SCRIPT_DIR/scripts/st_assets.py" tar "$WORK_DIR/neovim.tar.gz" "$INSTALL_DIR"
+  binary="$INSTALL_DIR/nvim-linux-x86_64/bin/nvim"
+  check_executable "$binary"
+  check_elf_dependencies "$binary"
+  "$binary" --version >/dev/null
+  publish_install
+  python3 "$SCRIPT_DIR/scripts/neovim_wrapper.py" "$HOME/.local/bin/nvim" "$binary" "$provider/bin/python"
+  if command -v npm >/dev/null; then
+    optional 'Neovim Node provider' npm install --global --prefix "$HOME/.local" "neovim@$NEOVIM_NODE_VERSION" "tree-sitter-cli@$TREE_SITTER_VERSION"
   fi
-
-  if ! command -v nvim &>/dev/null; then
-    local NVIM_URL="https://github.com/neovim/neovim/releases/latest/download/${TAR_NAME}"
-    local NVIM_TMP
-    NVIM_TMP=$(create_secure_tmpdir "nvim")
-    local TEMP_TAR="$NVIM_TMP/${TAR_NAME}"
-
-    log_info "Downloading latest Neovim release..."
-    wget -q --show-progress "$NVIM_URL" -O "$TEMP_TAR"
-
-    if [[ -f "$TEMP_TAR" && -s "$TEMP_TAR" ]]; then
-      log_info "Extracting Neovim to /opt..."
-      $SUDO rm -rf "/opt/${EXTRACT_DIR}"
-      $SUDO tar -C /opt -xzf "$TEMP_TAR"
-      $SUDO ln -sf "/opt/${EXTRACT_DIR}/bin/nvim" /usr/local/bin/nvim
-    fi
-    rm -rf "$NVIM_TMP"
-  else
-    log_info "Neovim binary is already installed."
-  fi
-
-  log_info "Configuring Neovim Python, Node, and Treesitter providers..."
-  python3 -m pip install --user --upgrade pynvim --break-system-packages 2>/dev/null || \
-  python3 -m pip install --user --upgrade pynvim 2>/dev/null || true
-
-  if command -v npm &>/dev/null; then
-    $SUDO npm install -g neovim tree-sitter-cli || true
-  fi
-
-  log_info "Deploying AstroNvim configuration..."
-  if [[ -d "$HOME/.config/nvim/.git" ]]; then
-    log_info "Existing AstroNvim Git repository detected; pulling latest changes..."
-    git -C "$HOME/.config/nvim" pull --ff-only 2>/dev/null || log_warn "Local changes present; skipped pull."
-  elif [[ -d "$HOME/.config/nvim" ]]; then
-    log_warn "Non-git ~/.config/nvim detected; backing up to ~/.config/nvim.bak..."
-    mv "$HOME/.config/nvim" "$HOME/.config/nvim.bak_$(date +%Y%m%d_%H%M%S)"
-    git clone "$NVIM_CONFIG_REPO" "$HOME/.config/nvim"
-  else
-    git clone "$NVIM_CONFIG_REPO" "$HOME/.config/nvim"
-  fi
-
-  if command -v nvim &>/dev/null; then
-    log_info "Initializing Neovim headless plugins..."
-    nvim --headless -c 'quitall' 2>/dev/null || true
-  fi
+  # Preserve non-Git configs and only publish a validated clone after it succeeds.
+  if [[ -e "$HOME/.config/nvim" && ! -d "$HOME/.config/nvim/.git" ]]; then
+    begin_install "$HOME/.config/nvim"
+    git clone "$NVIM_CONFIG_REPO" "$INSTALL_DIR"
+    [[ -z ${NVIM_CONFIG_REF:-} ]] || git -C "$INSTALL_DIR" checkout --detach "$NVIM_CONFIG_REF"
+    publish_install
+  else update_repository "$NVIM_CONFIG_REPO" "$HOME/.config/nvim" "${NVIM_CONFIG_REF:-}"; fi
+  optional 'Neovim plugin initialization' "$HOME/.local/bin/nvim" --headless -c quitall
 }
 
-# ------------------------------------------------------------------------------
-# 8. THIRD-PARTY APPLICATIONS & REPOSITORIES (Secure temp handling)
-# ------------------------------------------------------------------------------
-install_applications() {
-  log_info "Creating workspace and application folders..."
-  mkdir -p "$HOME/Downloads" "$HOME/Applications" "$HOME/Projects"
-
-  # Dropbox
-  log_info "Installing Dropbox..."
-  $SUDO apt install -y nautilus-dropbox
-
-  # VS Code via Official Microsoft Repository
-  if [[ ! -f /etc/apt/sources.list.d/vscode.list ]]; then
-    log_info "Setting up VS Code repository..."
-    $SUDO apt install -y gpg wget apt-transport-https
-    
-    local VSC_TMP
-    VSC_TMP=$(create_secure_tmpdir "vscode")
-    wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > "$VSC_TMP/packages.microsoft.gpg"
-    $SUDO install -D -o root -g root -m 644 "$VSC_TMP/packages.microsoft.gpg" /etc/apt/keyrings/packages.microsoft.gpg
-    echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" | $SUDO tee /etc/apt/sources.list.d/vscode.list > /dev/null
-    rm -rf "$VSC_TMP"
-    $SUDO apt update
-  fi
-  $SUDO apt install -y code
-
-  # AppImageLauncher (if not already installed)
-  if ! dpkg -s appimagelauncher &>/dev/null; then
-    log_info "Installing AppImageLauncher via secure temporary directory..."
-    local AIL_TMP
-    AIL_TMP=$(create_secure_tmpdir "appimagelauncher")
-    wget -q "https://github.com/TheAssassin/AppImageLauncher/releases/download/v2.2.0/appimagelauncher_2.2.0-travis995.0f91801.bionic_amd64.deb" -O "$AIL_TMP/appimagelauncher.deb"
-    $SUDO dpkg -i "$AIL_TMP/appimagelauncher.deb" || $SUDO apt-get install -f -y
-    rm -rf "$AIL_TMP"
-  fi
-
-  # Arduino Toolchain
-  log_info "Installing Arduino environment..."
-  $SUDO apt install -y arduino arduino-builder avra avrdude-doc gdb-avr
-
-  # Saleae Logic 2 AppImage & Udev Rules
-  log_info "Setting up Saleae Logic 2..."
-  if [[ ! -f "$HOME/Applications/Logic2-linux-x64.AppImage" ]]; then
-    wget -q "https://logic2api.saleae.com/download?os=linux&arch=x64" -O "$HOME/Applications/Logic2-linux-x64.AppImage"
-    chmod +x "$HOME/Applications/Logic2-linux-x64.AppImage"
-  fi
-
-  if [[ ! -f /etc/udev/rules.d/99-SaleaeLogic.rules ]]; then
-    log_info "Installing verified Saleae Logic udev rules..."
-    local SAL_TMP
-    SAL_TMP=$(create_secure_tmpdir "saleae")
-    if curl -fsSL "https://raw.githubusercontent.com/saleae/saleae-logic-udev/master/99-SaleaeLogic.rules" -o "$SAL_TMP/99-SaleaeLogic.rules"; then
-      # Security check: verify rule does not contain dangerous RUN directives
-      if ! grep -qE '\b(RUN|PROGRAM)\b' "$SAL_TMP/99-SaleaeLogic.rules"; then
-        $SUDO install -o root -g root -m 0644 "$SAL_TMP/99-SaleaeLogic.rules" /etc/udev/rules.d/
-        $SUDO udevadm control --reload-rules 2>/dev/null || true
-        $SUDO udevadm trigger 2>/dev/null || true
-      else
-        log_error "Security alert: Saleae udev rule contained RUN directives. Refusing to install."
-      fi
-    fi
-    rm -rf "$SAL_TMP"
-  fi
-
-  # FreeCAD Flatpak
-  if command -v flatpak &>/dev/null; then
-    log_info "Installing FreeCAD Flatpak..."
-    flatpak install -y org.freecad.FreeCAD 2>/dev/null || true
-  fi
-
-  # Synology Drive Client
-  if ! dpkg -s synology-drive &>/dev/null; then
-    log_info "Installing Synology Drive Client via secure temporary directory..."
-    local SYN_TMP
-    SYN_TMP=$(create_secure_tmpdir "synology")
-    wget -q "https://global.synologydownload.com/download/Utility/SynologyDriveClient/4.0.1-17885/Ubuntu/Installer/synology-drive-client-17885.x86_64.deb" -O "$SYN_TMP/synology-drive.deb"
-    $SUDO dpkg -i "$SYN_TMP/synology-drive.deb" || $SUDO apt-get install -f -y
-    rm -rf "$SYN_TMP"
-  fi
-
-  # Database CLI tools, CAD, and Document tools
-  $SUDO apt install -y \
-    litecli \
-    pgcli \
-    mycli \
-    kicad \
-    openscad \
-    libreoffice \
-    evince
+install_repository() {
+  local name=$1 key=$2 source=$3
+  fetch_locked "$key" "$WORK_DIR/$name.key"
+  if [[ $name == vscode ]]; then
+    gpg --batch --yes --dearmor -o "$WORK_DIR/$name.gpg" "$WORK_DIR/$name.key"
+    install_system_file "$WORK_DIR/$name.gpg" "/etc/apt/keyrings/$name.gpg"
+  else install_system_file "$WORK_DIR/$name.key" "/etc/apt/keyrings/$name.asc"; fi
+  printf '%s\n' "$source" > "$WORK_DIR/$name.list"
+  install_system_file "$WORK_DIR/$name.list" "/etc/apt/sources.list.d/$name.list"
+  sudo apt-get update
 }
-
-# ------------------------------------------------------------------------------
-# FIREFOX DEVELOPER EDITION (OFFICIAL MOZILLA REPOSITORY)
-# ------------------------------------------------------------------------------
 install_firefox_dev() {
-  if ! dpkg -s firefox-devedition &>/dev/null; then
-    log_info "Setting up Mozilla APT repository for Firefox Developer Edition..."
-
-    $SUDO install -d -m 0755 /etc/apt/keyrings
-    wget -q https://packages.mozilla.org/apt/repo-signing-key.gpg -O- | $SUDO tee /etc/apt/keyrings/packages.mozilla.org.asc > /dev/null
-
-    echo "deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main" | $SUDO tee /etc/apt/sources.list.d/mozilla.list > /dev/null
-
-    # Scope APT pinning to Firefox packages
-    echo '
-Package: firefox*
-Pin: origin packages.mozilla.org
-Pin-Priority: 1000
-' | $SUDO tee /etc/apt/preferences.d/mozilla > /dev/null
-
-    $SUDO apt update && $SUDO apt install -y firefox-devedition
-  else
-    log_info "Firefox Developer Edition already installed."
+  if ! package_installed firefox-devedition; then
+    install_repository mozilla mozilla-key 'deb [signed-by=/etc/apt/keyrings/mozilla.asc] https://packages.mozilla.org/apt mozilla main'
+    printf 'Package: firefox*\nPin: origin packages.mozilla.org\nPin-Priority: 1000\n' > "$WORK_DIR/mozilla.preferences"
+    install_system_file "$WORK_DIR/mozilla.preferences" /etc/apt/preferences.d/mozilla
+    sudo apt-get install -y firefox-devedition
   fi
 }
-
-# ------------------------------------------------------------------------------
-# 9. CONFIGURE AVR AND ARM TOOLCHAINS
-# ------------------------------------------------------------------------------
+install_freecad() {
+  flatpak --user remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo || return
+  flatpak --user install -y flathub org.freecad.FreeCAD
+}
+install_applications() {
+  mkdir -p "$HOME/Applications" "$HOME/Projects" "$HOME/Downloads"
+  optional Dropbox sudo apt-get install -y nautilus-dropbox
+  if ! package_installed code; then
+    install_repository vscode vscode-key 'deb [arch=amd64 signed-by=/etc/apt/keyrings/vscode.gpg] https://packages.microsoft.com/repos/code stable main'
+    sudo apt-get install -y code
+  fi
+  if ! package_installed appimagelauncher; then
+    fetch_locked appimagelauncher "$WORK_DIR/appimagelauncher.deb"
+    optional AppImageLauncher install_deb "$WORK_DIR/appimagelauncher.deb"
+  fi
+  optional 'Arduino packages' sudo apt-get install -y arduino arduino-builder avra avrdude-doc gdb-avr
+  fetch_locked saleae "$HOME/Applications/Logic2-linux-x64.AppImage"
+  chmod 0755 "$HOME/Applications/Logic2-linux-x64.AppImage"
+  install_system_file "$SCRIPT_DIR/resources/udev/99-SaleaeLogic.rules" /etc/udev/rules.d/99-SaleaeLogic.rules
+  sudo udevadm control --reload-rules
+  optional FreeCAD install_freecad
+  if ! package_installed synology-drive; then
+    fetch_locked synology "$WORK_DIR/synology.deb"
+    optional 'Synology Drive' install_deb "$WORK_DIR/synology.deb"
+  fi
+  sudo apt-get install -y litecli pgcli mycli kicad openscad libreoffice evince
+}
 install_avr_and_arm_toolchain() {
-  log_info "Installing AVR and ARM toolchains..."
-  
-  $SUDO apt install -y \
-    gcc-arm-none-eabi \
-    binutils-arm-none-eabi \
-    gdb-multiarch \
-    openocd \
-    stlink-tools \
-    gcc-avr \
-    binutils-avr \
-    avr-libc \
-    avrdude \
-    libusb-1.0-0-dev \
-    libftdi1-2 \
-    picocom
+  sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi gdb-multiarch openocd stlink-tools gcc-avr binutils-avr avr-libc avrdude libusb-1.0-0-dev libftdi1-2 picocom
 }
-
-# ------------------------------------------------------------------------------
-# 10. CONFIGURE RISC-V TOOLCHAIN
-# ------------------------------------------------------------------------------
 install_riscv_toolchain() {
-  log_info "Installing RISC-V toolchain..."
-  
-  $SUDO apt install -y \
-    gcc-riscv64-unknown-elf \
-    binutils-riscv64-unknown-elf \
-    picolibc-riscv64-unknown-elf \
-    qemu-system-misc
+  sudo apt-get install -y gcc-riscv64-unknown-elf binutils-riscv64-unknown-elf picolibc-riscv64-unknown-elf qemu-system-misc
 }
 
-# ------------------------------------------------------------------------------
-# 11. RUST COMPLETIONS
-# ------------------------------------------------------------------------------
+completion_file() {
+  local destination=$1 temporary
+  shift
+  mkdir -p "$(dirname "$destination")" || return
+  temporary=$(mktemp "${destination}.tmp.XXXXXX") || return
+  if ! "$@" > "$temporary"; then rm -f -- "$temporary"; return 1; fi
+  mv -Tf -- "$temporary" "$destination"
+}
 install_rust_completions() {
-  log_info "Configuring Rust shell completions..."
-
-  # Bash
-  mkdir -p "$HOME/.local/share/bash-completion/completions"
-  rustup completions bash > "$HOME/.local/share/bash-completion/completions/rustup" 2>/dev/null || true
-  rustup completions bash cargo > "$HOME/.local/share/bash-completion/completions/cargo" 2>/dev/null || true
-
-  # Zsh
-  mkdir -p "$HOME/.zsh/completion"
-  rustup completions zsh > "$HOME/.zsh/completion/_rustup" 2>/dev/null || true
-  rustup completions zsh cargo > "$HOME/.zsh/completion/_cargo" 2>/dev/null || true
-
-  # Fish
-  mkdir -p "$HOME/.config/fish/completions"
-  rustup completions fish > "$HOME/.config/fish/completions/rustup.fish" 2>/dev/null || true
+  local shell
+  for shell in bash zsh fish; do
+    local directory destination
+    case "$shell" in
+      bash) directory="$HOME/.local/share/bash-completion/completions"; destination=rustup ;;
+      zsh) directory="$HOME/.zsh/completion"; destination=_rustup ;;
+      fish) directory="$HOME/.config/fish/completions"; destination=rustup.fish ;;
+    esac
+    optional "Rustup $shell completions" completion_file "$directory/$destination" rustup completions "$shell"
+    if [[ $shell != fish ]]; then optional "Cargo $shell completions" completion_file "$directory/${destination/rustup/cargo}" rustup completions "$shell" cargo; fi
+  done
 }
-
-# ------------------------------------------------------------------------------
-# 12. GO COMPLETIONS
-# ------------------------------------------------------------------------------
 install_go_completions() {
-  log_info "Configuring Go completions..."
-  
-  go install github.com/posener/complete/gocomplete@latest 2>/dev/null || true
-
-  # Ensure GOPATH/bin is in PATH and hook gocomplete
-  local GO_HOOK='export PATH="$HOME/go/bin:$PATH"
-if command -v gocomplete &>/dev/null; then complete -o nospace -C gocomplete go; fi'
-
-  if [[ -f "$HOME/.bashrc" ]] && ! grep -q "gocomplete" "$HOME/.bashrc"; then
-    log_info "Adding gocomplete and Go bin path to .bashrc..."
-    echo -e "\n# Go Completion & Path Integration\n$GO_HOOK" >> "$HOME/.bashrc"
-  fi
+  go install "github.com/posener/complete/gocomplete@$GOCOMPLETE_VERSION"
+  mkdir -p "$HOME/.local/share/bash-completion/completions"
+  cat > "$HOME/.local/share/bash-completion/completions/go" <<'BASH'
+export PATH="${GOBIN:-${GOPATH:-$HOME/go}/bin}:$PATH"
+if command -v gocomplete >/dev/null; then complete -o nospace -C gocomplete go; fi
+BASH
 }
-
-# ------------------------------------------------------------------------------
-# 13. DJANGO COMPLETIONS
-# ------------------------------------------------------------------------------
 install_django_completions() {
-  log_info "Installing Django completions for Fish, Zsh, and Bash..."
-
-  # 1. Fish
-  mkdir -p "$HOME/.config/fish/completions"
-  cat << 'EOF' > "$HOME/.config/fish/completions/django-admin.fish"
-function __fish_django_complete
-    set -l cmd (commandline -o)
-    set -l current (commandline -ct)
-    eval $cmd[1] tabcomplete -- $cmd[2..-1] $current 2>/dev/null
-end
-
-complete -c django-admin -f -a "(__fish_django_complete)"
-complete -c manage.py -f -a "(__fish_django_complete)"
-EOF
-
-  # 2. Zsh
-  mkdir -p "$HOME/.zsh/completion"
-  curl -fsSL "https://raw.githubusercontent.com/django/django/main/extras/django_zsh_completion" \
-    -o "$HOME/.zsh/completion/_django" 2>/dev/null || true
-
-  # 3. Bash
-  local BASH_COMP_DIR="$HOME/.local/share/bash-completion/completions"
-  mkdir -p "$BASH_COMP_DIR"
-  curl -fsSL "https://raw.githubusercontent.com/django/django/main/extras/django_bash_completion" \
-    -o "$BASH_COMP_DIR/django-admin" 2>/dev/null || true
-  ln -sf "$BASH_COMP_DIR/django-admin" "$BASH_COMP_DIR/manage.py"
+  local bash_dir="$HOME/.local/share/bash-completion/completions"
+  mkdir -p "$bash_dir" "$HOME/.zsh/completion" "$HOME/.config/fish/completions"
+  install -m 0644 "$SCRIPT_DIR/resources/django-admin.bash" "$bash_dir/django-admin"
+  ln -sfn django-admin "$bash_dir/manage.py"
+  install -m 0644 "$SCRIPT_DIR/resources/_django" "$HOME/.zsh/completion/_django"
+  install -m 0644 "$SCRIPT_DIR/resources/django-admin.fish" "$HOME/.config/fish/completions/django-admin.fish"
 }
 
-# ------------------------------------------------------------------------------
-# MAIN EXECUTION FLOW
-# ------------------------------------------------------------------------------
 main() {
-  log_info "Starting Pop!_OS Post-Installation Setup..."
-
-  setup_system
-  install_fonts
-  setup_git
-  install_dependencies
-  setup_dotfiles
-  setup_tmux
-  install_languages_and_tools
-  install_neovim_and_astronvim
-  install_firefox_dev
-  install_applications
-  install_avr_and_arm_toolchain
-  install_riscv_toolchain
-
-  log_info "Setup complete! Please restart your shell or log out and back in."
+  local selected='system,fonts,git,dependencies,dotfiles,tmux,languages,neovim,firefox,applications,arm-avr,riscv' stage
+  case ${1:-} in
+    --list-stages) [[ $# -eq 1 ]] || die "--list-stages takes no arguments."; printf '%s\n' "${STAGES[@]}"; return ;;
+    --stages) [[ $# -eq 2 && -n $2 ]] || die "Usage: $0 --stages comma,separated,stages"; selected=$2 ;;
+    '') [[ $# -eq 0 ]] || die "Unexpected empty argument." ;;
+    *) die "Usage: $0 [--list-stages | --stages comma,separated,stages]" ;;
+  esac
+  local -a chosen
+  [[ $selected != ,* && $selected != *, && $selected != *,,* ]] || die "Stage names cannot be empty."
+  IFS=, read -r -a chosen <<< "$selected"
+  for stage in "${chosen[@]}"; do
+    [[ " ${STAGES[*]} " == *" $stage "* && -n $stage ]] || die "Unknown stage: $stage"
+  done
+  require_user
+  require_supported_system
+  require_commands sudo apt-get python3
+  load_config
+  validate_config "$selected"
+  start_workspace pop-workstation
+  mkdir -p "$HOME/.local/bin"
+  export PATH="$HOME/.local/bin:$PATH"
+  install_prerequisites
+  for stage in "${chosen[@]}"; do
+    log_info "Running stage: $stage"
+    case "$stage" in
+      system) setup_system ;; fonts) install_fonts ;; git) setup_git ;;
+      dependencies) install_dependencies ;; dotfiles) setup_dotfiles ;; tmux) setup_tmux ;;
+      languages) install_languages_and_tools ;; neovim) install_neovim_and_astronvim ;;
+      firefox) install_firefox_dev ;; applications) install_applications ;;
+      arm-avr) install_avr_and_arm_toolchain ;; riscv) install_riscv_toolchain ;;
+    esac
+  done
+  python3 "$SCRIPT_DIR/scripts/shell_integration.py" "$HOME" "$SCRIPT_DIR/resources"
+  if (( ${#OPTIONAL_FAILURES[@]} )); then
+    log_warn "Required stages completed. Optional components failed or were unavailable: ${OPTIONAL_FAILURES[*]}"
+  else log_info "Selected setup stages completed."; fi
+  log_info "Restart your shell or log out and back in to apply PATH and group changes."
 }
-
-main "$@"
+if [[ ${BASH_SOURCE[0]} == "$0" ]]; then main "$@"; fi
