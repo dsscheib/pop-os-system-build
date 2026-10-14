@@ -451,7 +451,7 @@ install_saleae_launcher() {
     QT_QPA_PLATFORM=xcb APPIMAGELAUNCHER_DISABLE=1 || return
   install -D -m 0644 "$SCRIPT_DIR/resources/icons/saleae-logic.png" "$icon" || return
   write_desktop "$desktop" 'Saleae Logic' "$wrapper" "$HOME/Applications" \
-    saleae-logic "" || return
+    "$icon" Logic || return
   desktop-file-validate "$desktop" || return
   refresh_desktop_environment "$(dirname "$desktop")"
 }
