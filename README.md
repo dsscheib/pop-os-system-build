@@ -54,7 +54,7 @@ Copy the template configuration file to `config.env` and adjust your identity:
 ```bash
 cp config.env.example config.env
 # Edit config.env with your details (git name, email, dotfiles & nvim repos)
-nano config.env
+vi config.env
 ```
 *(Note: `config.env` is ignored by Git to preserve privacy across rebuilds.)*
 
