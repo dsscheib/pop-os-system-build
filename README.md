@@ -300,7 +300,10 @@ Run without `sudo`:
 CubeIDE selects its Debian package by metadata and extracts the ST-LINK server
 alongside it. CubeMX's extensionless installer and CubeProgrammer's adjacent Java
 payload are supported. The IzPack panel classes/IDs are checked against the payload
-before installation, and XML paths are escaped. SW4STM32 uses its bundled JRE
+before installation, and XML paths are escaped. CubeMX and CubeProgrammer run
+unattended Java installation in headless mode from the extracted archive directory
+so ST's post-install scripts can copy the bundled JRE. The installed Java runtime
+is checked before publishing the application. SW4STM32 uses its bundled JRE
 directly to preserve the installer's exit status; its system driver/server packs
 are deselected in favor of the reviewed repository rules.
 

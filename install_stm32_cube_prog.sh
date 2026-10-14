@@ -18,9 +18,15 @@ main() {
   check_executable "$WORK_DIR/archive/jre/bin/java"
   begin_install "$HOME/STMicroelectronics/STM32Cube/STM32CubeProgrammer"
   python3 "$SCRIPT_DIR/scripts/st_assets.py" response "$SCRIPT_DIR/resources/izpack/cubeprogrammer.xml" "$INSTALL_DIR" "$WORK_DIR/response.xml" "$payload"
-  "$WORK_DIR/archive/jre/bin/java" -jar "$payload" "$WORK_DIR/response.xml"
+  # ST's post-install script copies ./jre into bin/jre. Preserve its expected
+  # working directory without requiring a display for unattended setup.
+  (
+    cd -- "$(dirname "$payload")"
+    "$WORK_DIR/archive/jre/bin/java" -Djava.awt.headless=true -jar "$payload" "$WORK_DIR/response.xml"
+  )
   check_executable "$INSTALL_DIR/bin/STM32_Programmer_CLI"
   check_executable "$INSTALL_DIR/bin/STM32CubeProgrammerLauncher"
+  check_executable "$INSTALL_DIR/bin/jre/bin/java"
   check_elf_dependencies "$INSTALL_DIR/bin/STM32_Programmer_CLI"
   if convert_icon_to_png "$INSTALL_DIR/util/Programmer.ico" "$INSTALL_DIR/launcher.png"; then icon="$INSTALL_DIR/launcher.png"; fi
   # GUI and CLI both execute from bin so their relative library paths work.

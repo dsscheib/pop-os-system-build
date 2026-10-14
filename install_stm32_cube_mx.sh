@@ -16,8 +16,14 @@ main() {
   check_executable "$WORK_DIR/archive/jre/bin/java"
   begin_install "$HOME/STMicroelectronics/STM32Cube/STM32CubeMX"
   python3 "$SCRIPT_DIR/scripts/st_assets.py" response "$SCRIPT_DIR/resources/izpack/cubemx.xml" "$INSTALL_DIR" "$WORK_DIR/response.xml" "$installer"
-  "$WORK_DIR/archive/jre/bin/java" -jar "$installer" "$WORK_DIR/response.xml"
+  # ST's post-install script copies ./jre into the installation. Run from
+  # the extracted archive, and avoid requiring a display for unattended setup.
+  (
+    cd -- "$(dirname "$installer")"
+    "$WORK_DIR/archive/jre/bin/java" -Djava.awt.headless=true -jar "$installer" "$WORK_DIR/response.xml"
+  )
   check_executable "$INSTALL_DIR/STM32CubeMX"
+  check_executable "$INSTALL_DIR/jre/bin/java"
   # Choose a known native resource; do not parse ls output or depend on the network.
   if python3 - "$installer" "$WORK_DIR/icon.png" <<'PY'
 import sys, zipfile

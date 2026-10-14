@@ -225,6 +225,71 @@ main "$1"
                 self.assertEqual((target / 'keep').read_text(), 'working')
                 self.assertEqual(list((fixture / '.installed.versions').iterdir()), [])
 
+    def test_cube_install_copies_adjacent_jre_and_rejects_missing_runtime(self):
+        for script, template, payload, runtime in (
+            ('install_stm32_cube_mx.sh', 'cubemx', 'SetupSTM32CubeMX-test', 'jre'),
+            ('install_stm32_cube_prog.sh', 'cubeprogrammer',
+             'SetupSTM32CubeProgrammer-test.exe', 'bin/jre'),
+        ):
+            for copy_runtime in ('yes', 'no'):
+                with self.subTest(script=script, copy_runtime=copy_runtime):
+                    fixture = self.root / f'{template}-{copy_runtime}'
+                    fixture.mkdir()
+                    jar = fixture / payload
+                    self.jar_fixture(jar, REPO / f'resources/izpack/{template}.xml')
+                    archive = fixture / 'archive.zip'
+                    java = '''#!/usr/bin/env bash
+set -euo pipefail
+[[ $1 == -Djava.awt.headless=true && $2 == -jar ]] || exit 41
+[[ $PWD == "${3%/*}" && -x jre/bin/java ]] || exit 43
+python3 - "$4" <<'PY'
+import os
+from pathlib import Path
+import shutil
+import sys
+import xml.etree.ElementTree as ET
+target = Path(ET.parse(sys.argv[1]).find('.//installpath').text)
+for name in ('STM32CubeMX', 'bin/STM32_Programmer_CLI', 'bin/STM32CubeProgrammerLauncher'):
+    executable = target / name
+    executable.parent.mkdir(parents=True, exist_ok=True)
+    executable.write_text('#!/bin/sh\\nexit 0\\n')
+    executable.chmod(0o755)
+if os.environ['TEST_COPY_RUNTIME'] == 'yes':
+    shutil.copytree('jre', target / os.environ['TEST_RUNTIME'])
+PY
+'''
+                    with zipfile.ZipFile(archive, 'w') as container:
+                        container.write(jar, payload)
+                        info = zipfile.ZipInfo('jre/bin/java')
+                        info.external_attr = (stat.S_IFREG | 0o755) << 16
+                        container.writestr(info, java)
+                    target = fixture / 'installed'
+                    target.mkdir()
+                    (target / 'keep').write_text('working')
+                    result = self.bash('''
+st_preflight() { require_commands python3 sha256sum realpath find mktemp; }
+eval "$(declare -f begin_install | sed '1s/begin_install/original_begin_install/')"
+begin_install() { original_begin_install "$TEST_TARGET"; }
+check_elf_dependencies() { return 0; }
+st_finish() { check_executable "$3"; publish_install; }
+main "$1"
+''', archive, script=script, env={
+                        'HOME': str(fixture / 'home'),
+                        'TEST_TARGET': str(target), 'TEST_RUNTIME': runtime,
+                        'TEST_COPY_RUNTIME': copy_runtime,
+                        'ST_INSTALLER_SHA256': hashlib.sha256(archive.read_bytes()).hexdigest(),
+                    })
+                    if copy_runtime == 'yes':
+                        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                        self.assertTrue(target.is_symlink())
+                        self.assertTrue(os.access(target / runtime / 'bin/java', os.X_OK))
+                    else:
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn('Required executable missing', result.stderr)
+                        self.assertEqual((target / 'keep').read_text(), 'working')
+                        self.assertFalse(target.is_symlink())
+                        self.assertEqual(list((fixture / '.installed.versions').iterdir()), [])
+
     def test_cubeide_selects_main_package_before_failed_extraction(self):
         # A companion package appears first in the payload. Metadata, not order,
         # must choose the IDE package; extraction failure must preserve old data.
@@ -292,14 +357,16 @@ main "$1"
         self.jar_fixture(jar, REPO / 'resources/izpack/cubemx.xml')
         archive = self.root / 'mx.zip'
         fake_java = '''#!/usr/bin/env bash
-python3 - "$3" <<'PY'
+python3 - "$4" <<'PY'
 from pathlib import Path
+import shutil
 import sys
 import xml.etree.ElementTree as ET
 directory = Path(ET.parse(sys.argv[1]).find('.//installpath').text)
 binary = directory / 'STM32CubeMX'
 binary.write_text('#!/bin/sh\\nexit 0\\n')
 binary.chmod(0o755)
+shutil.copytree('jre', directory / 'jre')
 PY
 '''
         with zipfile.ZipFile(archive, 'w') as zip_file:
