@@ -116,7 +116,7 @@ List or select stages:
 ./pop_os_config.sh --list-stages
 ./pop_os_config.sh --stages dependencies,languages,neovim
 ./pop_os_config.sh --stages system,arm,avr,riscv
-./pop_os_config.sh --stages antigravity,claudecode,codex
+./pop_os_config.sh --stages antigravity,claudecode,codex,copilot
 ```
 
 The `arm` stage includes ARM32 bare-metal tools (`arm-none-eabi-gcc`),
@@ -158,34 +158,45 @@ in by `build-essential` or other package dependencies. Cross-compilers in the
 ARM/AVR/RISC-V stages also use their current APT candidates and keep their target
 prefixes.
 
-The default setup includes three independent AI CLI stages:
+The default setup includes four independent AI CLI stages:
 
 | Stage | Command | Installation |
 | :--- | :--- | :--- |
 | `antigravity` | `agy` | Verified, pinned official Antigravity CLI release |
 | `claudecode` | `claude` | Anthropic's signed APT repository, latest channel |
 | `codex` | `codex` | Pinned official `@openai/codex` npm package |
+| `copilot` | `copilot` | Pinned official `@github/copilot` npm package |
 
 These stages install CLIs only. Antigravity's desktop app and standalone IDE are
 separate products and are not installed. Each stage checks `--version` and stops
 on a missing or broken CLI. An existing CLI on `PATH` is verified and preserved.
-No sign-in runs during setup; launch `agy`, `claude`, or `codex` afterward to
-authenticate with your account.
+No sign-in runs during setup; launch `agy`, `claude`, `codex`, or `copilot` afterward
+to authenticate with your account. In Copilot CLI, follow the `/login` prompts.
 
-Antigravity and Codex install under `~/.local/share/pop-workstation` with launchers
-in `~/.local/bin`, preserving the project's working directory. Codex installs its
-Node runtime through Mise when a suitable Node/npm pair is unavailable, so the
-stage can run without selecting `languages`. Its launcher uses the selected Node
-executable directly. Claude Code's native APT package does not require Node.
+Antigravity, Codex, and Copilot install under `~/.local/share/pop-workstation` with
+launchers in `~/.local/bin`, preserving the project's working directory. Codex and
+Copilot install their Node runtime through Mise when a suitable Node/npm pair is
+unavailable, so the stages can run without selecting `languages`. Their launchers
+use the selected Node executable directly. Claude Code's native APT package does
+not require Node.
 Network access is required for these downloads and package repositories.
 
 Installation sources: [Antigravity CLI](https://www.antigravity.google/docs/cli/install/),
 [Claude Code](https://code.claude.com/docs/en/setup#install-with-linux-package-managers),
-and [Codex CLI](https://learn.chatgpt.com/docs/codex/cli). Antigravity's SHA-256 pin
-was calculated after verifying the archive against Google's published SHA-512
-manifest. Anthropic's signing key is checksum-pinned; its fingerprint is
+[Codex CLI](https://learn.chatgpt.com/docs/codex/cli), and
+[GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli).
+Antigravity's SHA-256 pin was calculated after verifying the archive against
+Google's published SHA-512 manifest. Anthropic's signing key is checksum-pinned;
+its fingerprint is
 `31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE`. Update release pins deliberately;
 Claude Code's APT package follows its repository's latest channel.
+
+The personal AstroNvim configuration enables Copilot inline suggestions separately
+from the CLI. Set `NVIM_CONFIG_REPO="https://github.com/dsscheib/astronvim_v6"` in
+`config.env`, then select `dependencies,languages,neovim,copilot` to install both.
+After opening Neovim, run `:Copilot auth` and follow GitHub's sign-in prompts.
+Accept an inline suggestion with `Alt+L`. CLI authentication and editor
+authentication are separate setup steps; neither is performed by this script.
 
 The personal `dotfiles` and `astronvim_v6` repositories have recently been fixed
 but still need their own validation. This repository's checks do not execute or

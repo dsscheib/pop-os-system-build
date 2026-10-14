@@ -631,7 +631,7 @@ if install_build_tools; then exit 0; else exit "$?"; fi
         archive = self.root / 'antigravity.tar.gz'
         with tarfile.open(archive, 'w:gz') as stream:
             stream.add(native, arcname='antigravity')
-        name = {'antigravity': 'agy', 'claudecode': 'claude', 'codex': 'codex'}[stage]
+        name = {'antigravity': 'agy', 'claudecode': 'claude', 'codex': 'codex', 'copilot': 'copilot'}[stage]
         if present:
             (directory / name).write_bytes(native.read_bytes())
             (directory / name).chmod(0o755)
@@ -640,7 +640,7 @@ export HOME="$1" WORK_DIR="$1/work"
 export PATH="$HOME/.local/bin:$PATH"
 # Isolate these names from the host's installed AI clients.
 command() {
-    if [[ $1 == -v && $2 =~ ^(agy|claude|codex)$ ]]; then
+    if [[ $1 == -v && $2 =~ ^(agy|claude|codex|copilot)$ ]]; then
         [[ -x "$HOME/.local/bin/$2" ]] || return 1
         printf '%s\\n' "$HOME/.local/bin/$2"
     else builtin command "$@"; fi
@@ -648,9 +648,17 @@ command() {
 fetch_locked() { cp "$HOME/antigravity.tar.gz" "$2"; }
 ensure_node_runtime() { :; }
 npm() {
-    [[ $1 == install && $2 == --global && $3 == --prefix && $5 == --include=optional && $6 == "@openai/codex@$CODEX_VERSION" ]] || return 90
-    mkdir -p "$4/lib/node_modules/@openai/codex/bin"
-    printf 'console.log("fixture-version"); process.exit(%s);\\n' "$AI_TEST_STATUS" > "$4/lib/node_modules/@openai/codex/bin/codex.js"
+    [[ $1 == install && $2 == --global && $3 == --prefix && $5 == --include=optional ]] || return 90
+    local binary
+    case "${*: -1}" in
+        "@openai/codex@$CODEX_VERSION") binary="$4/lib/node_modules/@openai/codex/bin/codex.js";;
+        "@github/copilot@$COPILOT_VERSION")
+            [[ $6 == --ignore-scripts=false ]] || return 92
+            binary="$4/lib/node_modules/@github/copilot/npm-loader.js";;
+        *) return 93;;
+    esac
+    mkdir -p "$(dirname "$binary")"
+    printf 'console.log("fixture-version"); process.exit(%s);\\n' "$AI_TEST_STATUS" > "$binary"
 }
 install_repository() { printf '%s\\n' "$@" > "$HOME/repository-args"; }
 sudo() {
@@ -661,6 +669,7 @@ case "$2" in
     antigravity) install_antigravity_cli;;
     claudecode) install_claude_code;;
     codex) install_codex_cli;;
+    copilot) install_copilot_cli;;
 esac
 ''', self.root, stage, script='pop_os_config.sh', env={'AI_TEST_STATUS': str(status)})
 
@@ -694,7 +703,7 @@ begin_install "$1/second"
     def test_ai_cli_stages_are_listed(self):
         result = subprocess.run(['bash', str(REPO / 'pop_os_config.sh'), '--list-stages'], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        for stage in ('antigravity', 'claudecode', 'codex'):
+        for stage in ('antigravity', 'claudecode', 'codex', 'copilot'):
             self.assertIn(stage, result.stdout.splitlines())
 
     def test_antigravity_stage_installs_and_verifies_native_cli(self):
@@ -722,6 +731,18 @@ begin_install "$1/second"
         self.assertFalse((self.root / '.local/bin/codex').exists())
         self.assertFalse((self.root / '.local/share/pop-workstation/codex').exists())
 
+    def test_copilot_stage_installs_and_verifies_pinned_package(self):
+        result = self.ai_stage('copilot')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.root / '.local/bin/copilot').is_file())
+        self.assertIn('Verified copilot CLI', result.stdout)
+
+    def test_copilot_failed_native_check_does_not_publish(self):
+        result = self.ai_stage('copilot', status=42)
+        self.assertEqual(result.returncode, 42, result.stderr)
+        self.assertFalse((self.root / '.local/bin/copilot').exists())
+        self.assertFalse((self.root / '.local/share/pop-workstation/copilot').exists())
+
     def test_claude_stage_uses_official_latest_signed_repository(self):
         result = self.ai_stage('claudecode')
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -732,7 +753,7 @@ begin_install "$1/second"
         self.assertIn('Verified claude CLI', result.stdout)
 
     def test_ai_existing_cli_is_verified_without_installation(self):
-        for stage in ('antigravity', 'claudecode', 'codex'):
+        for stage in ('antigravity', 'claudecode', 'codex', 'copilot'):
             with self.subTest(stage=stage), tempfile.TemporaryDirectory() as directory:
                 # Give each case its own HOME and download workspace.
                 previous = self.root
