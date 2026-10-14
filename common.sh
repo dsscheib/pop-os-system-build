@@ -123,12 +123,19 @@ download_verified() {
 package_installed() {
   [[ $(dpkg-query -W -f='${Status}' "$1" 2>/dev/null) == 'install ok installed' ]]
 }
-install_deb() {
-  local file=$1 package
+install_deb() (
+  local file=$1 package staging_dir status
   package=$(dpkg-deb -f "$file" Package) || return
-  sudo apt-get install -y -- "$file" || return
+  # _apt cannot traverse our private workspace. Stage only this package in a
+  # root-owned directory; retain restrictive permissions on all other downloads.
+  staging_dir=$(sudo mktemp -d /tmp/pop-apt.XXXXXX) || return
+  [[ -n "$staging_dir" && -d "$staging_dir" ]] || { log_error "APT staging directory was not created."; return 1; }
+  trap 'status=$?; trap - EXIT; sudo rm -f -- "$staging_dir/package.deb" || { (( status != 0 )) || status=1; }; sudo rmdir -- "$staging_dir" || { (( status != 0 )) || status=1; }; exit "$status"' EXIT
+  sudo install -m 0644 -- "$file" "$staging_dir/package.deb" || return
+  sudo chmod 0755 "$staging_dir" || return
+  sudo apt-get install -y -- "$staging_dir/package.deb" || return
   package_installed "$package" || { log_error "Package is not installed: $package"; return 1; }
-}
+)
 
 # IzPack embeds install paths in launchers. Keep each version at its original path
 # and publish a stable symlink only after validation; retain the previous version.

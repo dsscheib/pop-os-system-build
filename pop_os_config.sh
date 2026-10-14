@@ -152,10 +152,15 @@ update_repository() {
 }
 setup_dotfiles() {
   update_repository "$DOTFILES_REPO" "$HOME/.dotfiles" "${DOTFILES_REF:-}"
-  if [[ -f "$HOME/.dotfiles/bootstrap.sh" ]]; then bash "$HOME/.dotfiles/bootstrap.sh"; fi
+  if [[ -f "$HOME/.dotfiles/bootstrap.sh" ]]; then
+    local skip_tmux=${DOTFILES_SKIP_TMUX:-0}
+    # main's selected stages are visible here through Bash's dynamic scoping.
+    if [[ ,${selected:-}, == *,tmux,* ]]; then skip_tmux=1; fi
+    DOTFILES_SKIP_TMUX="$skip_tmux" bash "$HOME/.dotfiles/bootstrap.sh"
+  fi
 }
 setup_tmux() {
-  export TMUX_PLUGIN_MANAGER_PATH="$HOME/.config/tmux/plugins"
+  export TMUX_PLUGIN_MANAGER_PATH="$HOME/.local/share/tmux/plugins"
   update_repository https://github.com/tmux-plugins/tpm "$TMUX_PLUGIN_MANAGER_PATH/tpm" "$TPM_COMMIT"
   optional 'Tmux plugins' "$TMUX_PLUGIN_MANAGER_PATH/tpm/bin/install_plugins"
 }

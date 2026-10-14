@@ -144,6 +144,10 @@ The `dotfiles` stage executes its bootstrap; the `neovim` stage deploys the sele
 configuration and attempts headless plugin initialization. A successful clone or
 headless exit does not establish that the complete editor configuration works.
 
+When the `tmux` stage is selected, the dotfiles bootstrap delegates plugin setup
+to that stage. Both repositories use `~/.local/share/tmux/plugins` and the same
+TPM pin. A `dotfiles`-only selection lets its bootstrap install plugins normally.
+
 Git setup uses a specific secret-key fingerprint and a properly initialized
 `pass` store. It asks GPG to obtain the key passphrase interactively. Authenticate
 with GitHub separately using `git-credential-manager github login`.
@@ -156,6 +160,11 @@ obtained from upstream GitHub metadata; Rustup uses its published checksum. The
 Saleae/Synology downloads and repository keys have SHA-256 baselines from their
 HTTPS upstream endpoints, recorded on 2026-10-13. A checksum detects an unexpected
 artifact; it does not independently authenticate its publisher.
+
+Local Debian packages are copied into a temporary root-owned directory readable
+by APT's `_apt` user, then removed after installation. Download workspaces remain
+private. This avoids APT's “Download is performed unsandboxed as root” warning
+when installing a verified package such as Fastfetch from a private workspace.
 
 Neovim uses a separate Python virtual environment and a wrapper that selects that
 provider while preserving the project working directory. npm providers install

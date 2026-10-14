@@ -462,6 +462,76 @@ install_fastfetch
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, '')
 
+    def install_local_deb(self, apt_status=0):
+        workspace = self.root / 'private'
+        workspace.mkdir(mode=0o700)
+        package = workspace / 'tool.deb'
+        package.write_bytes(b'fixture package')
+        stage = self.root / 'apt-stage'
+        result = self.bash('''
+dpkg-deb() { printf fixture; }
+package_installed() { return 0; }
+sudo() {
+    case "$1" in
+        mktemp) mkdir -m 0700 "$DEB_TEST_STAGE"; printf '%s' "$DEB_TEST_STAGE";;
+        apt-get)
+            [[ ${*: -1} == "$DEB_TEST_STAGE/package.deb" ]] || return 90
+            [[ $(stat -c %a "$DEB_TEST_STAGE") == 755 ]] || return 91
+            [[ $(stat -c %a "$DEB_TEST_STAGE/package.deb") == 644 ]] || return 92
+            cmp "$DEB_TEST_ORIGINAL" "$DEB_TEST_STAGE/package.deb" || return 93
+            printf 'APT read staged package\n'
+            return "$DEB_TEST_APT_STATUS";;
+        *) "$@";;
+    esac
+}
+install_deb "$1"
+''', package, env={'DEB_TEST_STAGE': str(stage), 'DEB_TEST_ORIGINAL': str(package),
+                   'DEB_TEST_APT_STATUS': str(apt_status)})
+        return result, workspace, package, stage
+
+    def test_local_deb_stages_readable_copy_without_exposing_workspace(self):
+        result, workspace, package, stage = self.install_local_deb()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('APT read staged package', result.stdout)
+        self.assertEqual(workspace.stat().st_mode & 0o777, 0o700)
+        self.assertTrue(package.exists())
+        self.assertFalse(stage.exists())
+
+    def test_failed_local_deb_install_removes_staging_and_preserves_status(self):
+        result, workspace, package, stage = self.install_local_deb(48)
+        self.assertEqual(result.returncode, 48, result.stderr)
+        self.assertEqual(workspace.stat().st_mode & 0o777, 0o700)
+        self.assertTrue(package.exists())
+        self.assertFalse(stage.exists())
+
+    def test_workstation_tmux_uses_the_dotfiles_plugin_directory(self):
+        result = self.bash('''
+export HOME="$1"
+update_repository() { printf '%s\n' "$2"; }
+optional() { printf '%s\n' "$2"; }
+setup_tmux
+''', self.root, script='pop_os_config.sh')
+        directory = self.root / '.local/share/tmux/plugins/tpm'
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), [str(directory), str(directory / 'bin/install_plugins')])
+
+    def test_dotfiles_delegates_plugins_only_when_tmux_stage_is_selected(self):
+        checkout = self.root / '.dotfiles'
+        checkout.mkdir()
+        (checkout / 'bootstrap.sh').write_text('printf "%s" "$DOTFILES_SKIP_TMUX"\n')
+        for stages, expected in (('dotfiles', '0'), ('dotfiles,tmux', '1')):
+            with self.subTest(stages=stages):
+                result = self.bash('''
+export HOME="$1"
+unset DOTFILES_SKIP_TMUX
+DOTFILES_REPO=fixture
+selected="$2"
+update_repository() { :; }
+setup_dotfiles
+''', self.root, stages, script='pop_os_config.sh')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, expected)
+
     def test_identity_is_required_instead_of_using_author_defaults(self):
         result = self.bash('unset GIT_NAME GIT_EMAIL GITHUB_USER; validate_config git', script='pop_os_config.sh')
         self.assertNotEqual(result.returncode, 0)
