@@ -445,9 +445,9 @@ install_saleae_launcher() {
   local wrapper="$HOME/.local/bin/saleae-logic"
   local desktop="$HOME/.local/share/applications/saleae-logic.desktop"
 
-  # Logic's AppImage does not include the Wayland Qt platform plugin. Force
-  # Qt's XWayland backend for this app without changing the session environment.
-  write_wrapper "$wrapper" "$HOME/Applications" "$appimage" QT_QPA_PLATFORM=xcb || return
+  # Use XWayland for Qt and prevent AppImageLauncher from prompting on each run.
+  write_wrapper "$wrapper" "$HOME/Applications" "$appimage" \
+    QT_QPA_PLATFORM=xcb APPIMAGELAUNCHER_DISABLE=1 || return
   write_desktop "$desktop" 'Saleae Logic' "$wrapper" "$HOME/Applications" \
     applications-development "" || return
   desktop-file-validate "$desktop" || return
