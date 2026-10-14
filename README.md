@@ -226,8 +226,10 @@ to that stage. Both repositories use `~/.local/share/tmux/plugins` and the same
 TPM pin. A `dotfiles`-only selection lets its bootstrap install plugins normally.
 
 Git setup uses a specific secret-key fingerprint and a properly initialized
-`pass` store. It asks GPG to obtain the key passphrase interactively. Authenticate
-with GitHub separately using `git-credential-manager github login`.
+`pass` store. It asks GPG to obtain the key passphrase interactively, then starts
+Git Credential Manager's GitHub sign-in flow when run in a terminal. Approve the
+browser or device-code request to finish authentication; in noninteractive runs,
+use `git-credential-manager github login` afterward.
 
 Tool versions are pinned in [resources/tool-versions.env](resources/tool-versions.env).
 Download URLs and SHA-256 values are pinned in

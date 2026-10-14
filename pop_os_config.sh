@@ -101,8 +101,14 @@ setup_git() {
   git config --global credential.https://github.com.username "$GITHUB_USER"
   git config --global push.autoSetupRemote true
   git-credential-manager configure
-  # Authentication remains an explicit interactive operation, independent of setup.
-  log_info "Git credentials configured. Authenticate when ready with: git-credential-manager github login"
+  if [[ -t 0 && -t 1 ]]; then
+    log_info "Complete GitHub sign-in in the browser or with the device code."
+    if ! git-credential-manager github login; then
+      log_warn "GitHub sign-in was not completed. Run 'git-credential-manager github login' when ready."
+    fi
+  else
+    log_info "Authenticate when ready with: git-credential-manager github login"
+  fi
 }
 
 install_fastfetch() {
