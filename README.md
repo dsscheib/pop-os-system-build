@@ -125,6 +125,12 @@ stages require the respective repository URLs. Set `DOTFILES_REF` and
 clean checkouts update with `--ff-only`. Foreign origins and local changes are
 reported as errors rather than silently ignored.
 
+The `dependencies` stage installs Fastfetch from APT when a candidate exists;
+otherwise it installs the pinned upstream Debian package after checking its
+SHA-256. An existing Fastfetch command is kept. Bash integration loads the
+installed `bash-completion` package for APT tab completion; linked `.bashrc`
+files must load completion themselves or source the managed integration file.
+
 The personal `dotfiles` and `astronvim_v6` repositories have recently been fixed
 but still need their own validation. This repository's checks do not execute or
 validate their bootstrap, plugins, or language servers. To install tools while

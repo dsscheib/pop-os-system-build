@@ -423,6 +423,45 @@ snapshot_pair post "$1"
         self.assertIn('test component', result.stderr)
         self.assertEqual(result.stdout, 'test component')
 
+    def fastfetch_install(self, candidate, *, present=False, download_status=0):
+        return self.bash('''
+WORK_DIR="$1"
+available="$3"
+command() {
+    if [[ $1 == -v && $2 == fastfetch ]]; then
+        [[ $available == 1 ]]
+    else builtin command "$@"; fi
+}
+# Model policy output independently of the test host repositories.
+apt-cache() { printf '  Candidate: %s\n' "$FASTFETCH_CANDIDATE"; }
+sudo() { printf '%s\n' "$*"; available=1; }
+fetch_locked() { printf 'fetch %s\n' "$1"; return "$FASTFETCH_DOWNLOAD_STATUS"; }
+install_deb() { printf 'install %s\n' "${1##*/}"; available=1; }
+install_fastfetch
+''', self.root, candidate, int(present), download_status, script='pop_os_config.sh',
+            env={'FASTFETCH_CANDIDATE': candidate,
+                 'FASTFETCH_DOWNLOAD_STATUS': str(download_status)})
+
+    def test_fastfetch_uses_apt_when_a_candidate_exists(self):
+        result = self.fastfetch_install('2.0.0')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), 'apt-get install -y fastfetch')
+
+    def test_fastfetch_uses_verified_download_without_apt_candidate(self):
+        result = self.fastfetch_install('(none)')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines()[-2:], ['fetch fastfetch', 'install fastfetch.deb'])
+
+    def test_fastfetch_download_failure_stops_installation(self):
+        result = self.fastfetch_install('(none)', download_status=47)
+        self.assertEqual(result.returncode, 47)
+        self.assertEqual(result.stdout.splitlines()[-1], 'fetch fastfetch')
+
+    def test_existing_fastfetch_skips_package_installation(self):
+        result = self.fastfetch_install('(none)', present=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, '')
+
     def test_identity_is_required_instead_of_using_author_defaults(self):
         result = self.bash('unset GIT_NAME GIT_EMAIL GITHUB_USER; validate_config git', script='pop_os_config.sh')
         self.assertNotEqual(result.returncode, 0)
@@ -442,6 +481,28 @@ snapshot_pair post "$1"
         with redirect_stderr(io.StringIO()):
             shell_integration.integrate(self.root, REPO / 'resources')
         self.assertEqual((self.root / '.zshenv').read_text().count('# Pop workstation tools'), 1)
+
+    def test_bash_integration_enables_apt_completion(self):
+        if not Path('/usr/share/bash-completion/completions/apt').exists():
+            self.skipTest('bash-completion is not installed')
+        result = subprocess.run(['bash', '--noprofile', '--norc', '-ic', '''
+command() {
+    if [[ $1 == -v && $2 == mise ]]; then return 1; fi
+    builtin command "$@"
+}
+source "$1"
+source "$1"
+_completion_loader apt
+COMP_WORDS=(apt ins)
+COMP_CWORD=1
+COMP_LINE="apt ins"
+COMP_POINT=${#COMP_LINE}
+_apt
+printf '%s\n' "${COMPREPLY[@]}"
+''', 'test', str(REPO / 'resources/shell.bash')],
+            env=dict(os.environ, HOME=str(self.root)), capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('install', result.stdout.splitlines())
 
     def test_pinned_download_metadata_is_complete(self):
         values = json.loads((REPO / 'resources/downloads.json').read_text())

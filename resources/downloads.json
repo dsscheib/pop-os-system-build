@@ -1,4 +1,9 @@
 {
+  "fastfetch": {
+    "version": "2.69.0",
+    "url": "https://github.com/fastfetch-cli/fastfetch/releases/download/2.69.0/fastfetch-linux-amd64.deb",
+    "sha256": "cd91bc80ba416e2089e4dd40ea087e9e02028aeeb65988f92e17ede8da1c1bda"
+  },
   "mise": {
     "version": "v2026.10.9",
     "url": "https://github.com/jdx/mise/releases/download/v2026.10.9/mise-v2026.10.9-linux-x64",

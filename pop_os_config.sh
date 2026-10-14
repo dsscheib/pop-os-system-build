@@ -105,14 +105,24 @@ setup_git() {
   log_info "Git credentials configured. Authenticate when ready with: git-credential-manager github login"
 }
 
+install_fastfetch() {
+  if command -v fastfetch >/dev/null; then return 0; fi
+  if apt-cache policy fastfetch | awk '$1 == "Candidate:" && $2 != "(none)" {found=1} END {exit !found}'; then
+    sudo apt-get install -y fastfetch
+  else
+    log_info "Fastfetch is unavailable in APT; installing the verified upstream package."
+    fetch_locked fastfetch "$WORK_DIR/fastfetch.deb"
+    install_deb "$WORK_DIR/fastfetch.deb"
+  fi
+  command -v fastfetch >/dev/null || die "Fastfetch installation did not provide the fastfetch command."
+}
+
 install_dependencies() {
   sudo apt-get install -y zsh zsh-autosuggestions zsh-syntax-highlighting fish fzf zoxide ripgrep bat tmux flatpak \
     build-essential cmake ninja-build gettext fd-find xclip wl-clipboard python3-pip luarocks gdu pkg-config libssl-dev
-  local package
-  for package in eza fastfetch; do
-    if apt-cache show "$package" >/dev/null 2>&1; then optional "$package" sudo apt-get install -y "$package";
-    else log_warn "$package is unavailable in the configured repositories."; OPTIONAL_FAILURES+=("$package"); fi
-  done
+  if apt-cache show eza >/dev/null 2>&1; then optional eza sudo apt-get install -y eza;
+  else log_warn "eza is unavailable in the configured repositories."; OPTIONAL_FAILURES+=(eza); fi
+  install_fastfetch
   if ! command -v btm >/dev/null; then fetch_locked bottom "$WORK_DIR/bottom.deb"; install_deb "$WORK_DIR/bottom.deb"; fi
   if command -v fdfind >/dev/null && ! command -v fd >/dev/null; then ln -s "$(command -v fdfind)" "$HOME/.local/bin/fd"; fi
   if ! command -v starship >/dev/null; then
