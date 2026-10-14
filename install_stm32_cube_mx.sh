@@ -36,12 +36,13 @@ main() {
   )
   check_executable "$INSTALL_DIR/STM32CubeMX"
   check_executable "$INSTALL_DIR/jre/bin/java"
-  # Choose a known native resource; do not parse ls output or depend on the network.
+  # Use the CubeMX application icon, not IzPack's generic ST-branded window icon.
+  # This resource ships in the installer, so no network lookup is needed.
   if python3 - "$installer" "$WORK_DIR/icon.png" <<'PY'
 import sys, zipfile
 with zipfile.ZipFile(sys.argv[1]) as archive:
     with open(sys.argv[2], 'wb') as stream:
-        stream.write(archive.read('resources/JFrameIcon.png'))
+        stream.write(archive.read('com/st/microxplorer/install/STM32CubeMX.png'))
 PY
   then
     if convert_icon_to_png "$WORK_DIR/icon.png" "$INSTALL_DIR/launcher.png"; then icon="$INSTALL_DIR/launcher.png"; fi
