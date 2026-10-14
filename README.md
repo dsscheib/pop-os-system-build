@@ -243,6 +243,8 @@ Linux archive and creates an application-menu entry with the bundled 512-pixel i
 It does not install the legacy IDE 1 package from Ubuntu's `arduino` package.
 Saleae Logic launches through a per-app wrapper that selects Qt's XWayland backend
 and suppresses AppImageLauncher integration prompts without changing desktop settings.
+Its desktop entry uses the Logic 2 icon linked by the
+[Linux installation instructions](https://mikrocontroller.ti.bfh.ch/faq/saleae.html).
 
 Local Debian packages are copied into a temporary root-owned directory readable
 by APT's `_apt` user, then removed after installation. Download workspaces remain

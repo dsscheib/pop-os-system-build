@@ -444,12 +444,14 @@ install_saleae_launcher() {
   local appimage="$HOME/Applications/Logic-2.4.48-linux-x64.AppImage"
   local wrapper="$HOME/.local/bin/saleae-logic"
   local desktop="$HOME/.local/share/applications/saleae-logic.desktop"
+  local icon="$HOME/.local/share/icons/hicolor/512x512/apps/saleae-logic.png"
 
   # Use XWayland for Qt and prevent AppImageLauncher from prompting on each run.
   write_wrapper "$wrapper" "$HOME/Applications" "$appimage" \
     QT_QPA_PLATFORM=xcb APPIMAGELAUNCHER_DISABLE=1 || return
+  install -D -m 0644 "$SCRIPT_DIR/resources/icons/saleae-logic.png" "$icon" || return
   write_desktop "$desktop" 'Saleae Logic' "$wrapper" "$HOME/Applications" \
-    applications-development "" || return
+    saleae-logic "" || return
   desktop-file-validate "$desktop" || return
   refresh_desktop_environment "$(dirname "$desktop")"
 }
