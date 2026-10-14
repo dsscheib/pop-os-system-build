@@ -30,9 +30,8 @@ main() {
   check_elf_dependencies "$INSTALL_DIR/bin/STM32_Programmer_CLI"
   if convert_icon_to_png "$INSTALL_DIR/util/Programmer.ico" "$INSTALL_DIR/launcher.png"; then icon="$INSTALL_DIR/launcher.png"; fi
   # GUI and CLI both execute from bin so their relative library paths work.
-  # Let the desktop associate the window through the launcher instead of a
-  # guessed Java window class, matching the working CubeMX launcher behavior.
-  st_finish STM32CubeProgrammer "$HOME/.local/bin/stm32cubeprogrammer" "$INSTALL_DIR/bin/STM32CubeProgrammerLauncher" "$INSTALL_DIR/bin" "$icon" "" "$HOME/.local/share/applications/st-com-stm32cubeprogrammer.desktop"
+  # Match the actual X11 class reported by CubeProgrammer's main window.
+  st_finish STM32CubeProgrammer "$HOME/.local/bin/stm32cubeprogrammer" "$INSTALL_DIR/bin/STM32CubeProgrammerLauncher" "$INSTALL_DIR/bin" "$icon" com.st.app.Main "$HOME/.local/share/applications/st-com-stm32cubeprogrammer.desktop"
   write_wrapper "$HOME/.local/bin/STM32_Programmer_CLI" "$INSTALL_DIR/bin" "$INSTALL_DIR/bin/STM32_Programmer_CLI"
   if [[ -x "$INSTALL_DIR/bin/STM32TrustedPackageCreator_CLI" ]]; then
     write_wrapper "$HOME/.local/bin/STM32TrustedPackageCreator_CLI" "$INSTALL_DIR/bin" "$INSTALL_DIR/bin/STM32TrustedPackageCreator_CLI"
