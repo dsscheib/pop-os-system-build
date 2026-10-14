@@ -440,6 +440,19 @@ install_arduino_ide() {
   refresh_desktop_environment "$(dirname "$desktop")"
   log_info "Arduino IDE $ARDUINO_IDE_VERSION installed at $INSTALL_TARGET."
 }
+install_saleae_launcher() {
+  local appimage="$HOME/Applications/Logic2-linux-x64.AppImage"
+  local wrapper="$HOME/.local/bin/saleae-logic"
+  local desktop="$HOME/.local/share/applications/saleae-logic.desktop"
+
+  # Logic's AppImage does not include the Wayland Qt platform plugin. Force
+  # Qt's XWayland backend for this app without changing the session environment.
+  write_wrapper "$wrapper" "$HOME/Applications" "$appimage" QT_QPA_PLATFORM=xcb || return
+  write_desktop "$desktop" 'Saleae Logic' "$wrapper" "$HOME/Applications" \
+    applications-development "" || return
+  desktop-file-validate "$desktop" || return
+  refresh_desktop_environment "$(dirname "$desktop")"
+}
 install_applications() {
   mkdir -p "$HOME/Applications" "$HOME/Projects" "$HOME/Downloads"
   optional Dropbox sudo apt-get install -y nautilus-dropbox
@@ -455,6 +468,7 @@ install_applications() {
   optional 'AVR assembler/documentation packages' sudo apt-get install -y avra avrdude-doc
   fetch_locked saleae "$HOME/Applications/Logic2-linux-x64.AppImage"
   chmod 0755 "$HOME/Applications/Logic2-linux-x64.AppImage"
+  install_saleae_launcher
   install_system_file "$SCRIPT_DIR/resources/udev/99-SaleaeLogic.rules" /etc/udev/rules.d/99-SaleaeLogic.rules
   sudo udevadm control --reload-rules
   optional FreeCAD install_freecad

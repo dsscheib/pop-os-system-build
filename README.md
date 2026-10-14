@@ -241,6 +241,8 @@ artifact; it does not independently authenticate its publisher.
 The applications stage installs the pinned Arduino IDE 2 release from its official
 Linux archive and creates an application-menu entry with the bundled 512-pixel icon.
 It does not install the legacy IDE 1 package from Ubuntu's `arduino` package.
+Saleae Logic launches through a per-app wrapper that selects Qt's XWayland backend
+so it can run in Wayland sessions without changing the desktop's Qt settings.
 
 Local Debian packages are copied into a temporary root-owned directory readable
 by APT's `_apt` user, then removed after installation. Download workspaces remain
