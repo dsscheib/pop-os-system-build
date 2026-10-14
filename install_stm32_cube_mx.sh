@@ -4,6 +4,18 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=common.sh
 source "$SCRIPT_DIR/common.sh"
 
+remove_vendor_launcher() {
+  local launcher="$HOME/.local/share/applications/com-st-microxplorer-maingui-STM32CubeMX.desktop"
+  local expected_exec="Exec=$INSTALL_DIR/jre/bin/java -jar $INSTALL_DIR/STM32CubeMX"
+
+  # IzPack writes this entry despite createMenuShortcuts=false. Remove only
+  # its generated entry for the staging path we just installed.
+  if [[ -f "$launcher" ]] && grep -Fqx -- "$expected_exec" "$launcher"; then
+    rm -- "$launcher" || return
+    refresh_desktop_environment "$(dirname "$launcher")"
+  fi
+}
+
 main() {
   [[ $# -le 1 ]] || die "Usage: $0 [archive.zip]"
   st_preflight
@@ -35,6 +47,7 @@ PY
     if convert_icon_to_png "$WORK_DIR/icon.png" "$INSTALL_DIR/launcher.png"; then icon="$INSTALL_DIR/launcher.png"; fi
   else log_warn "Native CubeMX icon is unavailable; using the desktop theme icon."; fi
   st_finish STM32CubeMX "$HOME/.local/bin/stm32cubemx" "$INSTALL_DIR/STM32CubeMX" "$INSTALL_DIR" "$icon" com-st-microxplorer-maingui-STM32CubeMX "$HOME/.local/share/applications/st-com-stm32cubemx.desktop"
+  remove_vendor_launcher
   log_info "STM32CubeMX installed at $INSTALL_TARGET; previous versions are retained."
 }
 if [[ ${BASH_SOURCE[0]} == "$0" ]]; then main "$@"; fi
