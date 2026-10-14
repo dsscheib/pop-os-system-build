@@ -441,7 +441,7 @@ install_arduino_ide() {
   log_info "Arduino IDE $ARDUINO_IDE_VERSION installed at $INSTALL_TARGET."
 }
 install_saleae_launcher() {
-  local appimage="$HOME/Applications/Logic2-linux-x64.AppImage"
+  local appimage="$HOME/Applications/Logic-2.4.48-linux-x64.AppImage"
   local wrapper="$HOME/.local/bin/saleae-logic"
   local desktop="$HOME/.local/share/applications/saleae-logic.desktop"
 
@@ -466,8 +466,8 @@ install_applications() {
   fi
   optional 'Arduino IDE 2' install_arduino_ide
   optional 'AVR assembler/documentation packages' sudo apt-get install -y avra avrdude-doc
-  fetch_locked saleae "$HOME/Applications/Logic2-linux-x64.AppImage"
-  chmod 0755 "$HOME/Applications/Logic2-linux-x64.AppImage"
+  fetch_locked saleae "$HOME/Applications/Logic-2.4.48-linux-x64.AppImage"
+  chmod 0755 "$HOME/Applications/Logic-2.4.48-linux-x64.AppImage"
   install_saleae_launcher
   install_system_file "$SCRIPT_DIR/resources/udev/99-SaleaeLogic.rules" /etc/udev/rules.d/99-SaleaeLogic.rules
   sudo udevadm control --reload-rules
