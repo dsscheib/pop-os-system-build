@@ -133,7 +133,9 @@ stages require the respective repository URLs. Set `DOTFILES_REF` and
 clean checkouts update with `--ff-only`. Foreign origins and local changes are
 reported as errors rather than silently ignored.
 
-The `dependencies` stage includes NASM for x86-64 assembly tasks and installs Fastfetch from APT when a candidate exists;
+The `dependencies` stage includes NASM for x86-64 assembly tasks, ShellCheck,
+DNS/Netcat tools, the NetworkManager OpenVPN GUI plugin, rsync, wget, Kitty,
+and libsecret tools. It installs Fastfetch from APT when a candidate exists;
 otherwise it installs the pinned upstream Debian package after checking its
 SHA-256. An existing Fastfetch command is kept. Bash integration loads the
 installed `bash-completion` package for APT tab completion; linked `.bashrc`

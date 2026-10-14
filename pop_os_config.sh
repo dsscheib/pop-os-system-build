@@ -119,7 +119,8 @@ install_fastfetch() {
 
 install_dependencies() {
   sudo apt-get install -y zsh zsh-autosuggestions zsh-syntax-highlighting fish fzf zoxide ripgrep bat tmux flatpak \
-    build-essential nasm cmake ninja-build gettext fd-find xclip wl-clipboard python3-pip luarocks gdu pkg-config libssl-dev
+    build-essential nasm cmake ninja-build gettext fd-find xclip wl-clipboard python3-pip luarocks gdu pkg-config libssl-dev \
+    shellcheck bind9-dnsutils netcat-openbsd network-manager-openvpn-gnome rsync wget kitty libsecret-tools
   if apt-cache show eza >/dev/null 2>&1; then optional eza sudo apt-get install -y eza;
   else log_warn "eza is unavailable in the configured repositories."; OPTIONAL_FAILURES+=(eza); fi
   install_fastfetch
