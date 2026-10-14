@@ -258,6 +258,61 @@ configure_boot "$1" "quiet rootflags=subvol=@"
         config.write_text("default Pop_OS-oldkern\n")
         self.assertNotEqual(self.bash('verify_boot_selection "$1"', self.root).returncode, 0)
 
+    def test_target_bootloader_check_works_without_live_loader_interface(self):
+        result = self.bash('''
+chroot() {
+    shift
+    if [[ "$*" == "bootctl --esp-path=/boot/efi is-installed" ]]; then
+        printf '%s\n' "$*"
+        return 0
+    fi
+    printf '%s\n' 'Not booted with a supported boot loader.' >&2
+    return 1
+}
+verify_target_bootloader "$1"
+''', self.root)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "bootctl --esp-path=/boot/efi is-installed")
+        # Guard the main path as well as the helper against reintroducing the
+        # firmware mutation that fails when the live USB booted through GRUB.
+        self.assertNotIn("set-default Pop_OS-current", SCRIPT.read_text())
+
+    def repair_layout(self):
+        for name in ("@", "@home", "@snapshots"):
+            (self.root / name).mkdir()
+
+    def test_boot_repair_accepts_completed_layout(self):
+        self.repair_layout()
+        result = self.bash('btrfs() { return 0; }; verify_repair_layout "$1"', self.root)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_boot_repair_rejects_partial_layout_and_hidden_leftovers(self):
+        self.repair_layout()
+        for name in ("home", ".leftover"):
+            with self.subTest(name=name):
+                leftover = self.root / name
+                leftover.mkdir()
+                result = self.bash('btrfs() { return 0; }; verify_repair_layout "$1"', self.root)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Incomplete conversion", result.stderr)
+                leftover.rmdir()
+
+    def test_boot_repair_requires_real_subvolumes(self):
+        self.repair_layout()
+        result = self.bash('btrfs() { return 1; }; verify_repair_layout "$1"', self.root)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Btrfs subvolume", result.stderr)
+
+    def test_boot_repair_rejects_missing_or_symlinked_subvolume(self):
+        self.repair_layout()
+        home = self.root / "@home"
+        home.rmdir()
+        result = self.bash('btrfs() { return 0; }; verify_repair_layout "$1"', self.root)
+        self.assertNotEqual(result.returncode, 0)
+        home.symlink_to(self.root / "@", target_is_directory=True)
+        result = self.bash('btrfs() { return 0; }; verify_repair_layout "$1"', self.root)
+        self.assertNotEqual(result.returncode, 0)
+
     def test_relative_os_release_symlink_is_supported(self):
         etc = self.root / "etc"
         vendor = etc / "pop-os"

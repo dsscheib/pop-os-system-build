@@ -37,7 +37,8 @@ sudo ./setup_btrfs_live_install.sh /dev/nvme0n1p3 /dev/nvme0n1p1
 
 The conversion creates `@`, `@home`, and `@snapshots`, preserves directory
 permissions/ACLs/xattrs, backs up the old configuration, and validates the updated
-boot files. It selects `Pop_OS-current.conf` as the systemd-boot default. Configuration
+boot files. It selects `Pop_OS-current.conf` in the target ESP's `loader.conf`.
+It does not require the live USB to have booted through systemd-boot. Configuration
 backups are stored under `/etc/fstab.pre-btrfs.*` and
 `/etc/kernelstub/*.pre-btrfs.*` in the installed root.
 
@@ -45,6 +46,22 @@ Reboot only after success. If conversion fails after moving data, stay in the li
 environment, mount the filesystem with `subvolid=5`, and inspect/repair the partial
 layout and boot configuration before rerunning or rebooting. Existing layouts are
 never automatically merged. No destructive automatic rollback is attempted.
+
+If the conversion finished but boot configuration failed (including the former
+`Not booted with a supported boot loader.` error), update this repository and run
+boot repair from the UEFI live environment, using the same devices as before:
+
+```bash
+sudo ./setup_btrfs_live_install.sh --repair-boot /dev/nvme0n1p3 /dev/nvme0n1p1
+```
+
+Use your actual root and EFI devices. This mode requires existing `@`, `@home`,
+and `@snapshots` subvolumes with no leftover top-level data. It backs up and
+repairs fstab and boot configuration, rebuilds initramfs, and verifies the boot
+files without moving data or recreating subvolumes. It rejects partial layouts
+requiring manual inspection. Reboot only after it reports success. A previously
+saved systemd-boot EFI default can override `loader.conf`; if needed, choose
+`Pop_OS-current` in the boot menu and make it the default from the installed OS.
 
 ## 2. Configure Snapper after boot
 

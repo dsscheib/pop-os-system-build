@@ -242,9 +242,40 @@ is_pop_installation() {
   chroot "$1" /bin/cat /etc/os-release | grep -qE '^ID=(pop|"pop")$'
 }
 
+verify_repair_layout() {
+  local path
+  for path in @ @home @snapshots; do
+    [[ -d "$1/$path" && ! -L "$1/$path" ]] || fail "Boot repair requires an existing $path subvolume."
+    btrfs subvolume show "$1/$path" >/dev/null || fail "Boot repair requires $path to be a Btrfs subvolume."
+  done
+  # Leftover top-level data indicates an interrupted move; never hide it by
+  # mounting @ and treating the conversion as complete.
+  local -a entries
+  shopt -s nullglob dotglob
+  entries=("$1"/*)
+  shopt -u nullglob dotglob
+  for path in "${entries[@]}"; do
+    case ${path##*/} in
+      @|@home|@snapshots) ;;
+      *) fail "Incomplete conversion: top-level ${path##*/} remains. Inspect the layout manually before boot repair." ;;
+    esac
+  done
+}
+
+verify_target_bootloader() {
+  # is-installed inspects the target ESP. set-default instead requires the
+  # currently booted loader's EFI interface, which a live USB may not provide.
+  chroot "$1" bootctl --esp-path=/boot/efi is-installed
+}
+
 main() {
   [[ $EUID -eq 0 ]] || fail "Run this script as root from the live USB (sudo)."
-  [[ $# -ge 1 && $# -le 2 ]] || fail "Usage: sudo $SCRIPT_DIR/setup_btrfs_live_install.sh ROOT_DEVICE [EFI_DEVICE]"
+  local repair_boot=0
+  if [[ ${1:-} == --repair-boot ]]; then
+    repair_boot=1
+    shift
+  fi
+  [[ $# -ge 1 && $# -le 2 ]] || fail "Usage: sudo $SCRIPT_DIR/setup_btrfs_live_install.sh [--repair-boot] ROOT_DEVICE [EFI_DEVICE]"
   local tool target_dev efi_dev root_uuid efi_uuid subvolumes kernel_options path
   for tool in btrfs blkid lsblk findfs findmnt mount umount mountpoint chroot python3 awk mktemp readlink mv cp chmod chown rmdir rm grep mkdir cat du df; do
     command -v "$tool" >/dev/null || fail "Required command missing: $tool"
@@ -269,17 +300,28 @@ main() {
   log_info "Inspecting top-level Btrfs volume on $target_dev..."
   mount -t btrfs -o ro,subvolid=5 "$target_dev" "$MNT"
   mount --make-private "$MNT"
-  subvolumes=$(btrfs subvolume list -o "$MNT")
-  [[ -z "$subvolumes" ]] || fail "Existing Btrfs subvolumes detected. This script only converts fresh top-level installations; inspect existing or interrupted conversions manually."
-  for path in @ @home @snapshots; do
-    [[ ! -e "$MNT/$path" && ! -L "$MNT/$path" ]] || fail "Existing $path path detected; refusing to overwrite it."
-  done
+  if (( repair_boot )); then
+    verify_repair_layout "$MNT"
+    umount "$MNT"
+    mount -t btrfs -o ro,subvol=@ "$target_dev" "$MNT"
+    mount --make-private "$MNT"
+  else
+    subvolumes=$(btrfs subvolume list -o "$MNT")
+    [[ -z "$subvolumes" ]] || fail "Existing Btrfs subvolumes detected. Use --repair-boot only for a completed conversion; inspect interrupted conversions manually."
+    for path in @ @home @snapshots; do
+      [[ ! -e "$MNT/$path" && ! -L "$MNT/$path" ]] || fail "Existing $path path detected; refusing to overwrite it."
+    done
+  fi
   for path in etc etc/fstab etc/kernelstub etc/kernelstub/configuration boot; do
     [[ -e "$MNT/$path" && ! -L "$MNT/$path" ]] || fail "Missing or symlinked target installation path: $path"
   done
   is_pop_installation "$MNT" || fail "Target is not a Pop!_OS installation."
   [[ ! -L "$MNT/home" && ( ! -e "$MNT/home" || -d "$MNT/home" ) ]] || fail "Unsupported home layout."
-  [[ ! -e "$MNT/.snapshots" && ! -L "$MNT/.snapshots" ]] || fail "Existing .snapshots data or layout detected; migrate it manually."
+  if (( ! repair_boot )); then
+    [[ ! -e "$MNT/.snapshots" && ! -L "$MNT/.snapshots" ]] || fail "Existing .snapshots data or layout detected; migrate it manually."
+  else
+    [[ -d "$MNT/.snapshots" && ! -L "$MNT/.snapshots" ]] || fail "Unsupported snapshots mountpoint."
+  fi
   for path in boot/efi dev proc sys run; do
     [[ ! -L "$MNT/$path" && ( ! -e "$MNT/$path" || -d "$MNT/$path" ) ]] || fail "Unsupported mountpoint path: $path"
   done
@@ -316,23 +358,29 @@ main() {
   done
   # Conservatively reserve a full extra copy plus metadata headroom for cross-
   # subvolume moves. Reflinks may use less, but migration must tolerate copying.
-  required_space=$(du -sx -B1 "$MNT" | awk '{print $1}')
-  available_space=$(df -B1 --output=avail "$MNT" | awk 'NR == 2 {print $1}')
-  (( available_space >= required_space + 268435456 )) || fail "Insufficient free space for migration: reserve an extra installation-sized copy plus 256 MiB."
+  if (( ! repair_boot )); then
+    required_space=$(du -sx -B1 "$MNT" | awk '{print $1}')
+    available_space=$(df -B1 --output=avail "$MNT" | awk 'NR == 2 {print $1}')
+    (( available_space >= required_space + 268435456 )) || fail "Insufficient free space for migration: reserve an extra installation-sized copy plus 256 MiB."
+  fi
   mkdir "$WORK_DIR/efi"
   mount -t vfat "$efi_dev" "$WORK_DIR/efi"
   mount --make-private "$WORK_DIR/efi"
   umount "$WORK_DIR/efi"
   rmdir "$WORK_DIR/efi"
 
-  log_info "Converting installation on $target_dev; EFI device is $efi_dev..."
-  mount -o remount,rw "$MNT"
-  MIGRATION_STARTED=1
-  for path in @ @home @snapshots; do
-    btrfs subvolume create "$MNT/$path"
-  done
-  copy_directory_metadata "$MNT" "$MNT/@"
-  migrate_layout "$MNT"
+  if (( repair_boot )); then
+    log_info "Repairing boot configuration on $target_dev; EFI device is $efi_dev..."
+  else
+    log_info "Converting installation on $target_dev; EFI device is $efi_dev..."
+    mount -o remount,rw "$MNT"
+    MIGRATION_STARTED=1
+    for path in @ @home @snapshots; do
+      btrfs subvolume create "$MNT/$path"
+    done
+    copy_directory_metadata "$MNT" "$MNT/@"
+    migrate_layout "$MNT"
+  fi
   umount "$MNT"
 
   mount -t btrfs -o subvol=@ "$target_dev" "$MNT"
@@ -370,9 +418,7 @@ main() {
   configure_boot "$MNT" "$kernel_options"
   verify_boot_entry "$MNT/boot/efi" "$root_uuid"
   verify_boot_selection "$MNT/boot/efi"
-  chroot "$MNT" bootctl --esp-path=/boot/efi is-installed
-  # An EFI default-entry variable can override loader.conf. Set the validated ID.
-  chroot "$MNT" bootctl --esp-path=/boot/efi set-default Pop_OS-current.conf
+  verify_target_bootloader "$MNT"
   log_info "Unmounting target filesystems..."
   umount -R "$MNT"
   rmdir -- "$MNT"
