@@ -36,17 +36,13 @@ main() {
   )
   check_executable "$INSTALL_DIR/STM32CubeMX"
   check_executable "$INSTALL_DIR/jre/bin/java"
-  # Use the CubeMX application icon, not IzPack's generic ST-branded window icon.
-  # This resource ships in the installer, so no network lookup is needed.
-  if python3 - "$installer" "$WORK_DIR/icon.png" <<'PY'
-import sys, zipfile
-with zipfile.ZipFile(sys.argv[1]) as archive:
-    with open(sys.argv[2], 'wb') as stream:
-        stream.write(archive.read('com/st/microxplorer/install/STM32CubeMX.png'))
-PY
-  then
-    if convert_icon_to_png "$WORK_DIR/icon.png" "$INSTALL_DIR/launcher.png"; then icon="$INSTALL_DIR/launcher.png"; fi
-  else log_warn "Native CubeMX icon is unavailable; using the desktop theme icon."; fi
+  # This is the 256x256 application icon used by ST's own launcher. The small
+  # icon embedded in the installer JAR is only its generic installer window icon.
+  if convert_icon_to_png "$INSTALL_DIR/help/STM32CubeMX.png" "$INSTALL_DIR/launcher.png"; then
+    icon="$INSTALL_DIR/launcher.png"
+  else
+    log_warn "Native CubeMX application icon is unavailable; using the desktop theme icon."
+  fi
   st_finish STM32CubeMX "$HOME/.local/bin/stm32cubemx" "$INSTALL_DIR/STM32CubeMX" "$INSTALL_DIR" "$icon" com-st-microxplorer-maingui-STM32CubeMX "$HOME/.local/share/applications/st-com-stm32cubemx.desktop"
   remove_vendor_launcher
   log_info "STM32CubeMX installed at $INSTALL_TARGET; previous versions are retained."
