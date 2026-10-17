@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Configure the exact @/@snapshots layout; run after booting the installed OS.
+# Configure Snapper and hibernation; run after booting the installed @ root.
 set -euo pipefail
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=common.sh
@@ -63,13 +63,19 @@ setup_apt_snapshots() {
 }
 
 main() {
-  [[ $# -eq 0 ]] || die "Usage: sudo $0"
-  [[ $EUID -eq 0 ]] || { exec sudo -- "$SCRIPT_DIR/${BASH_SOURCE[0]##*/}" "$@"; }
+  local hibernation=1
+  if [[ ${1:-} == --skip-hibernation ]]; then hibernation=0; shift; fi
+  [[ $# -eq 0 ]] || die "Usage: sudo $0 [--skip-hibernation]"
+  if [[ $EUID -ne 0 ]]; then
+    if (( hibernation )); then exec sudo -- "$SCRIPT_DIR/${BASH_SOURCE[0]##*/}";
+    else exec sudo -- "$SCRIPT_DIR/${BASH_SOURCE[0]##*/}" --skip-hibernation; fi
+  fi
   require_commands findmnt python3 apt-get apt-config flock
   local os_id
   os_id=$(awk -F= '$1 == "ID" {gsub(/"/, "", $2); print $2}' /etc/os-release)
   case "$os_id" in pop|ubuntu|debian) ;; *) die "Snapper setup supports Pop!_OS, Ubuntu and Debian." ;; esac
   verify_subvolumes
+  if (( hibernation )); then python3 "$SCRIPT_DIR/scripts/configure_hibernation.py" --check; fi
   start_workspace snapper
   repair_old_hook
   apt-get update
@@ -87,6 +93,7 @@ main() {
   local config="$WORK_DIR/rollback.conf"
   printf '[root]\ndev = /dev/disk/by-uuid/%s\nsubvol_main = @\nsubvol_snapshots = @snapshots\nmountpoint = /btrfsroot\n' "$(findmnt -n -o UUID --mountpoint /)" > "$config"
   install -o root -g root -m 0644 "$config" /etc/snapper-rollback.conf
+  if (( hibernation )); then python3 "$SCRIPT_DIR/scripts/configure_hibernation.py"; fi
   configure_snapper
   setup_apt_snapshots
   systemctl daemon-reload

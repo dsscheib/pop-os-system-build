@@ -265,6 +265,10 @@ verify_repair_layout() {
   for path in "${entries[@]}"; do
     case ${path##*/} in
       @|@home|@snapshots) ;;
+      @swap)
+        [[ -d $path && ! -L $path ]] || fail "@swap must be a Btrfs subvolume."
+        btrfs subvolume show "$path" >/dev/null || fail "@swap must be a Btrfs subvolume."
+        ;;
       *) fail "Incomplete conversion: top-level ${path##*/} remains. Inspect the layout manually before boot repair." ;;
     esac
   done

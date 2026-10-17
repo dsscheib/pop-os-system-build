@@ -3,7 +3,8 @@
 Scripts for a UEFI Btrfs installation, Snapper snapshots, workstation tools, and
 user-space STMicroelectronics applications. Workstation and STM32 setup support
 **Pop!_OS/Ubuntu 22.04 and 24.04 on x86_64**. Snapper setup also supports Debian
-with the required packages and the exact subvolume layout described below.
+with the required packages and the exact subvolume layout described below
+(use `--skip-hibernation` for Snapper on Ubuntu/Debian).
 
 ## 1. Install Pop!_OS
 
@@ -69,11 +70,62 @@ requiring manual inspection. Reboot only after it reports success. A previously
 saved systemd-boot EFI default can override `loader.conf`; if needed, choose
 `Pop_OS-current` in the boot menu and make it the default from the installed OS.
 
-## 2. Configure Snapper after boot
+## 2. Configure Snapper and hibernation after boot
 
 ```bash
 sudo ./setup_btrfs_snapper.sh
 ```
+
+On Pop!_OS with kernelstub/systemd-boot, this also configures hibernation. It
+creates a top-level `@swap` subvolume mounted at `/swap`, outside root snapshots,
+and `/swap/hibernate.swap` sized to RAM plus the larger of 25% of RAM or 2 GiB,
+rounded up to a whole GiB. For example, 16 GiB RAM gets 20 GiB swap. Another
+2 GiB of filesystem free space is required as headroom. Allocation may still fail
+if Btrfs cannot provide suitable extents; configuration stops on failure.
+
+The setup requires a single-device Btrfs filesystem, **btrfs-progs 6.1 or newer**,
+kernel hibernation support without lockdown, and the EFI partition mounted at
+`/boot/efi`. Older distributions may need newer Btrfs tools first. The preflight
+runs before Snapper package/configuration changes. Existing swap areas remain
+enabled. An existing hibernation file is reused if valid and large enough; a
+smaller file is reported rather than automatically deactivated or resized.
+
+The script uses `btrfs inspect-internal map-swapfile -r` for the physical resume
+offset, sets `resume=UUID=…` and `resume_offset=…` in kernelstub, configures
+initramfs resume and systemd `AllowHibernation=yes`, rebuilds initramfs for all
+installed kernels, and refreshes the current EFI boot entry. Conflicting old
+resume arguments are replaced; unrelated boot arguments are retained. Existing
+configuration files receive `.pre-hibernation` backups on their first edit.
+
+After validating the resume setup, it also installs
+`/etc/systemd/logind.conf.d/90-lid-close.conf`: closing the lid hibernates on
+battery, suspends on AC power, and does nothing when docked or using an external
+monitor. COSMIC may take over lid handling with external displays, preserving
+their use with the laptop closed. The lid policy takes effect after reboot;
+setup does not restart logind during your desktop session.
+
+To configure hibernation independently of Snapper, or check prerequisites:
+
+```bash
+sudo python3 scripts/configure_hibernation.py --check
+sudo python3 scripts/configure_hibernation.py
+```
+
+**Reboot after successful setup** to load the resume parameters. Save your work,
+then test a complete power-off/resume cycle using `systemctl hibernate`.
+Configuration checks cannot establish that firmware and device drivers resume
+correctly. The setup never initiates hibernation itself. It does not bypass kernel
+lockdown or unmask administrator-disabled sleep units. Hibernate menu visibility
+depends on the desktop environment.
+
+If the swap file is recreated or moved, rerun hibernation setup before using it:
+its physical resume offset can change. Snapper rollback to a snapshot from before
+this configuration may also require rerunning setup. Btrfs balance/scrub have
+restrictions around active swap extents; see the
+[Btrfs swap-file documentation](https://btrfs.readthedocs.io/en/latest/ch-swapfile.html).
+
+For Snapper without swap/hibernation setup, including Ubuntu/Debian or a different
+bootloader, run `sudo ./setup_btrfs_snapper.sh --skip-hibernation`.
 
 This requires `/` to mount `/@` and `/.snapshots` to mount `/@snapshots` from the
 same Btrfs filesystem, before any packages or configuration are changed. Setup

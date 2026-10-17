@@ -341,6 +341,19 @@ verify_target_bootloader "$1"
         result = self.bash('btrfs() { return 0; }; verify_repair_layout "$1"', self.root)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_boot_repair_accepts_only_a_real_optional_swap_subvolume(self):
+        self.repair_layout()
+        swap = self.root / '@swap'
+        swap.mkdir()
+        result = self.bash('btrfs() { return 0; }; verify_repair_layout "$1"', self.root)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        result = self.bash('btrfs() { [[ $3 != */@swap ]]; }; verify_repair_layout "$1"', self.root)
+        self.assertNotEqual(result.returncode, 0)
+        swap.rmdir()
+        swap.symlink_to(self.root / '@')
+        result = self.bash('btrfs() { return 0; }; verify_repair_layout "$1"', self.root)
+        self.assertNotEqual(result.returncode, 0)
+
     def test_boot_repair_rejects_partial_layout_and_hidden_leftovers(self):
         self.repair_layout()
         for name in ("home", ".leftover"):
