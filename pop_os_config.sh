@@ -524,7 +524,16 @@ completion_file() {
   mkdir -p "$(dirname "$destination")" || return
   temporary=$(mktemp "${destination}.tmp.XXXXXX") || return
   if ! "$@" > "$temporary"; then rm -f -- "$temporary"; return 1; fi
-  mv -Tf -- "$temporary" "$destination"
+  mv -Tf -- "$temporary" "$destination" || return
+  if [[ $destination == "$HOME/.zsh/completion/"* ]]; then
+    # Startup configurations using compinit -C otherwise retain a registry that
+    # predates newly installed functions. Include compiled dumps in the refresh.
+    local dump
+    for dump in "$HOME"/.zcompdump* "${XDG_CACHE_HOME:-$HOME/.cache}"/zsh/zcompdump*; do
+      [[ -f $dump && ! -L $dump ]] || continue
+      rm -f -- "$dump" || return
+    done
+  fi
 }
 # Generate Codex completions from the installed version; the other CLIs do not
 # expose generators, so use the bundled command/option completions.

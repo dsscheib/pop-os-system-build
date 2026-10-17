@@ -685,6 +685,22 @@ if install_build_tools; then exit 0; else exit "$?"; fi
         self.assertEqual(result.returncode, 42, result.stderr)
         self.assertNotIn('should not run', result.stdout)
 
+    def test_zsh_completion_install_refreshes_standard_and_xdg_caches(self):
+        result = self.bash(r'''
+export HOME="$1" XDG_CACHE_HOME="$1/cache"
+mkdir -p "$XDG_CACHE_HOME/zsh"
+touch "$HOME/.zcompdump" "$HOME/.zcompdump.zwc" \
+  "$XDG_CACHE_HOME/zsh/zcompdump-5.9" "$XDG_CACHE_HOME/zsh/keep"
+completion_file "$HOME/.zsh/completion/_example" printf '#compdef example\n'
+[[ ! -e "$HOME/.zcompdump" && ! -e "$HOME/.zcompdump.zwc" ]]
+[[ ! -e "$XDG_CACHE_HOME/zsh/zcompdump-5.9" ]]
+[[ -e "$XDG_CACHE_HOME/zsh/keep" ]]
+touch "$HOME/.zcompdump"
+if completion_file "$HOME/.zsh/completion/_example" false; then exit 1; fi
+[[ -e "$HOME/.zcompdump" ]]
+''', self.root, script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_ai_completions_install_and_preserve_on_generator_failure(self):
         result = self.bash(r'''
 export HOME="$1"
