@@ -249,7 +249,11 @@ verify_ai_cli() {
 }
 
 install_antigravity_cli() {
-  if command -v agy >/dev/null; then verify_ai_cli agy; return; fi
+  if command -v agy >/dev/null; then
+    verify_ai_cli agy || return
+    install_ai_completions agy
+    return
+  fi
   fetch_locked antigravity-cli "$WORK_DIR/antigravity-cli.tar.gz" || return
   begin_install "$HOME/.local/share/pop-workstation/antigravity-cli" || return
   python3 "$SCRIPT_DIR/scripts/st_assets.py" tar "$WORK_DIR/antigravity-cli.tar.gz" "$INSTALL_DIR" || return
@@ -258,18 +262,24 @@ install_antigravity_cli() {
   publish_install || return
   python3 "$SCRIPT_DIR/scripts/user_launcher.py" "$HOME/.local/bin/agy" "$INSTALL_DIR/antigravity" || return
   hash -r
-  verify_ai_cli agy
+  verify_ai_cli agy || return
+  install_ai_completions agy
 }
 
 install_claude_code() {
-  if command -v claude >/dev/null; then verify_ai_cli claude; return; fi
+  if command -v claude >/dev/null; then
+    verify_ai_cli claude || return
+    install_ai_completions claude
+    return
+  fi
   # The official latest-channel APT repository supplies a native CLI and signed
   # updates without Node.js or a shell bootstrap running against the user's HOME.
   install_repository claude-code claude-code-key \
     'deb [arch=amd64 signed-by=/etc/apt/keyrings/claude-code.asc] https://downloads.claude.ai/claude-code/apt/latest latest main' || return
   sudo apt-get install -y claude-code || return
   hash -r
-  verify_ai_cli claude
+  verify_ai_cli claude || return
+  install_ai_completions claude
 }
 
 ensure_node_runtime() {
@@ -288,7 +298,11 @@ ensure_node_runtime() {
 }
 
 install_codex_cli() {
-  if command -v codex >/dev/null; then verify_ai_cli codex; return; fi
+  if command -v codex >/dev/null; then
+    verify_ai_cli codex || return
+    install_ai_completions codex
+    return
+  fi
   ensure_node_runtime || return
   local node binary
   node=$(command -v node) || return
@@ -302,7 +316,8 @@ install_codex_cli() {
   # works in a fresh shell before Mise activation or language setup.
   python3 "$SCRIPT_DIR/scripts/user_launcher.py" "$HOME/.local/bin/codex" "$node" "$binary" || return
   hash -r
-  verify_ai_cli codex
+  verify_ai_cli codex || return
+  install_ai_completions codex
 }
 
 install_copilot_cli() {
@@ -510,6 +525,24 @@ completion_file() {
   temporary=$(mktemp "${destination}.tmp.XXXXXX") || return
   if ! "$@" > "$temporary"; then rm -f -- "$temporary"; return 1; fi
   mv -Tf -- "$temporary" "$destination"
+}
+# Generate Codex completions from the installed version; the other CLIs do not
+# expose generators, so use the bundled command/option completions.
+install_ai_completions() {
+  local cli=$1 shell destination source
+  for shell in bash zsh fish; do
+    case "$shell" in
+      bash) destination="$HOME/.local/share/bash-completion/completions/$cli" ;;
+      zsh) destination="$HOME/.zsh/completion/_$cli" ;;
+      fish) destination="$HOME/.config/fish/completions/$cli.fish" ;;
+    esac
+    if [[ $cli == codex ]]; then
+      optional "$cli $shell completions" completion_file "$destination" timeout --foreground 30s "$cli" completion "$shell"
+    else
+      source="$SCRIPT_DIR/resources/completions/$cli.$shell"
+      optional "$cli $shell completions" completion_file "$destination" cat "$source"
+    fi
+  done
 }
 install_rust_completions() {
   local shell

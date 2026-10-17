@@ -167,6 +167,12 @@ The default setup includes four independent AI CLI stages:
 | `codex` | `codex` | Pinned official `@openai/codex` npm package |
 | `copilot` | `copilot` | Pinned official `@github/copilot` npm package |
 
+The `antigravity`, `claudecode`, and `codex` stages also install Bash, Zsh, and
+Fish completions, including when the CLI is already installed. Codex completions
+come from `codex completion`; Claude Code and Antigravity use bundled top-level
+command and option lists with filename fallback for arguments. Rerun the stage to
+refresh completions. Completion failures are reported as optional failures.
+
 These stages install CLIs only. Antigravity's desktop app and standalone IDE are
 separate products and are not installed. Each stage checks `--version` and stops
 on a missing or broken CLI. An existing CLI on `PATH` is verified and preserved.

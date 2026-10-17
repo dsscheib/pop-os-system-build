@@ -384,7 +384,7 @@ main "$1"
 ''', archive, script='install_stm32_cube_mx.sh',
                            env={'TEST_TARGET': str(target), 'ST_INSTALLER_SHA256': hashlib.sha256(archive.read_bytes()).hexdigest()})
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('Native CubeMX icon is unavailable', result.stderr)
+        self.assertIn('Native CubeMX application icon is unavailable', result.stderr)
         self.assertTrue(target.is_symlink())
         self.assertTrue((target / 'STM32CubeMX').exists())
 
@@ -684,6 +684,28 @@ if install_build_tools; then exit 0; else exit "$?"; fi
 ''', script='pop_os_config.sh')
         self.assertEqual(result.returncode, 42, result.stderr)
         self.assertNotIn('should not run', result.stdout)
+
+    def test_ai_completions_install_and_preserve_on_generator_failure(self):
+        result = self.bash(r'''
+export HOME="$1"
+mkdir -p "$HOME/.local/bin"
+export PATH="$HOME/.local/bin:$PATH"
+printf '#!/bin/sh\necho "# generated $2"\n' > "$HOME/.local/bin/codex"
+chmod +x "$HOME/.local/bin/codex"
+for cli in codex claude agy; do install_ai_completions "$cli"; done
+printf '#!/bin/sh\necho partial\nexit 42\n' > "$HOME/.local/bin/codex"
+install_ai_completions codex
+[[ ${#OPTIONAL_FAILURES[@]} == 3 ]]
+''', self.root, script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for cli in ('codex', 'claude', 'agy'):
+            for relative in (f'.local/share/bash-completion/completions/{cli}',
+                             f'.zsh/completion/_{cli}',
+                             f'.config/fish/completions/{cli}.fish'):
+                content = (self.root / relative).read_text()
+                self.assertTrue(content)
+                self.assertNotIn('partial', content)
+        self.assertFalse(list(self.root.rglob('*.tmp.*')))
 
     def ai_stage(self, stage, *, status=0, present=False):
         directory = self.root / '.local/bin'

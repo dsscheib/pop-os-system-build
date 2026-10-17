@@ -1,0 +1,32 @@
+# Bundled top-level commands/options; filename completion remains enabled.
+complete -c claude -n '__fish_use_subcommand' -a 'agents attach auth auto-mode doctor gateway import install logs mcp plugin purge respawn rm setup-token stop ultrareview update'
+complete -c claude -l help
+complete -c claude -l version
+complete -c claude -l add-dir
+complete -c claude -l agent
+complete -c claude -l agents
+complete -c claude -l allowedTools
+complete -c claude -l append-system-prompt
+complete -c claude -l continue
+complete -c claude -l debug
+complete -c claude -l effort
+complete -c claude -l fork-session
+complete -c claude -l ide
+complete -c claude -l input-format
+complete -c claude -l json-schema
+complete -c claude -l max-budget-usd
+complete -c claude -l mcp-config
+complete -c claude -l model
+complete -c claude -l name
+complete -c claude -l output-format
+complete -c claude -l permission-mode
+complete -c claude -l plugin-dir
+complete -c claude -l print
+complete -c claude -l resume
+complete -c claude -l session-id
+complete -c claude -l settings
+complete -c claude -l strict-mcp-config
+complete -c claude -l system-prompt
+complete -c claude -l tools
+complete -c claude -l verbose
+complete -c claude -l worktree
