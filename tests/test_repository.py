@@ -669,11 +669,36 @@ install_build_tools
 ''', script='pop_os_config.sh')
         self.assertEqual(result.returncode, 0, result.stderr)
         packages = result.stdout.splitlines()
-        for package in ('build-essential', 'binutils', 'make', 'dpkg-dev', 'libc6-dev', 'gcc-16', 'g++-16'):
+        for package in ('build-essential', 'binutils', 'gdb', 'make', 'dpkg-dev', 'libc6-dev', 'gcc-16', 'g++-16'):
             self.assertIn(package, packages)
         self.assertIn('selected:16', packages)
         self.assertNotIn('gcc-14', packages)
         self.assertNotIn('g++-14', packages)
+
+    def test_nasmfmt_install_uses_pinned_version_and_local_bin(self):
+        result = self.bash(r'''
+export HOME="$1"
+go() {
+  [[ "$GOBIN" == "$HOME/.local/bin" ]]
+  [[ "$1" == install ]]
+  [[ "$2" == "github.com/yamnikov-oleg/nasmfmt@$NASMFMT_VERSION" ]]
+  printf '#!/bin/sh\nexit 0\n' > "$GOBIN/nasmfmt"
+  chmod +x "$GOBIN/nasmfmt"
+}
+install_nasmfmt
+[[ -x "$HOME/.local/bin/nasmfmt" ]]
+''', self.root, script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_nasmfmt_install_propagates_go_failure(self):
+        result = self.bash(r'''
+export HOME="$1"
+go() { return 42; }
+check_executable() { printf 'should not run'; }
+if install_nasmfmt; then exit 0; else exit "$?"; fi
+''', self.root, script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 42, result.stderr)
+        self.assertNotIn('should not run', result.stdout)
 
     def test_failed_build_tool_install_does_not_change_compiler_commands(self):
         result = self.bash('''

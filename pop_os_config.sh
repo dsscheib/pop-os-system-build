@@ -177,7 +177,7 @@ install_build_tools() {
   log_info "Installing newest APT native compiler pair: GCC/G++ $major"
   # Install/upgrade the current APT candidates. Older compiler versions are
   # requested only indirectly by distribution package dependencies.
-  sudo apt-get install -y --no-install-recommends build-essential binutils make dpkg-dev libc6-dev "gcc-$major" "g++-$major" || return
+  sudo apt-get install -y --no-install-recommends build-essential binutils gdb make dpkg-dev libc6-dev "gcc-$major" "g++-$major" || return
   configure_native_gcc "$major" || return
   log_info "Native compiler commands in ~/.local/bin now select GCC/G++ $major."
 }
@@ -349,6 +349,12 @@ install_rust_toolchain() {
   rustup default "$RUST_VERSION"
 }
 
+install_nasmfmt() {
+  mkdir -p "$HOME/.local/bin" || return
+  GOBIN="$HOME/.local/bin" go install "github.com/yamnikov-oleg/nasmfmt@$NASMFMT_VERSION" || return
+  check_executable "$HOME/.local/bin/nasmfmt"
+}
+
 install_languages_and_tools() {
   export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
   if ! command -v rustup >/dev/null; then
@@ -369,6 +375,7 @@ install_languages_and_tools() {
   node_directory=$("$mise" where "node@$NODE_VERSION")
   export PATH="$go_directory/bin:$node_directory/bin:$PATH"
   require_commands go node npm
+  install_nasmfmt
   install_go_completions
   install_uv
   uv tool install --python 3.13 "django==$DJANGO_VERSION"
