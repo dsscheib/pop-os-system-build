@@ -41,6 +41,31 @@ class RepositoryTests(unittest.TestCase):
                                'test', *map(str, arguments)], cwd=self.root,
                               env=environment, capture_output=True, text=True)
 
+    def test_dotfiles_replacement_restores_gcm_configuration(self):
+        dotfiles = self.root / '.dotfiles'
+        dotfiles.mkdir()
+        (dotfiles / 'bootstrap.sh').write_text(
+            '#!/bin/bash\nprintf "[user]\\n\\tname = Dotfiles\\n" > "$HOME/.gitconfig"\n')
+        result = self.bash('''
+export HOME="$1" GIT_CONFIG_GLOBAL="$1/.gitconfig" GIT_CONFIG_NOSYSTEM=1
+unset GIT_CONFIG_COUNT
+GIT_NAME='Test User' GIT_EMAIL=test@example.com GITHUB_USER=test-user
+DOTFILES_REPO=https://example.invalid/dotfiles
+selected=git,dotfiles
+update_repository() { :; }
+git-credential-manager() {
+  [[ $1 == configure ]]
+  git config --global credential.helper manager
+}
+setup_dotfiles
+[[ $(git config --global user.name) == "$GIT_NAME" ]]
+[[ $(git config --global user.email) == "$GIT_EMAIL" ]]
+[[ $(git config --global credential.credentialStore) == gpg ]]
+[[ $(git config --global credential.helper) == manager ]]
+[[ $(git config --global credential.https://github.com.username) == "$GITHUB_USER" ]]
+''', self.root, script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_mktemp_failure_is_not_success(self):
         result = self.bash('mktemp() { return 42; }; create_secure_tmpdir test')
         self.assertEqual(result.returncode, 42)

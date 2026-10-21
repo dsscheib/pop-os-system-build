@@ -287,7 +287,22 @@ Git setup uses a specific secret-key fingerprint and a properly initialized
 `pass` store. It asks GPG to obtain the key passphrase interactively, then starts
 Git Credential Manager's GitHub sign-in flow when run in a terminal. Approve the
 browser or device-code request to finish authentication; in noninteractive runs,
-use `git-credential-manager github login` afterward.
+use `git-credential-manager github login` afterward. When both `git` and
+`dotfiles` are selected, setup reapplies the Git identity, GPG credential store,
+and GCM helper after the dotfiles bootstrap so it cannot leave those settings
+replaced.
+
+If an existing installation reports `No credential store has been selected`,
+restore the store and helper configuration as your desktop user:
+
+```bash
+git config --global credential.credentialStore gpg
+git-credential-manager configure
+git-credential-manager --no-ui github login
+```
+
+This uses the GPG key and `pass` store initialized by the `git` stage. If that
+stage did not finish, rerun `bash pop_os_config.sh --stages git` first.
 
 Tool versions are pinned in [resources/tool-versions.env](resources/tool-versions.env).
 Download URLs and SHA-256 values are pinned in

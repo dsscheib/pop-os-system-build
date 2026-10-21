@@ -95,12 +95,7 @@ setup_git() {
     fetch_locked gcm "$WORK_DIR/gcm.deb"
     install_deb "$WORK_DIR/gcm.deb"
   fi
-  git config --global user.name "$GIT_NAME"
-  git config --global user.email "$GIT_EMAIL"
-  git config --global credential.credentialStore gpg
-  git config --global credential.https://github.com.username "$GITHUB_USER"
-  git config --global push.autoSetupRemote true
-  git-credential-manager configure
+  configure_git_credentials
   if [[ -t 0 && -t 1 ]]; then
     log_info "Complete GitHub sign-in in the browser or with the device code."
     if ! git-credential-manager github login; then
@@ -109,6 +104,16 @@ setup_git() {
   else
     log_info "Authenticate when ready with: git-credential-manager github login"
   fi
+}
+
+# Reapply after dotfiles, whose bootstrap may replace the global Git config.
+configure_git_credentials() {
+  git config --global user.name "$GIT_NAME"
+  git config --global user.email "$GIT_EMAIL"
+  git config --global credential.credentialStore gpg
+  git config --global credential.https://github.com.username "$GITHUB_USER"
+  git config --global push.autoSetupRemote true
+  git-credential-manager configure
 }
 
 install_fastfetch() {
@@ -224,6 +229,7 @@ setup_dotfiles() {
     # main's selected stages are visible here through Bash's dynamic scoping.
     if [[ ,${selected:-}, == *,tmux,* ]]; then skip_tmux=1; fi
     DOTFILES_SKIP_TMUX="$skip_tmux" bash "$HOME/.dotfiles/bootstrap.sh"
+    if [[ ,${selected:-}, == *,git,* ]]; then configure_git_credentials; fi
   fi
 }
 setup_tmux() {
