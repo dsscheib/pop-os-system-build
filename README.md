@@ -321,6 +321,13 @@ and suppresses AppImageLauncher integration prompts without changing desktop set
 Its desktop entry uses the Logic 2 icon linked by the
 [Linux installation instructions](https://mikrocontroller.ti.bfh.ch/faq/saleae.html).
 
+The default setup also includes the `hyper-backup-explorer` stage. Run it on its own
+with `./pop_os_config.sh --stages hyper-backup-explorer`. It installs Synology Hyper
+Backup Explorer 3.0.1-0156 under `~/Applications/HyperBackupExplorer`, adds an
+application-menu entry and the `hyper-backup-explorer` command, and uses the bundled
+Qt libraries through an XWayland launcher. Its SHA-256 baseline was recorded from
+Synology's HTTPS download on 2026-10-21.
+
 Local Debian packages are copied into a temporary root-owned directory readable
 by APT's `_apt` user, then removed after installation. Download workspaces remain
 private. This avoids APT's “Download is performed unsandboxed as root” warning

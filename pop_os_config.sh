@@ -7,7 +7,7 @@ source "$SCRIPT_DIR/common.sh"
 # shellcheck source=resources/tool-versions.env
 source "$SCRIPT_DIR/resources/tool-versions.env"
 OPTIONAL_FAILURES=()
-STAGES=(system fonts git dependencies dotfiles tmux languages neovim firefox applications arm avr riscv antigravity claudecode codex copilot arm-avr)
+STAGES=(system fonts git dependencies dotfiles tmux languages neovim firefox applications hyper-backup-explorer arm avr riscv antigravity claudecode codex copilot arm-avr)
 
 optional() {
   local description=$1
@@ -514,6 +514,33 @@ install_applications() {
   fi
   sudo apt-get install -y litecli pgcli mycli kicad openscad libreoffice evince
 }
+install_hyper_backup_explorer() {
+  local archive="$WORK_DIR/hyper-backup-explorer.tar.bz2"
+  local wrapper="$HOME/.local/bin/hyper-backup-explorer"
+  local desktop="$HOME/.local/share/applications/synology-hyper-backup-explorer.desktop"
+
+  log_info "Installing Synology Hyper Backup Explorer..."
+  sudo apt-get install -y bzip2 libnss3 libxss1 libxml2 libxslt1.1 libgl1 \
+    libxkbcommon-x11-0 libxcb-xinerama0 || return
+  fetch_locked hyper-backup-explorer "$archive" || return
+  begin_install "$HOME/Applications/HyperBackupExplorer" || return
+  python3 "$SCRIPT_DIR/scripts/st_assets.py" tar "$archive" "$INSTALL_DIR" || return
+  check_executable "$INSTALL_DIR/HyperBackupExplorer" || return
+  # Qt also needs the bundled libraries for its transitive dependencies.
+  LD_LIBRARY_PATH="$INSTALL_DIR/lib" check_elf_dependencies "$INSTALL_DIR/HyperBackupExplorer" || return
+  LD_LIBRARY_PATH="$INSTALL_DIR/lib" check_elf_dependencies "$INSTALL_DIR/plugins/platforms/libqxcb.so" || return
+  write_desktop "$WORK_DIR/hyper-backup-explorer.desktop" 'Synology Hyper Backup Explorer' \
+    "$wrapper" "$INSTALL_DIR" folder-open '' 'Utility;Archiving;' || return
+  desktop-file-validate "$WORK_DIR/hyper-backup-explorer.desktop" || return
+
+  publish_install || return
+  write_wrapper "$wrapper" "$INSTALL_DIR" "$INSTALL_DIR/HyperBackupExplorer" \
+    LD_LIBRARY_PATH="$INSTALL_DIR/lib" QT_QPA_PLATFORM=xcb || return
+  write_desktop "$desktop" 'Synology Hyper Backup Explorer' "$wrapper" \
+    "$INSTALL_DIR" folder-open '' 'Utility;Archiving;' || return
+  refresh_desktop_environment "$(dirname "$desktop")"
+  log_info "Hyper Backup Explorer installed at $INSTALL_TARGET."
+}
 install_arm_toolchain() {
   sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi \
     gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
@@ -597,7 +624,7 @@ install_django_completions() {
 }
 
 main() {
-  local selected='system,fonts,git,dependencies,dotfiles,tmux,languages,neovim,firefox,applications,arm,avr,riscv,antigravity,claudecode,codex,copilot' stage
+  local selected='system,fonts,git,dependencies,dotfiles,tmux,languages,neovim,firefox,applications,hyper-backup-explorer,arm,avr,riscv,antigravity,claudecode,codex,copilot' stage
   case ${1:-} in
     --list-stages) [[ $# -eq 1 ]] || die "--list-stages takes no arguments."; printf '%s\n' "${STAGES[@]}"; return ;;
     --stages) [[ $# -eq 2 && -n $2 ]] || die "Usage: $0 --stages comma,separated,stages"; selected=$2 ;;
@@ -626,6 +653,7 @@ main() {
       dependencies) install_dependencies ;; dotfiles) setup_dotfiles ;; tmux) setup_tmux ;;
       languages) install_languages_and_tools ;; neovim) install_neovim_and_astronvim ;;
       firefox) install_firefox_dev ;; applications) install_applications ;;
+      hyper-backup-explorer) install_hyper_backup_explorer ;;
       arm) install_arm_toolchain ;; avr) install_avr_toolchain ;;
       arm-avr) install_avr_and_arm_toolchain ;; riscv) install_riscv_toolchain ;;
       antigravity) install_antigravity_cli ;; claudecode) install_claude_code ;; codex) install_codex_cli ;;

@@ -59,6 +59,11 @@
     "url": "https://global.synologydownload.com/download/Utility/SynologyDriveClient/4.0.1-17885/Ubuntu/Installer/synology-drive-client-17885.x86_64.deb",
     "sha256": "0cc1ea87ca344649d64f27003526cca498f5df7fcc67cb99d7ccad0d955a28c8"
   },
+  "hyper-backup-explorer": {
+    "version": "3.0.1-0156",
+    "url": "https://global.synologydownload.com/download/Utility/HyperBackupExplorer/3.0.1-0156/Linux/x86_64/HyperBackupExplorer-3.0.1-0156-linux.tar.bz2",
+    "sha256": "5a36e4bc9ca31cb8737be63059f9506a17349c19546a4ff42fd17cc6f0a2e088"
+  },
   "vscode-key": {
     "version": "2026-10-13",
     "url": "https://packages.microsoft.com/keys/microsoft.asc",

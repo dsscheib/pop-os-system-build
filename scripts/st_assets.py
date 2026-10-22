@@ -120,13 +120,13 @@ def wrapper(destination, directory, executable, *environment):
     atomic_text(destination, content, 0o755)
 
 
-def desktop(destination, name, executable, directory, icon, wmclass):
+def desktop(destination, name, executable, directory, icon, wmclass, categories='Development;IDE;'):
     def value(text):
         return text.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
     quoted = executable.replace('\\', '\\\\\\\\').replace('"', '\\\\"').replace('`', '\\\\`').replace('$', '\\\\$').replace('%', '%%')
     content = ('[Desktop Entry]\nVersion=1.0\nType=Application\n' +
                f'Name={value(name)}\nExec="{quoted}" %F\nPath={value(directory)}\n' +
-               f'Icon={value(icon)}\nTerminal=false\nCategories=Development;IDE;\n' +
+               f'Icon={value(icon)}\nTerminal=false\nCategories={value(categories)}\n' +
                (f'StartupWMClass={value(wmclass)}\n' if wmclass else ''))
     atomic_text(destination, content, 0o644)
 
