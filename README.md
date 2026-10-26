@@ -150,6 +150,25 @@ reported explicitly. Test an actual rollback and reboot in a disposable VM befor
 relying on rollback for recovery; root snapshots do not include the FAT EFI files
 or `/home`.
 
+### Secondary NVMe Btrfs data drive (Samsung 970 EVO)
+
+To install the PCIe ASPM `L1.2` / NVMe APST (`PS3` cap) power-management udev rule
+([resources/udev/99-samsung-970-evo-nvme.rules](resources/udev/99-samsung-970-evo-nvme.rules))
+and configure the secondary Samsung SSD 970 EVO 500GB drive at `/mnt/data` (with
+`/mnt/data/.snapshots` and `~/data` symlink):
+
+```bash
+# Reattach an existing @data/@snapshots Btrfs pool after an OS reinstall (preserves data):
+sudo ./setup_secondary_btrfs_drive.sh
+
+# Repartition (GPT) and format the secondary drive from scratch:
+sudo ./setup_secondary_btrfs_drive.sh --format
+```
+
+You can also pass an explicit disk path (for example,
+`sudo ./setup_secondary_btrfs_drive.sh /dev/nvme1n1`). The script refuses to
+operate on the disk backing `/`, `/boot/efi`, `/recovery`, `/home`, or `/swap`.
+
 ## 3. Configure the workstation as your desktop user
 
 ```bash

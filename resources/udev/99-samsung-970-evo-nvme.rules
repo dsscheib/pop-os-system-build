@@ -1,0 +1,4 @@
+# Prevent Samsung SSD 970 EVO (Phoenix controller 144d:a808) from entering buggy PS4 / PCIe L1.2 / D3cold states
+ACTION=="add|change", SUBSYSTEM=="nvme", ATTRS{vendor}=="0x144d", ATTRS{device}=="0xa808", ATTR{power/pm_qos_latency_tolerance_us}="5500"
+ACTION=="add|change", SUBSYSTEM=="pci", ATTR{vendor}=="0x144d", ATTR{device}=="0xa808", ATTR{link/l1_2_aspm}="0", ATTR{link/l1_2_pcipm}="0", ATTR{d3cold_allowed}="0", ATTR{power/control}="on"
+ACTION=="add|change", SUBSYSTEM=="pci", KERNEL=="0000:00:1d.0", ATTR{power/control}="on"

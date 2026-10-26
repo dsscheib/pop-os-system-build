@@ -1141,6 +1141,52 @@ printf '%s\n' "${COMPREPLY[@]}"
         self.assertEqual(lines[2], "let g:python3_host_prog='" + provider.replace("'", "''") + "'")
         self.assertEqual(lines[3], 'file with spaces.py')
 
+    def test_secondary_btrfs_fstab_rendering_is_idempotent(self):
+        fstab = self.root / 'fstab'
+        fstab.write_text(
+            '# Header comment\n'
+            'UUID=root-uuid\t/\tbtrfs\tdefaults,subvol=@\t0\t0\n'
+            'UUID=old-uuid\t/mnt/data\tbtrfs\tdefaults,subvol=@data\t0\t0\n'
+            'UUID=old-uuid\t/mnt/data/.snapshots\tbtrfs\tdefaults,subvol=@snapshots\t0\t0\n'
+        )
+        result = self.bash('render_secondary_fstab "$1" new-uuid-1234', fstab,
+                           script='setup_secondary_btrfs_drive.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual(sum('/mnt/data\t' in line for line in lines), 1)
+        self.assertEqual(sum('/mnt/data/.snapshots\t' in line for line in lines), 1)
+        self.assertIn(
+            'UUID=new-uuid-1234\t/mnt/data\tbtrfs\t'
+            'defaults,noatime,compress=zstd:1,ssd,discard=async,space_cache=v2,nofail,subvol=@data\t0\t0',
+            lines,
+        )
+        self.assertIn(
+            'UUID=new-uuid-1234\t/mnt/data/.snapshots\tbtrfs\t'
+            'defaults,noatime,compress=zstd:1,ssd,discard=async,space_cache=v2,nofail,subvol=@snapshots\t0\t0',
+            lines,
+        )
+
+    def test_secondary_btrfs_rejects_system_disk(self):
+        result = self.bash('''
+lsblk() {
+  if [[ "$*" == *"-dnro TYPE"* ]]; then printf 'disk\\n';
+  elif [[ "$*" == *"-dnro PKNAME"* ]]; then printf 'nvme0n1\\n'; fi
+}
+findmnt() { printf '/dev/nvme0n1p3[/@]\\n'; }
+verify_disk_is_secondary /dev/nvme0n1
+''', script='setup_secondary_btrfs_drive.sh')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Refusing to operate on system disk', result.stderr)
+
+    def test_secondary_btrfs_requires_format_flag_for_non_btrfs_partition(self):
+        result = self.bash('''
+lsblk() { printf '/dev/nvme1n1p1 part\\n'; }
+blkid() { printf 'ext4\\n'; }
+locate_existing_btrfs_partition /dev/nvme1n1
+''', script='setup_secondary_btrfs_drive.sh')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('pass --format', result.stderr)
+
 
 if __name__ == '__main__':
     unittest.main()
