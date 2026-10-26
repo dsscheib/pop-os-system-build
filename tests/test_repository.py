@@ -1187,6 +1187,24 @@ locate_existing_btrfs_partition /dev/nvme1n1
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('pass --format', result.stderr)
 
+    def test_secondary_btrfs_migrates_and_symlinks_downloads_idempotently(self):
+        home = self.root / 'home'
+        mnt_data = self.root / 'mnt_data'
+        (home / 'Downloads').mkdir(parents=True)
+        (home / 'Downloads/file.txt').write_text('saved-download')
+        mnt_data.mkdir(parents=True)
+        result = self.bash('''
+MOUNT_DATA="$2"
+configure_user_links "$1" "$(id -u)" "$(id -g)"
+configure_user_links "$1" "$(id -u)" "$(id -g)"
+''', home, mnt_data, script='setup_secondary_btrfs_drive.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((home / 'data').is_symlink())
+        self.assertEqual((home / 'data').resolve(), mnt_data.resolve())
+        self.assertTrue((home / 'Downloads').is_symlink())
+        self.assertEqual((home / 'Downloads').resolve(), (mnt_data / 'Downloads').resolve())
+        self.assertEqual((mnt_data / 'Downloads/file.txt').read_text(), 'saved-download')
+
 
 if __name__ == '__main__':
     unittest.main()

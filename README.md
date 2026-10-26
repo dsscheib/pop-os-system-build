@@ -155,7 +155,8 @@ or `/home`.
 To install the PCIe ASPM `L1.2` / NVMe APST (`PS3` cap) power-management udev rule
 ([resources/udev/99-samsung-970-evo-nvme.rules](resources/udev/99-samsung-970-evo-nvme.rules))
 and configure the secondary Samsung SSD 970 EVO 500GB drive at `/mnt/data` (with
-`/mnt/data/.snapshots` and `~/data` symlink):
+`/mnt/data/.snapshots`, `~/data` symlink, and `~/Downloads` migrated/symlinked to
+`/mnt/data/Downloads`):
 
 ```bash
 # Reattach an existing @data/@snapshots Btrfs pool after an OS reinstall (preserves data):

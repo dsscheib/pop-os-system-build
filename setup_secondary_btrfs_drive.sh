@@ -169,6 +169,35 @@ render_secondary_fstab() {
   ' "$fstab"
 }
 
+configure_user_links() {
+  local user_home=$1 uid=$2 gid=$3
+  [[ -n "$user_home" && -d "$user_home" ]] || return 0
+
+  if [[ -L "$user_home/data" || ! -e "$user_home/data" ]]; then
+    ln -sfn "$MOUNT_DATA" "$user_home/data"
+    chown -h "$uid:$gid" "$user_home/data"
+  else
+    log_warn "Skipping symlink $user_home/data because a non-symlink path already exists."
+  fi
+
+  local data_downloads="$MOUNT_DATA/Downloads"
+  local user_downloads="$user_home/Downloads"
+  mkdir -p "$data_downloads"
+  chown "$uid:$gid" "$data_downloads"
+  chmod 0755 "$data_downloads"
+
+  if [[ -d "$user_downloads" && ! -L "$user_downloads" ]]; then
+    cp -a -- "$user_downloads/." "$data_downloads/"
+    rm -rf -- "$user_downloads"
+  fi
+  if [[ -L "$user_downloads" || ! -e "$user_downloads" ]]; then
+    ln -sfn "$data_downloads" "$user_downloads"
+    chown -h "$uid:$gid" "$user_downloads"
+  else
+    log_warn "Skipping symlink $user_downloads because a non-directory path already exists."
+  fi
+}
+
 update_fstab_and_mount() {
   local part=$1 target_user=$2 uuid rendered backup
   uuid=$(blkid -s UUID -o value "$part")
@@ -210,14 +239,7 @@ update_fstab_and_mount() {
     chown "$uid:$gid" "$MOUNT_DATA" "$MOUNT_SNAPSHOTS"
     chmod 0755 "$MOUNT_DATA" "$MOUNT_SNAPSHOTS"
     user_home=$(getent passwd "$target_user" | cut -d: -f6)
-    if [[ -n "$user_home" && -d "$user_home" ]]; then
-      if [[ -L "$user_home/data" || ! -e "$user_home/data" ]]; then
-        ln -sfn "$MOUNT_DATA" "$user_home/data"
-        chown -h "$uid:$gid" "$user_home/data"
-      else
-        log_warn "Skipping symlink $user_home/data because a non-symlink path already exists."
-      fi
-    fi
+    configure_user_links "$user_home" "$uid" "$gid"
   fi
 }
 
