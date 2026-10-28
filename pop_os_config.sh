@@ -30,8 +30,8 @@ load_config() {
 validate_config() {
   local stages=$1 key
   if [[ ,$stages, == *,git,* ]]; then
-    for key in GIT_NAME GIT_EMAIL GITHUB_USER; do
-      [[ -n ${!key:-} && ${!key} != 'Your Full Name' && ${!key} != your.email@example.com && ${!key} != your-github-username ]] || die "Set $key in config.env before selecting the git stage."
+    for key in GIT_NAME GIT_EMAIL; do
+      [[ -n ${!key:-} && ${!key} != 'Your Full Name' && ${!key} != your.email@example.com ]] || die "Set $key in config.env before selecting the git stage."
       [[ ${!key} != *$'\n'* && ${!key} != *$'\r'* ]] || die "Invalid multiline identity value: $key"
     done
   fi
@@ -59,61 +59,39 @@ install_fonts() {
   fc-cache -f "$HOME/.local/share/fonts"
 }
 
-secret_fingerprints() {
-  gpg --batch --with-colons --list-secret-keys --fingerprint "$1" |
-    awk -F: '$1 == "sec" {primary=1; next} $1 == "fpr" && primary {print $10; primary=0}'
-}
 setup_git() {
-  sudo apt-get install -y pass gpg python3-gpg
-  local uid="$GIT_NAME <$GIT_EMAIL>" fingerprints fingerprint
-  fingerprints=$(secret_fingerprints "$uid" 2>/dev/null || true)
-  if [[ -z "$fingerprints" ]]; then
-    log_info "Generating a GPG key for $uid (GPG will request its passphrase)."
-    if [[ -n ${GPG_PASSPHRASE:-} ]]; then
-      gpg --batch --pinentry-mode loopback --passphrase-fd 3 --quick-generate-key "$uid" default default 1y 3<<<"$GPG_PASSPHRASE"
-    else
-      [[ -t 0 ]] || die "Interactive GPG setup requires a terminal or GPG_PASSPHRASE."
-      export GPG_TTY
-      GPG_TTY=$(tty)
-      gpg --quick-generate-key "$uid" default default 1y
-    fi
-    fingerprints=$(secret_fingerprints "$uid")
-  fi
-  fingerprint=${GPG_KEY_FINGERPRINT:-$fingerprints}
-  fingerprint=${fingerprint^^}
-  [[ $fingerprint != *$'\n'* && $fingerprint =~ ^[[:xdigit:]]{40,64}$ ]] || die "Multiple matching keys: set GPG_KEY_FINGERPRINT explicitly."
-  grep -Fxq "$fingerprint" <<< "$fingerprints" || die "GPG_KEY_FINGERPRINT does not match a secret key for the configured identity."
-  local store=${PASSWORD_STORE_DIR:-$HOME/.password-store}
-  export PASSWORD_STORE_DIR="$store"
-  if [[ ! -f "$store/.gpg-id" ]]; then
-    [[ ! -d "$store" || -z $(find "$store" -mindepth 1 -maxdepth 1 -print -quit) ]] || die "Existing password store has no recipient configuration; repair it before continuing."
-    pass init "$fingerprint"
-  else
-    grep -Fxq "$fingerprint" "$store/.gpg-id" || die "Existing pass store uses different recipients; select the matching key or update the store manually."
-  fi
-  if ! command -v git-credential-manager >/dev/null; then
-    fetch_locked gcm "$WORK_DIR/gcm.deb"
-    install_deb "$WORK_DIR/gcm.deb"
-  fi
+  install_github_cli
   configure_git_credentials
-  if [[ -t 0 && -t 1 ]]; then
+  if gh auth status --hostname github.com >/dev/null 2>&1; then
+    log_info "GitHub CLI is already authenticated."
+  elif [[ -t 0 && -t 1 ]]; then
     log_info "Complete GitHub sign-in in the browser or with the device code."
-    if ! git-credential-manager github login; then
-      log_warn "GitHub sign-in was not completed. Run 'git-credential-manager github login' when ready."
+    if ! gh auth login --hostname github.com --git-protocol https --scopes workflow --web; then
+      log_warn "GitHub sign-in was not completed. Run 'gh auth login --scopes workflow' when ready."
     fi
   else
-    log_info "Authenticate when ready with: git-credential-manager github login"
+    log_info "Authenticate when ready with: gh auth login --scopes workflow"
   fi
+}
+
+# Use GitHub's signed APT repository rather than the distribution's older gh.
+install_github_cli() {
+  if ! package_installed gh; then
+    install_repository githubcli githubcli-key \
+      'deb [arch=amd64 signed-by=/etc/apt/keyrings/githubcli.gpg] https://cli.github.com/packages stable main'
+    sudo apt-get install -y gh
+  fi
+  command -v gh >/dev/null || die "GitHub CLI installation did not provide the gh command."
 }
 
 # Reapply after dotfiles, whose bootstrap may replace the global Git config.
 configure_git_credentials() {
   git config --global user.name "$GIT_NAME"
   git config --global user.email "$GIT_EMAIL"
-  git config --global credential.credentialStore gpg
-  git config --global credential.https://github.com.username "$GITHUB_USER"
   git config --global push.autoSetupRemote true
-  git-credential-manager configure
+  # Git uses gh's stored token for github.com, so one sign-in serves both.
+  # Forcing allows configuration before that sign-in.
+  gh auth setup-git --hostname github.com --force
 }
 
 install_fastfetch() {
@@ -432,6 +410,8 @@ install_repository() {
   if [[ $name == vscode ]]; then
     gpg --batch --yes --dearmor -o "$WORK_DIR/$name.gpg" "$WORK_DIR/$name.key"
     install_system_file "$WORK_DIR/$name.gpg" "/etc/apt/keyrings/$name.gpg"
+  # GitHub publishes a binary keyring, which APT requires a .gpg name to read.
+  elif [[ $name == githubcli ]]; then install_system_file "$WORK_DIR/$name.key" "/etc/apt/keyrings/$name.gpg"
   else install_system_file "$WORK_DIR/$name.key" "/etc/apt/keyrings/$name.asc"; fi
   printf '%s\n' "$source" > "$WORK_DIR/$name.list"
   install_system_file "$WORK_DIR/$name.list" "/etc/apt/sources.list.d/$name.list"

@@ -303,26 +303,23 @@ When the `tmux` stage is selected, the dotfiles bootstrap delegates plugin setup
 to that stage. Both repositories use `~/.local/share/tmux/plugins` and the same
 TPM pin. A `dotfiles`-only selection lets its bootstrap install plugins normally.
 
-Git setup uses a specific secret-key fingerprint and a properly initialized
-`pass` store. It asks GPG to obtain the key passphrase interactively, then starts
-Git Credential Manager's GitHub sign-in flow when run in a terminal. Approve the
-browser or device-code request to finish authentication; in noninteractive runs,
-use `git-credential-manager github login` afterward. When both `git` and
-`dotfiles` are selected, setup reapplies the Git identity, GPG credential store,
-and GCM helper after the dotfiles bootstrap so it cannot leave those settings
-replaced.
+Git setup installs the GitHub CLI (`gh`) from GitHub's signed APT repository
+and configures it as Git's credential helper for github.com, so Git and `gh`
+share one sign-in. When run in a terminal, it starts `gh auth login` with the
+`workflow` scope (needed to push GitHub Actions workflow changes) unless `gh` is
+already authenticated. Approve the browser or device-code request to finish; in
+noninteractive runs, use `gh auth login --scopes workflow` afterward. `gh` keeps
+its token in the desktop keyring. When both `git` and `dotfiles` are selected,
+setup reapplies the Git identity and `gh` helper after the dotfiles bootstrap so
+it cannot leave those settings replaced.
 
-If an existing installation reports `No credential store has been selected`,
-restore the store and helper configuration as your desktop user:
+If an existing `gh` sign-in lacks the `workflow` scope, or Git stops finding
+GitHub credentials, run as your desktop user:
 
 ```bash
-git config --global credential.credentialStore gpg
-git-credential-manager configure
-git-credential-manager --no-ui github login
+gh auth refresh --hostname github.com --scopes workflow
+gh auth setup-git --hostname github.com
 ```
-
-This uses the GPG key and `pass` store initialized by the `git` stage. If that
-stage did not finish, rerun `bash pop_os_config.sh --stages git` first.
 
 Tool versions are pinned in [resources/tool-versions.env](resources/tool-versions.env).
 Download URLs and SHA-256 values are pinned in

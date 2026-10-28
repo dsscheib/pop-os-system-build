@@ -41,7 +41,7 @@ class RepositoryTests(unittest.TestCase):
                                'test', *map(str, arguments)], cwd=self.root,
                               env=environment, capture_output=True, text=True)
 
-    def test_dotfiles_replacement_restores_gcm_configuration(self):
+    def test_dotfiles_replacement_restores_gh_credential_helper(self):
         dotfiles = self.root / '.dotfiles'
         dotfiles.mkdir()
         (dotfiles / 'bootstrap.sh').write_text(
@@ -49,20 +49,18 @@ class RepositoryTests(unittest.TestCase):
         result = self.bash('''
 export HOME="$1" GIT_CONFIG_GLOBAL="$1/.gitconfig" GIT_CONFIG_NOSYSTEM=1
 unset GIT_CONFIG_COUNT
-GIT_NAME='Test User' GIT_EMAIL=test@example.com GITHUB_USER=test-user
+GIT_NAME='Test User' GIT_EMAIL=test@example.com
 DOTFILES_REPO=https://example.invalid/dotfiles
 selected=git,dotfiles
 update_repository() { :; }
-git-credential-manager() {
-  [[ $1 == configure ]]
-  git config --global credential.helper manager
+gh() {
+  [[ $* == 'auth setup-git --hostname github.com --force' ]]
+  git config --global credential.https://github.com.helper '!gh auth git-credential'
 }
 setup_dotfiles
 [[ $(git config --global user.name) == "$GIT_NAME" ]]
 [[ $(git config --global user.email) == "$GIT_EMAIL" ]]
-[[ $(git config --global credential.credentialStore) == gpg ]]
-[[ $(git config --global credential.helper) == manager ]]
-[[ $(git config --global credential.https://github.com.username) == "$GITHUB_USER" ]]
+[[ $(git config --global credential.https://github.com.helper) == '!gh auth git-credential' ]]
 ''', self.root, script='pop_os_config.sh')
         self.assertEqual(result.returncode, 0, result.stderr)
 
@@ -907,6 +905,43 @@ begin_install "$1/second"
         self.assertIn('https://downloads.claude.ai/claude-code/apt/latest latest main', source)
         self.assertIn('Verified claude CLI', result.stdout)
 
+    def test_github_cli_uses_official_signed_repository(self):
+        result = self.bash('''
+package_installed() { return 1; }
+install_repository() { printf '%s\\n' "$@" > "$HOME/repository-args"; }
+sudo() { [[ $* == 'apt-get install -y gh' ]] || return 91; }
+command() { [[ $1 == -v && $2 == gh ]] || builtin command "$@"; }
+install_github_cli
+''', script='pop_os_config.sh', env={'HOME': str(self.root)})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        source = (self.root / 'repository-args').read_text()
+        self.assertIn('githubcli-key', source)
+        self.assertIn('signed-by=/etc/apt/keyrings/githubcli.gpg', source)
+        self.assertIn('https://cli.github.com/packages stable main', source)
+
+    def git_stage(self, authenticated):
+        return self.bash('''
+export GIT_CONFIG_GLOBAL="$1/.gitconfig" GIT_CONFIG_NOSYSTEM=1
+GIT_NAME='Test User' GIT_EMAIL=test@example.com GH_LOG="$1/gh-calls" GH_STATUS=$2
+install_github_cli() { :; }
+gh() { printf '%s\\n' "$*" >> "$GH_LOG"; [[ $* != 'auth status --hostname github.com' ]] || return "$GH_STATUS"; }
+setup_git
+''', self.root, 0 if authenticated else 1, script='pop_os_config.sh')
+
+    def test_git_stage_configures_gh_helper_before_sign_in(self):
+        result = self.git_stage(authenticated=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = (self.root / 'gh-calls').read_text().splitlines()
+        self.assertEqual(calls[0], 'auth setup-git --hostname github.com --force')
+        self.assertIn('gh auth login --scopes workflow', result.stdout)
+
+    def test_git_stage_skips_sign_in_when_gh_is_authenticated(self):
+        result = self.git_stage(authenticated=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('already authenticated', result.stdout)
+        calls = (self.root / 'gh-calls').read_text().splitlines()
+        self.assertFalse(any(call.startswith('auth login') for call in calls))
+
     def test_ai_existing_cli_is_verified_without_installation(self):
         for stage in ('antigravity', 'claudecode', 'codex', 'copilot'):
             with self.subTest(stage=stage), tempfile.TemporaryDirectory() as directory:
@@ -1075,7 +1110,7 @@ setup_dotfiles
                 self.assertEqual(result.stdout, expected)
 
     def test_identity_is_required_instead_of_using_author_defaults(self):
-        result = self.bash('unset GIT_NAME GIT_EMAIL GITHUB_USER; validate_config git', script='pop_os_config.sh')
+        result = self.bash('unset GIT_NAME GIT_EMAIL; validate_config git', script='pop_os_config.sh')
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Set GIT_NAME', result.stderr)
 
