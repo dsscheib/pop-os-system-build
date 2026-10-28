@@ -7,7 +7,7 @@ source "$SCRIPT_DIR/common.sh"
 # shellcheck source=resources/tool-versions.env
 source "$SCRIPT_DIR/resources/tool-versions.env"
 OPTIONAL_FAILURES=()
-STAGES=(system fonts git dependencies dotfiles tmux languages neovim firefox applications hyper-backup-explorer arm avr riscv antigravity claudecode codex copilot arm-avr)
+STAGES=(system fonts git dependencies dotfiles tmux languages neovim firefox applications hyper-backup-explorer arm avr riscv antigravity claudecode codex copilot private-dotfiles arm-avr)
 
 optional() {
   local description=$1
@@ -210,6 +210,34 @@ setup_dotfiles() {
     if [[ ,${selected:-}, == *,git,* ]]; then configure_git_credentials; fi
   fi
 }
+# Restore personal agent configuration from a private repository after the CLIs are
+# installed. Unconfigured is a skip; an unavailable GitHub sign-in is reported as an
+# optional failure so the rest of the setup still completes.
+setup_private_dotfiles() {
+  if [[ -z ${PRIVATE_DOTFILES_REPO:-} ]]; then
+    log_info "PRIVATE_DOTFILES_REPO is not set in config.env; skipping private dotfiles."
+    return 0
+  fi
+  if ! command -v gh >/dev/null || ! gh auth status --hostname github.com >/dev/null 2>&1; then
+    log_warn "GitHub CLI is not signed in, so the private dotfiles cannot be cloned."
+    log_warn "Run 'gh auth login --scopes workflow', then './pop_os_config.sh --stages private-dotfiles'."
+    return 1
+  fi
+  # Use gh's token for this clone only, without depending on the git stage's global helper.
+  (
+    index=${GIT_CONFIG_COUNT:-0}
+    export GIT_TERMINAL_PROMPT=0 GIT_CONFIG_COUNT=$((index + 1))
+    export "GIT_CONFIG_KEY_$index=credential.https://github.com.helper" "GIT_CONFIG_VALUE_$index=!gh auth git-credential"
+    update_repository "$PRIVATE_DOTFILES_REPO" "$HOME/.dotfiles-private" "${PRIVATE_DOTFILES_REF:-}"
+  ) || return
+  if [[ ! -f "$HOME/.dotfiles-private/restore.sh" ]]; then
+    log_warn "$HOME/.dotfiles-private has no restore.sh; nothing was restored."
+    return 1
+  fi
+  bash "$HOME/.dotfiles-private/restore.sh" || return
+  log_info "Private dotfiles restored. Sign in to agy, claude and codex separately; logins are not restored."
+}
+
 setup_tmux() {
   export TMUX_PLUGIN_MANAGER_PATH="$HOME/.local/share/tmux/plugins"
   update_repository https://github.com/tmux-plugins/tpm "$TMUX_PLUGIN_MANAGER_PATH/tpm" "$TPM_COMMIT"
@@ -604,7 +632,7 @@ install_django_completions() {
 }
 
 main() {
-  local selected='system,fonts,git,dependencies,dotfiles,tmux,languages,neovim,firefox,applications,hyper-backup-explorer,arm,avr,riscv,antigravity,claudecode,codex,copilot' stage
+  local selected='system,fonts,git,dependencies,dotfiles,tmux,languages,neovim,firefox,applications,hyper-backup-explorer,arm,avr,riscv,antigravity,claudecode,codex,copilot,private-dotfiles' stage
   case ${1:-} in
     --list-stages) [[ $# -eq 1 ]] || die "--list-stages takes no arguments."; printf '%s\n' "${STAGES[@]}"; return ;;
     --stages) [[ $# -eq 2 && -n $2 ]] || die "Usage: $0 --stages comma,separated,stages"; selected=$2 ;;
@@ -638,6 +666,7 @@ main() {
       arm-avr) install_avr_and_arm_toolchain ;; riscv) install_riscv_toolchain ;;
       antigravity) install_antigravity_cli ;; claudecode) install_claude_code ;; codex) install_codex_cli ;;
       copilot) install_copilot_cli ;;
+      private-dotfiles) optional 'Private dotfiles restore' setup_private_dotfiles ;;
     esac
   done
   python3 "$SCRIPT_DIR/scripts/shell_integration.py" "$HOME" "$SCRIPT_DIR/resources"

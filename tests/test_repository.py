@@ -64,6 +64,62 @@ setup_dotfiles
 ''', self.root, script='pop_os_config.sh')
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def private_dotfiles(self, repo='https://example.invalid/private.git', *, signed_in=True, restore=True):
+        if restore:
+            checkout = self.root / '.dotfiles-private'
+            checkout.mkdir()
+            (checkout / 'restore.sh').write_text('printf restored > "$HOME/restored"\n')
+        return self.bash('''
+export HOME="$1" PRIVATE_DOTFILES_REPO="$2" PRIVATE_DOTFILES_REF="$3"
+unset GIT_CONFIG_COUNT
+gh() { [[ $* == 'auth status --hostname github.com' && $GH_SIGNED_IN == 1 ]]; }
+update_repository() {
+  printf 'clone %s %s %s\\n' "$1" "$2" "$3" >> "$HOME/calls"
+  printf 'helper %s %s=%s prompt=%s\\n' "$GIT_CONFIG_COUNT" "$GIT_CONFIG_KEY_0" "$GIT_CONFIG_VALUE_0" "$GIT_TERMINAL_PROMPT" >> "$HOME/calls"
+}
+optional 'Private dotfiles restore' setup_private_dotfiles
+printf '%s' "${OPTIONAL_FAILURES[*]}"
+[[ -z ${GIT_CONFIG_COUNT:-} ]]
+''', self.root, repo, 'abc123', script='pop_os_config.sh',
+            env={'GH_SIGNED_IN': '1' if signed_in else '0'})
+
+    def test_private_dotfiles_clone_with_gh_token_and_restore(self):
+        result = self.private_dotfiles()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines()[-1:], ['[INFO] Private dotfiles restored. Sign in to agy, claude '
+                                                          'and codex separately; logins are not restored.'])
+        self.assertEqual((self.root / 'calls').read_text().splitlines(), [
+            f'clone https://example.invalid/private.git {self.root}/.dotfiles-private abc123',
+            'helper 1 credential.https://github.com.helper=!gh auth git-credential prompt=0'])
+        self.assertEqual((self.root / 'restored').read_text(), 'restored')
+
+    def test_private_dotfiles_unconfigured_is_a_quiet_skip(self):
+        result = self.private_dotfiles(repo='', restore=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('skipping private dotfiles', result.stdout)
+        self.assertNotIn('Private dotfiles restore', result.stdout + result.stderr)
+        self.assertFalse((self.root / 'calls').exists())
+
+    def test_private_dotfiles_without_gh_sign_in_is_an_optional_failure(self):
+        result = self.private_dotfiles(signed_in=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--stages private-dotfiles", result.stderr)
+        self.assertTrue(result.stdout.endswith('Private dotfiles restore'))
+        self.assertFalse((self.root / 'calls').exists())
+        self.assertFalse((self.root / 'restored').exists())
+
+    def test_private_dotfiles_without_restore_script_is_an_optional_failure(self):
+        result = self.private_dotfiles(restore=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('has no restore.sh', result.stderr)
+        self.assertTrue(result.stdout.endswith('Private dotfiles restore'))
+
+    def test_private_dotfiles_stage_is_listed_and_selected_by_default(self):
+        result = subprocess.run(['bash', str(REPO / 'pop_os_config.sh'), '--list-stages'], capture_output=True, text=True)
+        self.assertIn('private-dotfiles', result.stdout.splitlines())
+        source = (REPO / 'pop_os_config.sh').read_text()
+        self.assertIn(",copilot,private-dotfiles' stage", source)
+
     def test_mktemp_failure_is_not_success(self):
         result = self.bash('mktemp() { return 42; }; create_secure_tmpdir test')
         self.assertEqual(result.returncode, 42)

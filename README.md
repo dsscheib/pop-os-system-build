@@ -321,6 +321,24 @@ gh auth refresh --hostname github.com --scopes workflow
 gh auth setup-git --hostname github.com
 ```
 
+The default setup ends with the `private-dotfiles` stage. It restores personal
+agent configuration (for example Claude Code, Codex and Antigravity CLI settings
+and memories) from a private repository, so it runs after the CLI stages. Set
+`PRIVATE_DOTFILES_REPO` (and optionally `PRIVATE_DOTFILES_REF`) in `config.env`;
+when it is unset the stage is skipped. The stage clones or fast-forwards the
+repository into `~/.dotfiles-private` using the GitHub CLI's sign-in for that clone
+only, then runs the repository's `restore.sh`. It never backs up or pushes. If `gh`
+is not signed in, or the repository has no `restore.sh`, the stage is reported as
+an optional failure and the rest of setup completes. After signing in, rerun it with:
+
+```bash
+./pop_os_config.sh --stages private-dotfiles
+```
+
+Restoring configuration does not sign in to `agy`, `claude` or `codex`; logins are
+never stored in the private repository. Keep actual secret values such as API keys
+out of it as well.
+
 Tool versions are pinned in [resources/tool-versions.env](resources/tool-versions.env).
 Download URLs and SHA-256 values are pinned in
 [resources/downloads.json](resources/downloads.json). Update both the version and
