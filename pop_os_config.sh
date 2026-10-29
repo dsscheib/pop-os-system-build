@@ -294,13 +294,19 @@ install_claude_code() {
   install_ai_completions claude
 }
 
-ensure_node_runtime() {
-  if command -v node >/dev/null && command -v npm >/dev/null &&
-    node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 22 ? 0 : 1)'; then return; fi
+# The pinned download only bootstraps Mise; afterwards it keeps itself current.
+install_mise() {
   if ! command -v mise >/dev/null; then
     fetch_locked mise "$WORK_DIR/mise" || return
     install -m 0755 "$WORK_DIR/mise" "$HOME/.local/bin/mise" || return
   fi
+  mise settings self_update.auto=true
+}
+
+ensure_node_runtime() {
+  if command -v node >/dev/null && command -v npm >/dev/null &&
+    node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 22 ? 0 : 1)'; then return; fi
+  install_mise || return
   local mise directory
   mise=$(command -v mise) || return
   "$mise" use --global "node@$NODE_VERSION" || return
@@ -378,7 +384,7 @@ install_languages_and_tools() {
   install_rust_toolchain
   if ! command -v asm-lsp >/dev/null; then cargo install asm-lsp --version "$ASM_LSP_VERSION" --locked; fi
   install_rust_completions
-  if ! command -v mise >/dev/null; then fetch_locked mise "$WORK_DIR/mise"; install -m 0755 "$WORK_DIR/mise" "$HOME/.local/bin/mise"; fi
+  install_mise
   local mise
   mise=$(command -v mise)
   "$mise" use --global "go@$GO_VERSION" "node@$NODE_VERSION"

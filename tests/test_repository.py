@@ -1029,7 +1029,7 @@ command() {
 }
 mise() {
     case $1 in
-        use) printf '%s\\n' "$@";;
+        use|settings) printf '%s\\n' "$@";;
         where) printf '%s\\n' "$HOME/node-runtime";;
         *) return 99;;
     esac
@@ -1039,6 +1039,7 @@ printf 'node-path:%s\\n' "${PATH%%:*}"
 ''', self.root, script='pop_os_config.sh')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('node@', result.stdout)
+        self.assertIn('self_update.auto=true', result.stdout)
         self.assertIn('node-path:' + str(runtime / 'bin'), result.stdout)
         self.assertNotIn('go@', result.stdout)
 
