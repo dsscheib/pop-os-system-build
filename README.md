@@ -348,6 +348,11 @@ Saleae/Synology downloads and repository keys have SHA-256 baselines from their
 HTTPS upstream endpoints, recorded on 2026-10-13. A checksum detects an unexpected
 artifact; it does not independently authenticate its publisher.
 
+The default setup includes the `chrome` stage, which installs `google-chrome-stable`
+from Google's signed APT repository using a pinned copy of Google's signing key. It
+writes `/etc/default/google-chrome` so the package does not add a second, conflicting
+source for the same repository. Run it alone with `./pop_os_config.sh --stages chrome`.
+
 The applications stage installs the pinned Arduino IDE 2 release from its official
 Linux archive and creates an application-menu entry with the bundled 512-pixel icon.
 It does not install the legacy IDE 1 package from Ubuntu's `arduino` package.

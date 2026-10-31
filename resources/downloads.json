@@ -88,5 +88,10 @@
     "version": "2.3.10",
     "url": "https://github.com/arduino/arduino-ide/releases/download/2.3.10/arduino-ide_2.3.10_Linux_64bit.zip",
     "sha256": "cc8a0b01e763d4646b670ce70c1bc8c389a0fa14ab556dcc0749c03f475a7975"
+  },
+  "google-chrome-key": {
+    "version": "2026-10-31",
+    "url": "https://dl.google.com/linux/linux_signing_key.pub",
+    "sha256": "54dea5f6c2a26091578cf52a999cebc6b64df478d37ad4dce96376b711e3b27c"
   }
 }
