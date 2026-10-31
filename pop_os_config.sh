@@ -7,7 +7,7 @@ source "$SCRIPT_DIR/common.sh"
 # shellcheck source=resources/tool-versions.env
 source "$SCRIPT_DIR/resources/tool-versions.env"
 OPTIONAL_FAILURES=()
-STAGES=(system fonts git dependencies dotfiles tmux languages neovim firefox applications hyper-backup-explorer arm avr riscv antigravity claudecode codex copilot private-dotfiles arm-avr)
+STAGES=(system fonts git dependencies dotfiles tmux languages neovim firefox chrome applications hyper-backup-explorer arm avr riscv antigravity claudecode codex copilot private-dotfiles arm-avr)
 
 optional() {
   local description=$1
@@ -459,6 +459,17 @@ install_firefox_dev() {
     sudo apt-get install -y firefox-devedition
   fi
 }
+install_google_chrome() {
+  if package_installed google-chrome-stable; then return 0; fi
+  # Otherwise Chrome's package writes its own source on install and
+  # from its daily cron job, which conflicts with this signed-by entry.
+  printf 'repo_add_once="false"\nrepo_reenable_on_distupgrade="false"\n' > "$WORK_DIR/google-chrome.default"
+  install_system_file "$WORK_DIR/google-chrome.default" /etc/default/google-chrome
+  install_repository google-chrome google-chrome-key \
+    'deb [arch=amd64 signed-by=/etc/apt/keyrings/google-chrome.asc] https://dl.google.com/linux/chrome/deb/ stable main'
+  sudo apt-get install -y google-chrome-stable
+  command -v google-chrome >/dev/null || die "Chrome installation did not provide the google-chrome command."
+}
 install_freecad() {
   flatpak --user remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo || return
   flatpak --user install -y flathub org.freecad.FreeCAD
@@ -638,7 +649,7 @@ install_django_completions() {
 }
 
 main() {
-  local selected='system,fonts,git,dependencies,dotfiles,tmux,languages,neovim,firefox,applications,hyper-backup-explorer,arm,avr,riscv,antigravity,claudecode,codex,copilot,private-dotfiles' stage
+  local selected='system,fonts,git,dependencies,dotfiles,tmux,languages,neovim,firefox,chrome,applications,hyper-backup-explorer,arm,avr,riscv,antigravity,claudecode,codex,copilot,private-dotfiles' stage
   case ${1:-} in
     --list-stages) [[ $# -eq 1 ]] || die "--list-stages takes no arguments."; printf '%s\n' "${STAGES[@]}"; return ;;
     --stages) [[ $# -eq 2 && -n $2 ]] || die "Usage: $0 --stages comma,separated,stages"; selected=$2 ;;
@@ -666,7 +677,7 @@ main() {
       system) setup_system ;; fonts) install_fonts ;; git) setup_git ;;
       dependencies) install_dependencies ;; dotfiles) setup_dotfiles ;; tmux) setup_tmux ;;
       languages) install_languages_and_tools ;; neovim) install_neovim_and_astronvim ;;
-      firefox) install_firefox_dev ;; applications) install_applications ;;
+      firefox) install_firefox_dev ;; chrome) install_google_chrome ;; applications) install_applications ;;
       hyper-backup-explorer) install_hyper_backup_explorer ;;
       arm) install_arm_toolchain ;; avr) install_avr_toolchain ;;
       arm-avr) install_avr_and_arm_toolchain ;; riscv) install_riscv_toolchain ;;
