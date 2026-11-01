@@ -1,5 +1,6 @@
 # Local environment configuration
 config.env
+config.secrets.env
 .env
 
 # Downloaded installer archives & executables

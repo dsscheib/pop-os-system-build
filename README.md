@@ -353,6 +353,29 @@ from Google's signed APT repository using a pinned copy of Google's signing key.
 writes `/etc/default/google-chrome` so the package does not add a second, conflicting
 source for the same repository. Run it alone with `./pop_os_config.sh --stages chrome`.
 
+The default setup ends with the `google-drive` stage, after `private-dotfiles` has
+restored any filter file. The stage installs the pinned rclone
+release and keeps `~/GoogleDrive` in two-way sync with Google Drive through
+`rclone bisync` on a systemd user timer (`rclone-gdrive-bisync.timer`, every 15
+minutes by default). Sign-in opens a browser, so when setup runs without a terminal
+the stage reports an optional failure. Finish it later with
+`./pop_os_config.sh --stages google-drive`. The first run performs a `--resync`
+that downloads the whole selected folder and merges it with any local files.
+In a terminal, it shows the Drive folder, local folder and filters and asks before
+running that full sync. To choose what syncs, set `GDRIVE_FILTERS_FILE` to an
+[rclone filter file](https://rclone.org/filtering/) (see `config.env.example`) and
+rerun the stage after each edit. The stage then stops the timer and runs a new
+`--resync`, since bisync refuses to run after its filters change. Files a filter
+excludes are left alone on both sides, so you can delete their local copies without
+affecting Drive. Google Docs, Sheets and Slides are skipped because they have no
+file form that round-trips. Set `GDRIVE_CLIENT_ID`/`GDRIVE_CLIENT_SECRET` in `config.secrets.env` (gitignored,
+loaded after `config.env`, kept out of any `config.env` backup) to use
+your own OAuth client; rclone's shared one is rate-limited and being retired. If
+the remote already exists with a different client, rerunning the stage in a terminal
+pauses the timer, updates the remote and repeats the browser sign-in. The sign-in token
+is stored in `~/.config/rclone/rclone.conf`; do not commit it. Logs are available
+with `journalctl --user -u rclone-gdrive-bisync`.
+
 The applications stage installs the pinned Arduino IDE 2 release from its official
 Linux archive and creates an application-menu entry with the bundled 512-pixel icon.
 It does not install the legacy IDE 1 package from Ubuntu's `arduino` package.

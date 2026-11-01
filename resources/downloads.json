@@ -93,5 +93,10 @@
     "version": "2026-10-31",
     "url": "https://dl.google.com/linux/linux_signing_key.pub",
     "sha256": "54dea5f6c2a26091578cf52a999cebc6b64df478d37ad4dce96376b711e3b27c"
+  },
+  "rclone": {
+    "version": "v1.75.2",
+    "url": "https://github.com/rclone/rclone/releases/download/v1.75.2/rclone-v1.75.2-linux-amd64.deb",
+    "sha256": "efbfe852181f7191eb3c9043ed1ab49c9b2d0ba045c61c926a5da111c939ec5c"
   }
 }
