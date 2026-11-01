@@ -83,12 +83,13 @@ printf '%s' "${OPTIONAL_FAILURES[*]}"
 ''', self.root, repo, 'abc123', script='pop_os_config.sh',
             env={'GH_SIGNED_IN': '1' if signed_in else '0'})
 
-    def google_drive(self, *, authorized, filters=''):
+    def google_drive(self, *, authorized, filters='', remote_client='id'):
         bin_dir = self.root / 'bin'
         bin_dir.mkdir(exist_ok=True)
         rclone = bin_dir / 'rclone'
         rclone.write_text('#!/bin/bash\nprintf "rclone %s\\n" "$*" >> "$HOME/calls"\n'
-                          'if [[ $1 == listremotes && $AUTHORIZED == 1 ]]; then printf "gdrive:\\n"; fi\n')
+                          'if [[ $1 == listremotes && $AUTHORIZED == 1 ]]; then printf "gdrive:\\n"; fi\n'
+                          'if [[ $1 == config && $2 == dump ]]; then printf \'{"gdrive":{"client_id":"%s"}}\' "$REMOTE_CLIENT"; fi\n')
         rclone.chmod(0o755)
         return self.bash('''
 export HOME="$1" XDG_STATE_HOME="$1/state" GDRIVE_LOCAL_DIR="$1/Drive 100%" GDRIVE_CLIENT_ID=id GDRIVE_CLIENT_SECRET=secret GDRIVE_FILTERS_FILE="$2"
@@ -96,7 +97,7 @@ systemctl() { printf 'systemctl %s\\n' "$*" >> "$HOME/calls"; }
 optional 'Google Drive sync' install_google_drive
 printf '%s' "${OPTIONAL_FAILURES[*]}"
 ''', self.root, filters, script='pop_os_config.sh',
-            env={'AUTHORIZED': '1' if authorized else '0', 'PATH': f'{bin_dir}:{os.environ["PATH"]}'})
+            env={'AUTHORIZED': '1' if authorized else '0', 'REMOTE_CLIENT': remote_client, 'PATH': f'{bin_dir}:{os.environ["PATH"]}'})
 
     def test_google_drive_unauthorized_writes_units_and_is_an_optional_failure(self):
         result = self.google_drive(authorized=False)
@@ -142,6 +143,15 @@ printf '%s' "${OPTIONAL_FAILURES[*]}"
         self.assertTrue(result.stdout.endswith('Google Drive sync'))
         self.assertIn('GDRIVE_FILTERS_FILE does not exist', result.stderr)
         self.assertNotIn('--resync', (self.root / 'calls').read_text() if (self.root / 'calls').exists() else '')
+
+    def test_google_drive_changed_client_id_needs_a_terminal_to_switch(self):
+        result = self.google_drive(authorized=True, remote_client='')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(result.stdout.endswith('Google Drive sync'))
+        self.assertIn('GDRIVE_CLIENT_ID differs from the gdrive remote', result.stderr)
+        calls = (self.root / 'calls').read_text()
+        self.assertNotIn('config update', calls)
+        self.assertNotIn('--resync', calls)
 
     def test_systemd_quote_rejects_quotes(self):
         result = self.bash('systemd_quote \'a"b\'', script='pop_os_config.sh')

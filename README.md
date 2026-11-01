@@ -368,7 +368,9 @@ rerun the stage after each edit. The stage then stops the timer and runs a new
 excludes are left alone on both sides, so you can delete their local copies without
 affecting Drive. Google Docs, Sheets and Slides are skipped because they have no
 file form that round-trips. Set `GDRIVE_CLIENT_ID`/`GDRIVE_CLIENT_SECRET` in `config.env` to use
-your own OAuth client, since rclone's shared one is rate-limited. The sign-in token
+your own OAuth client; rclone's shared one is rate-limited and being retired. If
+the remote already exists with a different client, rerunning the stage in a terminal
+pauses the timer, updates the remote and repeats the browser sign-in. The sign-in token
 is stored in `~/.config/rclone/rclone.conf`; do not commit it. Logs are available
 with `journalctl --user -u rclone-gdrive-bisync`.
 

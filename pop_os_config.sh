@@ -545,8 +545,25 @@ WantedBy=timers.target
 EOF
   systemctl --user daemon-reload
 }
+# rclone stores the client in the remote, so a later GDRIVE_CLIENT_ID applies only
+# after updating it and fetching a token that the new client issued.
+switch_gdrive_client() {
+  local current
+  [[ -n ${GDRIVE_CLIENT_ID:-} ]] || return 0
+  current=$(rclone config dump | jq -r --arg remote "$GDRIVE_REMOTE" '.[$remote].client_id // ""') || return
+  [[ $current != "$GDRIVE_CLIENT_ID" ]] || return 0
+  if [[ ! -t 0 || ! -t 1 ]]; then
+    log_warn "GDRIVE_CLIENT_ID differs from the $GDRIVE_REMOTE remote. Run './pop_os_config.sh --stages google-drive' in a terminal to switch."
+    return 1
+  fi
+  # Scheduled runs would fail between the update and the new sign-in.
+  systemctl --user disable --now rclone-gdrive-bisync.timer || return
+  log_info "Switching Google Drive to your OAuth client; complete sign-in in the browser."
+  rclone config update "$GDRIVE_REMOTE" "client_id=$GDRIVE_CLIENT_ID" "client_secret=${GDRIVE_CLIENT_SECRET:-}" || return
+  rclone config reconnect "$GDRIVE_REMOTE:" || return
+}
 authorize_gdrive() {
-  if rclone listremotes | grep -Fxq "$GDRIVE_REMOTE:"; then return 0; fi
+  if rclone listremotes | grep -Fxq "$GDRIVE_REMOTE:"; then switch_gdrive_client; return; fi
   local -a options=(scope=drive)
   if [[ -n ${GDRIVE_CLIENT_ID:-} ]]; then
     options+=("client_id=$GDRIVE_CLIENT_ID" "client_secret=${GDRIVE_CLIENT_SECRET:-}")
