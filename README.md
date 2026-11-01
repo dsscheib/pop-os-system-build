@@ -353,7 +353,8 @@ from Google's signed APT repository using a pinned copy of Google's signing key.
 writes `/etc/default/google-chrome` so the package does not add a second, conflicting
 source for the same repository. Run it alone with `./pop_os_config.sh --stages chrome`.
 
-The default setup includes the `google-drive` stage, which installs the pinned rclone
+The default setup ends with the `google-drive` stage, after `private-dotfiles` has
+restored any filter file. The stage installs the pinned rclone
 release and keeps `~/GoogleDrive` in two-way sync with Google Drive through
 `rclone bisync` on a systemd user timer (`rclone-gdrive-bisync.timer`, every 15
 minutes by default). Sign-in opens a browser, so when setup runs without a terminal

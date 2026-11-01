@@ -7,7 +7,7 @@ source "$SCRIPT_DIR/common.sh"
 # shellcheck source=resources/tool-versions.env
 source "$SCRIPT_DIR/resources/tool-versions.env"
 OPTIONAL_FAILURES=()
-STAGES=(system fonts git dependencies dotfiles tmux languages neovim firefox chrome google-drive applications hyper-backup-explorer arm avr riscv antigravity claudecode codex copilot private-dotfiles arm-avr)
+STAGES=(system fonts git dependencies dotfiles tmux languages neovim firefox chrome applications hyper-backup-explorer arm avr riscv antigravity claudecode codex copilot private-dotfiles google-drive arm-avr)
 
 optional() {
   local description=$1
@@ -788,7 +788,7 @@ install_django_completions() {
 }
 
 main() {
-  local selected='system,fonts,git,dependencies,dotfiles,tmux,languages,neovim,firefox,chrome,google-drive,applications,hyper-backup-explorer,arm,avr,riscv,antigravity,claudecode,codex,copilot,private-dotfiles' stage
+  local selected='system,fonts,git,dependencies,dotfiles,tmux,languages,neovim,firefox,chrome,applications,hyper-backup-explorer,arm,avr,riscv,antigravity,claudecode,codex,copilot,private-dotfiles,google-drive' stage
   case ${1:-} in
     --list-stages) [[ $# -eq 1 ]] || die "--list-stages takes no arguments."; printf '%s\n' "${STAGES[@]}"; return ;;
     --stages) [[ $# -eq 2 && -n $2 ]] || die "Usage: $0 --stages comma,separated,stages"; selected=$2 ;;

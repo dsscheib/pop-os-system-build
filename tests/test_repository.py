@@ -192,7 +192,7 @@ printf '%s' "${OPTIONAL_FAILURES[*]}"
         result = subprocess.run(['bash', str(REPO / 'pop_os_config.sh'), '--list-stages'], capture_output=True, text=True)
         self.assertIn('private-dotfiles', result.stdout.splitlines())
         source = (REPO / 'pop_os_config.sh').read_text()
-        self.assertIn(",copilot,private-dotfiles' stage", source)
+        self.assertIn(",copilot,private-dotfiles,google-drive' stage", source)
 
     def test_mktemp_failure_is_not_success(self):
         result = self.bash('mktemp() { return 42; }; create_secure_tmpdir test')
