@@ -153,6 +153,14 @@ printf '%s' "${OPTIONAL_FAILURES[*]}"
         self.assertNotIn('config update', calls)
         self.assertNotIn('--resync', calls)
 
+    def test_secrets_file_loads_after_config(self):
+        (self.root / 'config.env').write_text('GDRIVE_CLIENT_ID=from-config\nGIT_NAME=Tester\n')
+        (self.root / 'config.secrets.env').write_text('GDRIVE_CLIENT_ID=from-secrets\n')
+        result = self.bash('SCRIPT_DIR="$1"; load_config; printf "%s %s" "$GDRIVE_CLIENT_ID" "$GIT_NAME"',
+                           self.root, script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, 'from-secrets Tester')
+
     def test_systemd_quote_rejects_quotes(self):
         result = self.bash('systemd_quote \'a"b\'', script='pop_os_config.sh')
         self.assertNotEqual(result.returncode, 0)

@@ -26,6 +26,11 @@ load_config() {
     # shellcheck source=/dev/null
     source "$SCRIPT_DIR/.env"
   fi
+  # Secret values live apart from config.env, which may be backed up elsewhere.
+  if [[ -f "$SCRIPT_DIR/config.secrets.env" ]]; then
+    # shellcheck source=/dev/null
+    source "$SCRIPT_DIR/config.secrets.env"
+  fi
 }
 validate_config() {
   local stages=$1 key
