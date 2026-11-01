@@ -353,6 +353,19 @@ from Google's signed APT repository using a pinned copy of Google's signing key.
 writes `/etc/default/google-chrome` so the package does not add a second, conflicting
 source for the same repository. Run it alone with `./pop_os_config.sh --stages chrome`.
 
+The default setup includes the `google-drive` stage, which installs the pinned rclone
+release and keeps `~/GoogleDrive` in two-way sync with Google Drive through
+`rclone bisync` on a systemd user timer (`rclone-gdrive-bisync.timer`, every 15
+minutes by default). Sign-in opens a browser, so when setup runs without a terminal
+the stage reports an optional failure. Finish it later with
+`./pop_os_config.sh --stages google-drive`. The first run performs a `--resync`
+that downloads the whole selected folder and merges it with any local files.
+Google Docs, Sheets and Slides are skipped because they have no file form that
+round-trips. Set `GDRIVE_CLIENT_ID`/`GDRIVE_CLIENT_SECRET` in `config.env` to use
+your own OAuth client, since rclone's shared one is rate-limited. The sign-in token
+is stored in `~/.config/rclone/rclone.conf`; do not commit it. Logs are available
+with `journalctl --user -u rclone-gdrive-bisync`.
+
 The applications stage installs the pinned Arduino IDE 2 release from its official
 Linux archive and creates an application-menu entry with the bundled 512-pixel icon.
 It does not install the legacy IDE 1 package from Ubuntu's `arduino` package.

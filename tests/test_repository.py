@@ -83,6 +83,49 @@ printf '%s' "${OPTIONAL_FAILURES[*]}"
 ''', self.root, repo, 'abc123', script='pop_os_config.sh',
             env={'GH_SIGNED_IN': '1' if signed_in else '0'})
 
+    def google_drive(self, *, authorized):
+        bin_dir = self.root / 'bin'
+        bin_dir.mkdir(exist_ok=True)
+        rclone = bin_dir / 'rclone'
+        rclone.write_text('#!/bin/bash\nprintf "rclone %s\\n" "$*" >> "$HOME/calls"\n'
+                          'if [[ $1 == listremotes && $AUTHORIZED == 1 ]]; then printf "gdrive:\\n"; fi\n')
+        rclone.chmod(0o755)
+        return self.bash('''
+export HOME="$1" XDG_STATE_HOME="$1/state" GDRIVE_LOCAL_DIR="$1/Drive 100%" GDRIVE_CLIENT_ID=id GDRIVE_CLIENT_SECRET=secret
+systemctl() { printf 'systemctl %s\\n' "$*" >> "$HOME/calls"; }
+optional 'Google Drive sync' install_google_drive
+printf '%s' "${OPTIONAL_FAILURES[*]}"
+''', self.root, script='pop_os_config.sh',
+            env={'AUTHORIZED': '1' if authorized else '0', 'PATH': f'{bin_dir}:{os.environ["PATH"]}'})
+
+    def test_google_drive_unauthorized_writes_units_and_is_an_optional_failure(self):
+        result = self.google_drive(authorized=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(result.stdout.endswith('Google Drive sync'))
+        self.assertIn('--stages google-drive', result.stderr)
+        service = (self.root / '.config/systemd/user/rclone-gdrive-bisync.service').read_text()
+        self.assertIn(f'ExecStart="{self.root}/bin/rclone" "bisync" "gdrive:" "{self.root}/Drive 100%%" ', service)
+        self.assertIn('"--drive-skip-gdocs"', service)
+        self.assertIn('OnUnitActiveSec=15min', (self.root / '.config/systemd/user/rclone-gdrive-bisync.timer').read_text())
+        self.assertNotIn('--resync', (self.root / 'calls').read_text())
+        self.assertNotIn('enable', (self.root / 'calls').read_text())
+
+    def test_google_drive_resyncs_once_then_enables_timer(self):
+        for attempt in range(2):
+            result = self.google_drive(authorized=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(result.stdout.endswith('Google Drive sync'), result.stderr)
+        calls = (self.root / 'calls').read_text().splitlines()
+        resyncs = [call for call in calls if '--resync' in call]
+        self.assertEqual(len(resyncs), 1)
+        self.assertIn(f'rclone bisync gdrive: {self.root}/Drive 100% ', resyncs[0])
+        self.assertTrue(resyncs[0].endswith('--resync --resync-mode newer'))
+        self.assertEqual(calls.count('systemctl --user enable --now rclone-gdrive-bisync.timer'), 2)
+
+    def test_systemd_quote_rejects_quotes(self):
+        result = self.bash('systemd_quote \'a"b\'', script='pop_os_config.sh')
+        self.assertNotEqual(result.returncode, 0)
+
     def test_private_dotfiles_clone_with_gh_token_and_restore(self):
         result = self.private_dotfiles()
         self.assertEqual(result.returncode, 0, result.stderr)

@@ -7,7 +7,7 @@ source "$SCRIPT_DIR/common.sh"
 # shellcheck source=resources/tool-versions.env
 source "$SCRIPT_DIR/resources/tool-versions.env"
 OPTIONAL_FAILURES=()
-STAGES=(system fonts git dependencies dotfiles tmux languages neovim firefox chrome applications hyper-backup-explorer arm avr riscv antigravity claudecode codex copilot private-dotfiles arm-avr)
+STAGES=(system fonts git dependencies dotfiles tmux languages neovim firefox chrome google-drive applications hyper-backup-explorer arm avr riscv antigravity claudecode codex copilot private-dotfiles arm-avr)
 
 optional() {
   local description=$1
@@ -470,6 +470,99 @@ install_google_chrome() {
   sudo apt-get install -y google-chrome-stable
   command -v google-chrome >/dev/null || die "Chrome installation did not provide the google-chrome command."
 }
+# Two-way Google Drive sync with rclone bisync on a systemd user timer. Sign-in is
+# interactive (browser OAuth); without it the stage installs rclone and the units,
+# then reports an optional failure explaining how to finish.
+GDRIVE_REMOTE=gdrive
+gdrive_local_dir() { printf '%s\n' "${GDRIVE_LOCAL_DIR:-$HOME/GoogleDrive}"; }
+gdrive_bisync_args() {
+  # Google Docs/Sheets/Slides have no file form that round-trips, so they stay
+  # in the browser. --max-delete (default 50%) remains as a mass-deletion guard.
+  printf '%s\n' bisync "$GDRIVE_REMOTE:${GDRIVE_REMOTE_PATH:-}" "$(gdrive_local_dir)" \
+    --create-empty-src-dirs --resilient --recover --max-lock 2m \
+    --conflict-resolve newer --drive-skip-gdocs --verbose
+}
+systemd_quote() {
+  # Quote one ExecStart word; escape systemd's % specifiers and $ expansion.
+  [[ $1 != *[\"\\$'\n']* ]] || { log_error "Unsupported character in Google Drive path: $1"; return 1; }
+  local value=${1//%/%%}
+  printf '"%s"' "${value//\$/\$\$}"
+}
+write_gdrive_units() {
+  local directory="$HOME/.config/systemd/user" rclone=$1 exec word
+  local -a args
+  mapfile -t args < <(gdrive_bisync_args) || return
+  exec=$(systemd_quote "$rclone") || return
+  for word in "${args[@]}"; do exec+=" $(systemd_quote "$word")" || return; done
+  mkdir -p "$directory" || return
+  cat > "$directory/rclone-gdrive-bisync.service" <<EOF || return
+[Unit]
+Description=Two-way Google Drive sync (rclone bisync)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=$exec
+Nice=10
+IOSchedulingClass=idle
+EOF
+  cat > "$directory/rclone-gdrive-bisync.timer" <<EOF || return
+[Unit]
+Description=Periodic Google Drive sync
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=${GDRIVE_SYNC_INTERVAL:-15min}
+
+[Install]
+WantedBy=timers.target
+EOF
+  systemctl --user daemon-reload
+}
+authorize_gdrive() {
+  if rclone listremotes | grep -Fxq "$GDRIVE_REMOTE:"; then return 0; fi
+  local -a options=(scope=drive)
+  if [[ -n ${GDRIVE_CLIENT_ID:-} ]]; then
+    options+=("client_id=$GDRIVE_CLIENT_ID" "client_secret=${GDRIVE_CLIENT_SECRET:-}")
+  else
+    log_warn "GDRIVE_CLIENT_ID is not set; rclone's shared client ID is often rate-limited."
+  fi
+  if [[ ! -t 0 || ! -t 1 ]]; then
+    log_warn "Google Drive is not authorized. Run './pop_os_config.sh --stages google-drive' in a terminal."
+    return 1
+  fi
+  log_info "Complete Google Drive sign-in in the browser."
+  rclone config create "$GDRIVE_REMOTE" drive "${options[@]}" || return
+  rclone listremotes | grep -Fxq "$GDRIVE_REMOTE:" || { log_error "rclone did not save the $GDRIVE_REMOTE remote."; return 1; }
+}
+install_google_drive() {
+  local rclone local_dir state marker pair
+  if ! command -v rclone >/dev/null; then
+    fetch_locked rclone "$WORK_DIR/rclone.deb" || return
+    install_deb "$WORK_DIR/rclone.deb" || return
+  fi
+  rclone=$(command -v rclone) || return
+  "$rclone" version || return
+  local_dir=$(gdrive_local_dir)
+  mkdir -p "$local_dir" || return
+  write_gdrive_units "$rclone" || return
+  authorize_gdrive || return
+  # bisync needs one --resync to create its baseline listings. Repeat it only when
+  # the remote/local pair changes, since a resync merges both sides.
+  state="${XDG_STATE_HOME:-$HOME/.local/state}/pop-workstation"
+  marker="$state/gdrive-bisync-initialized"
+  pair="$GDRIVE_REMOTE:${GDRIVE_REMOTE_PATH:-} $local_dir"
+  if [[ ! -f $marker || $(<"$marker") != "$pair" ]]; then
+    local -a args
+    mapfile -t args < <(gdrive_bisync_args) || return
+    log_info "Running the first Google Drive sync; this downloads the whole selected folder."
+    "$rclone" "${args[@]}" --resync --resync-mode newer || return
+    mkdir -p "$state" || return
+    printf '%s\n' "$pair" > "$marker" || return
+  fi
+  systemctl --user enable --now rclone-gdrive-bisync.timer || return
+  log_info "Google Drive syncs $local_dir every ${GDRIVE_SYNC_INTERVAL:-15min}; logs: journalctl --user -u rclone-gdrive-bisync"
+}
 install_freecad() {
   flatpak --user remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo || return
   flatpak --user install -y flathub org.freecad.FreeCAD
@@ -649,7 +742,7 @@ install_django_completions() {
 }
 
 main() {
-  local selected='system,fonts,git,dependencies,dotfiles,tmux,languages,neovim,firefox,chrome,applications,hyper-backup-explorer,arm,avr,riscv,antigravity,claudecode,codex,copilot,private-dotfiles' stage
+  local selected='system,fonts,git,dependencies,dotfiles,tmux,languages,neovim,firefox,chrome,google-drive,applications,hyper-backup-explorer,arm,avr,riscv,antigravity,claudecode,codex,copilot,private-dotfiles' stage
   case ${1:-} in
     --list-stages) [[ $# -eq 1 ]] || die "--list-stages takes no arguments."; printf '%s\n' "${STAGES[@]}"; return ;;
     --stages) [[ $# -eq 2 && -n $2 ]] || die "Usage: $0 --stages comma,separated,stages"; selected=$2 ;;
@@ -678,6 +771,7 @@ main() {
       dependencies) install_dependencies ;; dotfiles) setup_dotfiles ;; tmux) setup_tmux ;;
       languages) install_languages_and_tools ;; neovim) install_neovim_and_astronvim ;;
       firefox) install_firefox_dev ;; chrome) install_google_chrome ;; applications) install_applications ;;
+      google-drive) optional 'Google Drive sync' install_google_drive ;;
       hyper-backup-explorer) install_hyper_backup_explorer ;;
       arm) install_arm_toolchain ;; avr) install_avr_toolchain ;;
       arm-avr) install_avr_and_arm_toolchain ;; riscv) install_riscv_toolchain ;;
