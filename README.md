@@ -360,8 +360,14 @@ minutes by default). Sign-in opens a browser, so when setup runs without a termi
 the stage reports an optional failure. Finish it later with
 `./pop_os_config.sh --stages google-drive`. The first run performs a `--resync`
 that downloads the whole selected folder and merges it with any local files.
-Google Docs, Sheets and Slides are skipped because they have no file form that
-round-trips. Set `GDRIVE_CLIENT_ID`/`GDRIVE_CLIENT_SECRET` in `config.env` to use
+In a terminal, it shows the Drive folder, local folder and filters and asks before
+running that full sync. To choose what syncs, set `GDRIVE_FILTERS_FILE` to an
+[rclone filter file](https://rclone.org/filtering/) (see `config.env.example`) and
+rerun the stage after each edit. The stage then stops the timer and runs a new
+`--resync`, since bisync refuses to run after its filters change. Files a filter
+excludes are left alone on both sides, so you can delete their local copies without
+affecting Drive. Google Docs, Sheets and Slides are skipped because they have no
+file form that round-trips. Set `GDRIVE_CLIENT_ID`/`GDRIVE_CLIENT_SECRET` in `config.env` to use
 your own OAuth client, since rclone's shared one is rate-limited. The sign-in token
 is stored in `~/.config/rclone/rclone.conf`; do not commit it. Logs are available
 with `journalctl --user -u rclone-gdrive-bisync`.

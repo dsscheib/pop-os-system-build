@@ -475,12 +475,38 @@ install_google_chrome() {
 # then reports an optional failure explaining how to finish.
 GDRIVE_REMOTE=gdrive
 gdrive_local_dir() { printf '%s\n' "${GDRIVE_LOCAL_DIR:-$HOME/GoogleDrive}"; }
+# Print the absolute filters file path, or nothing when GDRIVE_FILTERS_FILE is unset.
+gdrive_filters_file() {
+  [[ -n ${GDRIVE_FILTERS_FILE:-} ]] || return 0
+  [[ -f $GDRIVE_FILTERS_FILE ]] || { log_error "GDRIVE_FILTERS_FILE does not exist: $GDRIVE_FILTERS_FILE"; return 1; }
+  realpath -- "$GDRIVE_FILTERS_FILE"
+}
 gdrive_bisync_args() {
+  local filters
+  filters=$(gdrive_filters_file) || return
   # Google Docs/Sheets/Slides have no file form that round-trips, so they stay
   # in the browser. --max-delete (default 50%) remains as a mass-deletion guard.
   printf '%s\n' bisync "$GDRIVE_REMOTE:${GDRIVE_REMOTE_PATH:-}" "$(gdrive_local_dir)" \
     --create-empty-src-dirs --resilient --recover --max-lock 2m \
     --conflict-resolve newer --drive-skip-gdocs --verbose
+  [[ -z $filters ]] || printf '%s\n' --filters-file "$filters"
+}
+# Identify a baseline: bisync refuses to run after the filters change until a resync.
+gdrive_baseline_id() {
+  local filters digest=none
+  filters=$(gdrive_filters_file) || return
+  if [[ -n $filters ]]; then digest=$(sha256sum -- "$filters" | cut -d' ' -f1) || return; fi
+  printf '%s %s filters=%s\n' "$GDRIVE_REMOTE:${GDRIVE_REMOTE_PATH:-}" "$(gdrive_local_dir)" "$digest"
+}
+confirm_gdrive_resync() {
+  local filters answer
+  [[ -t 0 && -t 1 ]] || return 0
+  filters=$(gdrive_filters_file) || return
+  log_info "Google Drive folder: $GDRIVE_REMOTE:${GDRIVE_REMOTE_PATH:-(all of My Drive)}"
+  log_info "Local folder: $(gdrive_local_dir)"
+  log_info "Filters: ${filters:-none (everything in the Drive folder syncs)}"
+  read -r -p 'Run the full Google Drive sync with these settings? [y/N] ' answer || return
+  [[ $answer == [yY]* ]] || { log_warn "Google Drive sync skipped; set GDRIVE_REMOTE_PATH or GDRIVE_FILTERS_FILE in config.env and rerun."; return 1; }
 }
 systemd_quote() {
   # Quote one ExecStart word; escape systemd's % specifiers and $ expansion.
@@ -536,7 +562,7 @@ authorize_gdrive() {
   rclone listremotes | grep -Fxq "$GDRIVE_REMOTE:" || { log_error "rclone did not save the $GDRIVE_REMOTE remote."; return 1; }
 }
 install_google_drive() {
-  local rclone local_dir state marker pair
+  local rclone local_dir state marker baseline
   if ! command -v rclone >/dev/null; then
     fetch_locked rclone "$WORK_DIR/rclone.deb" || return
     install_deb "$WORK_DIR/rclone.deb" || return
@@ -547,18 +573,21 @@ install_google_drive() {
   mkdir -p "$local_dir" || return
   write_gdrive_units "$rclone" || return
   authorize_gdrive || return
-  # bisync needs one --resync to create its baseline listings. Repeat it only when
-  # the remote/local pair changes, since a resync merges both sides.
+  # bisync needs a --resync to create its baseline listings. Repeat it only when
+  # the folders or filters change, since a resync merges both sides.
   state="${XDG_STATE_HOME:-$HOME/.local/state}/pop-workstation"
   marker="$state/gdrive-bisync-initialized"
-  pair="$GDRIVE_REMOTE:${GDRIVE_REMOTE_PATH:-} $local_dir"
-  if [[ ! -f $marker || $(<"$marker") != "$pair" ]]; then
+  baseline=$(gdrive_baseline_id) || return
+  if [[ ! -f $marker || $(<"$marker") != "$baseline" ]]; then
+    # Stop the timer so a scheduled run cannot fail against stale listings.
+    systemctl --user disable --now rclone-gdrive-bisync.timer || return
+    confirm_gdrive_resync || return
     local -a args
     mapfile -t args < <(gdrive_bisync_args) || return
-    log_info "Running the first Google Drive sync; this downloads the whole selected folder."
+    log_info "Running the full Google Drive sync; this downloads everything the settings select."
     "$rclone" "${args[@]}" --resync --resync-mode newer || return
     mkdir -p "$state" || return
-    printf '%s\n' "$pair" > "$marker" || return
+    printf '%s\n' "$baseline" > "$marker" || return
   fi
   systemctl --user enable --now rclone-gdrive-bisync.timer || return
   log_info "Google Drive syncs $local_dir every ${GDRIVE_SYNC_INTERVAL:-15min}; logs: journalctl --user -u rclone-gdrive-bisync"
