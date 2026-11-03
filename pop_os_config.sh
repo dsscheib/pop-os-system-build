@@ -458,7 +458,7 @@ install_repository() {
 }
 install_firefox_dev() {
   if ! package_installed firefox-devedition; then
-    install_repository mozilla mozilla-key 'deb [signed-by=/etc/apt/keyrings/mozilla.asc] https://packages.mozilla.org/apt mozilla main'
+    install_repository mozilla mozilla-key 'deb [arch=amd64 signed-by=/etc/apt/keyrings/mozilla.asc] https://packages.mozilla.org/apt mozilla main'
     printf 'Package: firefox*\nPin: origin packages.mozilla.org\nPin-Priority: 1000\n' > "$WORK_DIR/mozilla.preferences"
     install_system_file "$WORK_DIR/mozilla.preferences" /etc/apt/preferences.d/mozilla
     sudo apt-get install -y firefox-devedition
