@@ -265,9 +265,16 @@ verify_ai_cli() {
   log_info "Verified $1 CLI: $binary"
 }
 
+# Antigravity reads no command policy from a repository, so the agent-guidance
+# ask rules for remote and destructive git commands go into user settings.
+install_antigravity_guardrails() {
+  python3 -B "$SCRIPT_DIR/scripts/antigravity_permissions.py"
+}
+
 install_antigravity_cli() {
   if command -v agy >/dev/null; then
     verify_ai_cli agy || return
+    install_antigravity_guardrails || return
     install_ai_completions agy
     return
   fi
@@ -280,6 +287,7 @@ install_antigravity_cli() {
   python3 "$SCRIPT_DIR/scripts/user_launcher.py" "$HOME/.local/bin/agy" "$INSTALL_DIR/antigravity" || return
   hash -r
   verify_ai_cli agy || return
+  install_antigravity_guardrails || return
   install_ai_completions agy
 }
 

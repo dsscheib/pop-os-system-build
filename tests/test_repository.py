@@ -1003,12 +1003,41 @@ begin_install "$1/second"
         self.assertTrue((self.root / '.local/bin/agy').is_file())
         self.assertFalse((self.root / '.local/bin/antigravity').exists())
         self.assertFalse((self.root / '.local/share/applications').exists())
+        self.assertAntigravityGuardrails()
+
+    def test_antigravity_existing_cli_still_gets_guardrails(self):
+        settings = self.root / '.gemini/antigravity-cli/settings.json'
+        settings.parent.mkdir(parents=True)
+        settings.write_text(json.dumps({'model': 'kept', 'permissions': {'allow': ['command(git push origin main)']}}))
+        result = self.ai_stage('antigravity', present=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = self.assertAntigravityGuardrails()
+        self.assertEqual(data['model'], 'kept')
+        self.assertEqual(data['permissions']['allow'], ['command(git push origin main)'])
+
+    def test_antigravity_malformed_settings_fail_the_stage_untouched(self):
+        settings = self.root / '.gemini/antigravity-cli/settings.json'
+        settings.parent.mkdir(parents=True)
+        settings.write_text('{not json')
+        result = self.ai_stage('antigravity', present=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Antigravity guardrails not applied', result.stderr)
+        self.assertEqual(settings.read_text(), '{not json')
+
+    def assertAntigravityGuardrails(self):
+        settings = self.root / '.gemini/antigravity-cli/settings.json'
+        data = json.loads(settings.read_text())
+        for rule in ('command(git push)', 'command(git reset --hard)', 'command(git clean)',
+                     'command(git branch -D)', 'command(git rebase)', 'command(git checkout --)'):
+            self.assertIn(rule, data['permissions']['ask'])
+        return data
 
     def test_antigravity_failed_native_check_does_not_publish(self):
         result = self.ai_stage('antigravity', status=42)
         self.assertEqual(result.returncode, 42, result.stderr)
         self.assertFalse((self.root / '.local/bin/agy').exists())
         self.assertFalse((self.root / '.local/share/pop-workstation/antigravity-cli').exists())
+        self.assertFalse((self.root / '.gemini').exists())
 
     def test_codex_stage_installs_and_verifies_pinned_package(self):
         result = self.ai_stage('codex')
