@@ -245,6 +245,15 @@ come from `codex completion`; Claude Code and Antigravity use bundled top-level
 command and option lists with filename fallback for arguments. Rerun the stage to
 refresh completions. Completion failures are reported as optional failures.
 
+The `antigravity` stage also adds ask rules to
+`~/.gemini/antigravity-cli/settings.json` so the CLI asks before `git push`,
+`git reset --hard`, `git clean`, `git branch -D`, `git rebase` and
+`git checkout --`, matching the agent-guidance command guardrails. Existing
+settings and rules are kept, and ask rules take precedence over broader allow
+rules. A settings file that is not valid JSON is left untouched and the stage
+fails; fix it or add the rules with `/permissions` in `agy`. The Antigravity
+desktop app keeps its own permissions; set them in its Settings.
+
 These stages install CLIs only. Antigravity's desktop app and standalone IDE are
 separate products and are not installed. Each stage checks `--version` and stops
 on a missing or broken CLI. An existing CLI on `PATH` is verified and preserved.
