@@ -1260,6 +1260,77 @@ install_avr_and_arm_toolchain
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.splitlines(), ['arm', 'avr'])
 
+    def podman_stage(self, prelude='', status=0, after=''):
+        directory = self.root / 'bin'
+        directory.mkdir()
+        (self.root / 'work').mkdir()
+        podman = directory / 'podman'
+        podman.write_text(f'''#!/bin/sh
+printf '%s\\n' "$*" >> "$HOME/podman-calls"
+case "$1" in
+    --version) echo 'podman version 4.9.3';;
+    info) exit {status};;
+    completion) echo 'complete -c podman';;
+esac
+''')
+        podman.chmod(0o755)
+        return self.bash(f'''
+export HOME="$1" WORK_DIR="$1/work" PATH="$1/bin:$PATH"
+sudo() {{ printf '%s\\n' "$*" >> "$HOME/sudo-calls"; }}
+apt_candidate() {{ printf '1.0.6-1\\n'; }}
+install_system_file() {{ cp "$1" "$HOME/installed.conf"; printf '%s\\n' "$2" > "$HOME/installed-path"; }}
+subordinate_ids_configured() {{ :; }}
+{prelude}
+install_podman
+{after}
+''', self.root, script='pop_os_config.sh')
+
+    def test_podman_stage_installs_rootless_tools_and_search_registry(self):
+        result = self.podman_stage()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = (self.root / 'sudo-calls').read_text().splitlines()
+        self.assertEqual(calls, ['apt-get install -y podman buildah skopeo uidmap slirp4netns',
+                                 'apt-get install -y podman-compose'])
+        self.assertEqual((self.root / 'installed.conf').read_text(),
+                         'unqualified-search-registries = ["docker.io"]\n')
+        self.assertEqual((self.root / 'installed-path').read_text().strip(),
+                         '/etc/containers/registries.conf.d/50-pop-workstation-search.conf')
+        self.assertEqual((self.root / 'podman-calls').read_text().splitlines(),
+                         ['--version', 'info', 'completion fish'])
+        self.assertEqual((self.root / '.config/fish/completions/podman.fish').read_text(),
+                         'complete -c podman\n')
+
+    def test_podman_stage_reports_missing_compose_as_optional(self):
+        result = self.podman_stage('apt_candidate() { printf "(none)\\n"; }',
+                                   after='printf "%s\\n" "${OPTIONAL_FAILURES[@]}"')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('podman-compose', (self.root / 'sudo-calls').read_text())
+        self.assertEqual(result.stdout.splitlines()[-1], 'podman-compose')
+
+    def test_podman_stage_fails_when_rootless_info_fails(self):
+        result = self.podman_stage(status=7)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Rootless 'podman info' failed", result.stderr)
+        self.assertFalse((self.root / '.config/fish/completions/podman.fish').exists())
+
+    def test_podman_stage_requires_subordinate_ids_before_installing(self):
+        result = self.podman_stage('subordinate_ids_configured() { return 1; }')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('usermod --add-subuids', result.stderr)
+        self.assertFalse((self.root / 'sudo-calls').exists())
+
+    def test_subordinate_ids_need_exact_user_in_both_files(self):
+        subuid, subgid = self.root / 'subuid', self.root / 'subgid'
+        subuid.write_text('daniel:100000:65536\n')
+        for content, expected in (('', 1), ('danielle:100000:65536\n', 1), ('daniel:100000:65536\n', 0)):
+            with self.subTest(subgid=content):
+                subgid.write_text(content)
+                result = self.bash('subordinate_ids_configured daniel "$1" "$2"', subuid, subgid,
+                                   script='pop_os_config.sh')
+                self.assertEqual(result.returncode, expected, result.stderr)
+        result = self.bash('subordinate_ids_configured dan "$1" "$2"', subuid, subgid, script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 1)
+
     def test_dotfiles_delegates_plugins_only_when_tmux_stage_is_selected(self):
         checkout = self.root / '.dotfiles'
         checkout.mkdir()

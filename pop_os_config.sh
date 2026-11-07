@@ -7,7 +7,7 @@ source "$SCRIPT_DIR/common.sh"
 # shellcheck source=resources/tool-versions.env
 source "$SCRIPT_DIR/resources/tool-versions.env"
 OPTIONAL_FAILURES=()
-STAGES=(system fonts git dependencies dotfiles tmux languages neovim firefox chrome applications hyper-backup-explorer arm avr riscv antigravity claudecode codex copilot private-dotfiles google-drive arm-avr)
+STAGES=(system fonts git dependencies dotfiles tmux languages neovim firefox chrome applications hyper-backup-explorer podman arm avr riscv antigravity claudecode codex copilot private-dotfiles google-drive arm-avr)
 
 optional() {
   local description=$1
@@ -483,6 +483,42 @@ install_google_chrome() {
   sudo apt-get install -y google-chrome-stable
   command -v google-chrome >/dev/null || die "Chrome installation did not provide the google-chrome command."
 }
+# Rootless Podman from the distribution repositories. Rootless containers map
+# their users through the account's subordinate ID ranges, which the package
+# does not create.
+PODMAN_SEARCH_CONF=/etc/containers/registries.conf.d/50-pop-workstation-search.conf
+subordinate_ids_configured() {
+  local user=$1 file
+  for file in "${2:-/etc/subuid}" "${3:-/etc/subgid}"; do
+    awk -F: -v user="$user" '$1 == user {found=1} END {exit !found}' "$file" 2>/dev/null || return
+  done
+}
+install_podman() {
+  local user candidate binary
+  user=$(id -un)
+  if ! subordinate_ids_configured "$user"; then
+    log_error "Rootless Podman needs subordinate IDs for $user in /etc/subuid and /etc/subgid."
+    log_error "Add an unused range, for example: sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 $user"
+    return 1
+  fi
+  sudo apt-get install -y podman buildah skopeo uidmap slirp4netns || return
+  candidate=$(apt_candidate podman-compose) || return
+  if [[ -n $candidate && $candidate != '(none)' ]]; then optional podman-compose sudo apt-get install -y podman-compose
+  else log_warn "podman-compose is unavailable in the configured repositories."; OPTIONAL_FAILURES+=(podman-compose); fi
+  # Ubuntu configures no search registry, so short names missing from
+  # shortnames.conf fail to pull. One registry keeps resolution unambiguous.
+  printf 'unqualified-search-registries = ["docker.io"]\n' > "$WORK_DIR/podman-search.conf" || return
+  install_system_file "$WORK_DIR/podman-search.conf" "$PODMAN_SEARCH_CONF" || return
+  hash -r
+  binary=$(command -v podman) || { log_error "Installation did not provide the podman command."; return 1; }
+  timeout --foreground 30s "$binary" --version || { log_error "Podman failed its version check: $binary"; return 1; }
+  # Creates the rootless storage and exercises the user namespace mapping.
+  timeout --foreground 120s "$binary" info >/dev/null || { log_error "Rootless 'podman info' failed."; return 1; }
+  # The package ships Bash and Zsh completions but none for Fish.
+  optional 'podman fish completions' completion_file "$HOME/.config/fish/completions/podman.fish" \
+    timeout --foreground 30s "$binary" completion fish
+  log_info "Rootless Podman verified: $binary"
+}
 # Two-way Google Drive sync with rclone bisync on a systemd user timer. Sign-in is
 # interactive (browser OAuth); without it the stage installs rclone and the units,
 # then reports an optional failure explaining how to finish.
@@ -801,7 +837,7 @@ install_django_completions() {
 }
 
 main() {
-  local selected='system,fonts,git,dependencies,dotfiles,tmux,languages,neovim,firefox,chrome,applications,hyper-backup-explorer,arm,avr,riscv,antigravity,claudecode,codex,copilot,private-dotfiles,google-drive' stage
+  local selected='system,fonts,git,dependencies,dotfiles,tmux,languages,neovim,firefox,chrome,applications,hyper-backup-explorer,podman,arm,avr,riscv,antigravity,claudecode,codex,copilot,private-dotfiles,google-drive' stage
   case ${1:-} in
     --list-stages) [[ $# -eq 1 ]] || die "--list-stages takes no arguments."; printf '%s\n' "${STAGES[@]}"; return ;;
     --stages) [[ $# -eq 2 && -n $2 ]] || die "Usage: $0 --stages comma,separated,stages"; selected=$2 ;;
@@ -832,6 +868,7 @@ main() {
       firefox) install_firefox_dev ;; chrome) install_google_chrome ;; applications) install_applications ;;
       google-drive) optional 'Google Drive sync' install_google_drive ;;
       hyper-backup-explorer) install_hyper_backup_explorer ;;
+      podman) install_podman ;;
       arm) install_arm_toolchain ;; avr) install_avr_toolchain ;;
       arm-avr) install_avr_and_arm_toolchain ;; riscv) install_riscv_toolchain ;;
       antigravity) install_antigravity_cli ;; claudecode) install_claude_code ;; codex) install_codex_cli ;;
