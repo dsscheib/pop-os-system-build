@@ -407,9 +407,11 @@ rerun the stage after each edit. The stage then stops the timer and runs a new
 `--resync`, since bisync refuses to run after its filters change. Files a filter
 excludes are left alone on both sides, so you can delete their local copies without
 affecting Drive. Google Docs, Sheets and Slides are skipped because they have no
-file form that round-trips. Set `GDRIVE_CLIENT_ID`/`GDRIVE_CLIENT_SECRET` in `config.secrets.env` (gitignored,
-loaded after `config.env`, kept out of any `config.env` backup) to use
-your own OAuth client; rclone's shared one is rate-limited and being retired. If
+file form that round-trips. The stage requires your own OAuth client, since
+rclone's shared one is rate-limited and being retired: set `GDRIVE_CLIENT_ID` and
+`GDRIVE_CLIENT_SECRET` in `config.secrets.env` (gitignored, loaded after `config.env`,
+kept out of any `config.env` backup). Setup stops before any stage runs when the
+file is missing, readable by other users (use `chmod 600`), or lacks either value. If
 the remote already exists with a different client, rerunning the stage in a terminal
 pauses the timer, updates the remote and repeats the browser sign-in. The sign-in token
 is stored in `~/.config/rclone/rclone.conf`; do not commit it. Logs are available
