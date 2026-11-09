@@ -206,6 +206,13 @@ stages require the respective repository URLs. Set `DOTFILES_REF` and
 clean checkouts update with `--ff-only`. Foreign origins and local changes are
 reported as errors rather than silently ignored.
 
+The one exception is a Neovim config whose only change is `lazy-lock.json`, as
+`:Lazy update` leaves it. Setup updates the config and keeps those plugin
+revisions, merging per plugin when the update also changes the lockfile; where
+both moved the same plugin, the committed revision wins. Installed plugins are
+then restored to the merged lockfile. A fresh install that records newer
+plugins than the committed lockfile is restored to the committed revisions.
+
 The `dependencies` stage includes NASM for x86-64 assembly tasks, ShellCheck,
 DNS/Netcat tools, the NetworkManager OpenVPN GUI plugin, rsync, wget, Kitty,
 and libsecret tools. It installs Fastfetch from APT when a candidate exists;

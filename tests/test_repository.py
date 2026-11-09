@@ -1224,6 +1224,73 @@ initialize_neovim_config
             'timeout', '--foreground', '5m', str(self.root / '.local/bin/nvim'),
             '--headless', '-c', 'quitall'])
 
+    @staticmethod
+    def lazy_lock(a, b, c):
+        entries = ',\n'.join(f'  "{name}": {{ "branch": "main", "commit": "{commit}" }}'
+                              for name, commit in (('a', a), ('b', b), ('c', c)))
+        return '{\n' + entries + '\n}\n'
+
+    def neovim_config_update(self, upstream_lock=None):
+        origin, config, source = self.root / 'origin.git', self.root / '.config/nvim', self.root / 'source'
+        def git(directory, *args):
+            return subprocess.run(
+                ['git', '-C', str(directory), '-c', 'user.name=Test', '-c', 'user.email=test@example.com', *args],
+                check=True, capture_output=True, text=True).stdout.strip()
+        subprocess.run(['git', 'init', '-q', '-b', 'main', str(source)], check=True)
+        (source / 'lazy-lock.json').write_text(self.lazy_lock(1, 1, 1))
+        (source / 'init.lua').write_text('old\n')
+        git(source, 'add', '.'); git(source, 'commit', '-qm', 'initial')
+        subprocess.run(['git', 'clone', '-q', '--bare', str(source), str(origin)], check=True)
+        config.parent.mkdir(parents=True)
+        subprocess.run(['git', 'clone', '-q', str(origin), str(config)], check=True)
+        git(source, 'remote', 'add', 'origin', str(origin))
+        (source / 'init.lua').write_text('new\n')
+        if upstream_lock: (source / 'lazy-lock.json').write_text(upstream_lock)
+        git(source, 'commit', '-qam', 'update'); git(source, 'push', '-q', 'origin', 'main')
+        # Local ':Lazy update' moved plugins a and b.
+        (config / 'lazy-lock.json').write_text(self.lazy_lock(2, 2, 1))
+        result = self.bash('''
+NVIM_CONFIG_REPO=$2 WORK_DIR=$(mktemp -d)
+update_neovim_config "$1" ''
+printf 'merged=%s\\n' "$NVIM_LOCK_MERGED"
+''', config, origin, script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((config / 'init.lua').read_text(), 'new\n')
+        return result, (config / 'lazy-lock.json').read_text()
+
+    def test_neovim_config_update_keeps_local_plugin_updates(self):
+        result, lock = self.neovim_config_update()
+        self.assertEqual(lock, self.lazy_lock(2, 2, 1))
+        self.assertIn('merged=0', result.stdout)
+
+    def test_neovim_config_update_merges_plugin_lock_per_plugin(self):
+        # Upstream moved b (also moved locally) and c; the committed b wins.
+        result, lock = self.neovim_config_update(self.lazy_lock(1, 3, 3))
+        self.assertEqual(lock, self.lazy_lock(2, 3, 3))
+        self.assertIn('merged=1', result.stdout)
+        self.assertIn('Kept the committed revision for 1 plugin', result.stdout + result.stderr)
+
+    def test_neovim_initialization_restores_committed_plugin_lock(self):
+        config = self.root / '.config/nvim'
+        config.mkdir(parents=True)
+        lock = config / 'lazy-lock.json'
+        lock.write_text('{"plugin": "pinned"}\n')
+        git = ['git', '-C', str(config), '-c', 'user.name=Test', '-c', 'user.email=test@example.com']
+        subprocess.run(['git', 'init', '-q', str(config)], check=True)
+        subprocess.run([*git, 'add', 'lazy-lock.json'], check=True)
+        subprocess.run([*git, 'commit', '-qm', 'lock'], check=True)
+        result = self.bash('''
+export HOME="$1"
+optional() {
+  printf '%s\\n' "$1"
+  [[ $1 != 'Neovim plugin initialization'* ]] || printf '{"plugin": "newer"}\\n' > "$HOME/.config/nvim/lazy-lock.json"
+}
+initialize_neovim_config
+''', self.root, script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(lock.read_text(), '{"plugin": "pinned"}\n')
+        self.assertIn('Neovim plugin restore to lazy-lock.json', result.stdout)
+
     def test_rust_toolchain_explicitly_installs_and_verifies_editor_components(self):
         result = self.bash('''
 rustup() { printf '%s\\n' "$*"; }
