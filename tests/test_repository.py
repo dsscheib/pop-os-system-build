@@ -172,13 +172,6 @@ printf '%s' "${OPTIONAL_FAILURES[*]}"
             'helper 1 credential.https://github.com.helper=!gh auth git-credential prompt=0'])
         self.assertEqual((self.root / 'restored').read_text(), 'restored')
 
-    def test_private_dotfiles_unconfigured_is_a_quiet_skip(self):
-        result = self.private_dotfiles(repo='', restore=False)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('skipping private dotfiles', result.stdout)
-        self.assertNotIn('Private dotfiles restore', result.stdout + result.stderr)
-        self.assertFalse((self.root / 'calls').exists())
-
     def test_private_dotfiles_without_gh_sign_in_is_an_optional_failure(self):
         result = self.private_dotfiles(signed_in=False)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -1431,6 +1424,16 @@ setup_dotfiles
 ''', self.root, stages, script='pop_os_config.sh')
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(result.stdout, expected)
+
+    def test_private_dotfiles_repo_is_required_when_selected(self):
+        for value in ('', 'https://github.com/your-username/dotfiles-private.git'):
+            with self.subTest(value=value):
+                result = self.bash('PRIVATE_DOTFILES_REPO=$1; validate_config fonts,private-dotfiles',
+                                   value, script='pop_os_config.sh')
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('Set PRIVATE_DOTFILES_REPO', result.stderr)
+        result = self.bash('unset PRIVATE_DOTFILES_REPO; validate_config fonts', script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_identity_is_required_instead_of_using_author_defaults(self):
         result = self.bash('unset GIT_NAME GIT_EMAIL; validate_config git', script='pop_os_config.sh')
