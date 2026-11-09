@@ -327,8 +327,12 @@ GitHub credentials, run as your desktop user:
 
 ```bash
 gh auth refresh --hostname github.com --scopes workflow
-gh auth setup-git --hostname github.com
+./pop_os_config.sh --stages git
 ```
+
+When `~/.gitconfig` is a link into a dotfiles checkout, the Git identity and `gh`
+helper go to `~/.gitconfig.local` instead, so the checkout stays clean. Include
+it from the linked file with `[include] path = ~/.gitconfig.local`.
 
 The default setup ends with the `private-dotfiles` stage. It restores personal
 agent configuration (for example Claude Code, Codex and Antigravity CLI settings

@@ -53,10 +53,7 @@ GIT_NAME='Test User' GIT_EMAIL=test@example.com
 DOTFILES_REPO=https://example.invalid/dotfiles
 selected=git,dotfiles
 update_repository() { :; }
-gh() {
-  [[ $* == 'auth setup-git --hostname github.com --force' ]]
-  git config --global credential.https://github.com.helper '!gh auth git-credential'
-}
+gh() { :; }
 setup_dotfiles
 [[ $(git config --global user.name) == "$GIT_NAME" ]]
 [[ $(git config --global user.email) == "$GIT_EMAIL" ]]
@@ -1098,9 +1095,29 @@ setup_git
     def test_git_stage_configures_gh_helper_before_sign_in(self):
         result = self.git_stage(authenticated=False)
         self.assertEqual(result.returncode, 0, result.stderr)
-        calls = (self.root / 'gh-calls').read_text().splitlines()
-        self.assertEqual(calls[0], 'auth setup-git --hostname github.com --force')
+        helpers = subprocess.run(
+            ['git', 'config', '--file', str(self.root / '.gitconfig'), '--get-all',
+             'credential.https://github.com.helper'], capture_output=True, text=True, check=True)
+        self.assertEqual(helpers.stdout.splitlines(), ['', '!gh auth git-credential'])
         self.assertIn('gh auth login --scopes workflow', result.stdout)
+
+    def test_git_settings_stay_out_of_linked_dotfiles(self):
+        dotfiles = self.root / 'dotfiles'
+        dotfiles.mkdir()
+        tracked = '[include]\n\tpath = ~/.gitconfig.local\n'
+        (dotfiles / 'gitconfig').write_text(tracked)
+        (self.root / '.gitconfig').symlink_to(dotfiles / 'gitconfig')
+        result = self.bash('''
+export HOME="$1" GIT_CONFIG_GLOBAL="$1/.gitconfig" GIT_CONFIG_NOSYSTEM=1
+GIT_NAME='Test User' GIT_EMAIL=test@example.com
+gh() { :; }
+configure_git_credentials
+[[ $(git config --includes --global user.name) == "$GIT_NAME" ]]
+[[ $(git config --includes --global --get-all credential.https://gist.github.com.helper | tail -n1) == '!gh auth git-credential' ]]
+''', self.root, script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((dotfiles / 'gitconfig').read_text(), tracked)
+        self.assertIn('Test User', (self.root / '.gitconfig.local').read_text())
 
     def test_git_stage_skips_sign_in_when_gh_is_authenticated(self):
         result = self.git_stage(authenticated=True)

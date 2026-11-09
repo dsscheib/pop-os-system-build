@@ -89,14 +89,33 @@ install_github_cli() {
   command -v gh >/dev/null || die "GitHub CLI installation did not provide the gh command."
 }
 
+# Write to ~/.gitconfig, or to ~/.gitconfig.local when ~/.gitconfig links into a
+# dotfiles checkout, so machine settings never dirty that repository.
+git_machine_config() {
+  local global=${GIT_CONFIG_GLOBAL:-$HOME/.gitconfig} local_file="$HOME/.gitconfig.local"
+  if [[ -L $global ]]; then
+    # shellcheck disable=SC2088 # Match the literal include path, not an expansion.
+    git config --file "$global" --get-all include.path | grep -Fxq -e '~/.gitconfig.local' -e "$local_file" ||
+      log_warn "$global is linked but does not include ~/.gitconfig.local; add [include] path = ~/.gitconfig.local to your dotfiles."
+    printf '%s\n' "$local_file"
+  else printf '%s\n' "$global"; fi
+}
+
 # Reapply after dotfiles, whose bootstrap may replace the global Git config.
 configure_git_credentials() {
-  git config --global user.name "$GIT_NAME"
-  git config --global user.email "$GIT_EMAIL"
-  git config --global push.autoSetupRemote true
-  # Git uses gh's stored token for github.com, so one sign-in serves both.
-  # Forcing allows configuration before that sign-in.
-  gh auth setup-git --hostname github.com --force
+  local file gh host
+  file=$(git_machine_config)
+  gh=$(command -v gh) || die "GitHub CLI is not installed."
+  git config --file "$file" user.name "$GIT_NAME"
+  git config --file "$file" user.email "$GIT_EMAIL"
+  git config --file "$file" push.autoSetupRemote true
+  # Git uses gh's stored token for github.com, so one sign-in serves both. This
+  # matches 'gh auth setup-git', which always writes to the global file: the
+  # empty helper clears inherited helpers before gh's is added.
+  for host in github.com gist.github.com; do
+    git config --file "$file" --replace-all "credential.https://$host.helper" ''
+    git config --file "$file" --add "credential.https://$host.helper" "!$gh auth git-credential"
+  done
 }
 
 install_fastfetch() {
@@ -391,7 +410,9 @@ install_languages_and_tools() {
   if ! command -v rustup >/dev/null; then
     fetch_locked rustup "$WORK_DIR/rustup-init"
     chmod 0755 "$WORK_DIR/rustup-init"
-    "$WORK_DIR/rustup-init" -y --default-toolchain "$RUST_VERSION"
+    # Skip rustup's profile edits: they would dirty a linked dotfiles checkout,
+    # and the shell configuration already puts ~/.cargo/bin on PATH.
+    "$WORK_DIR/rustup-init" -y --no-modify-path --default-toolchain "$RUST_VERSION"
   fi
   require_commands rustup cargo
   install_rust_toolchain
