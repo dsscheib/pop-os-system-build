@@ -233,11 +233,22 @@ update_repository() {
   else
     [[ -d "$directory/.git" ]] || die "$directory is not a Git checkout; preserve or relocate it before retrying."
     [[ $(git -C "$directory" remote get-url origin) == "$repo" ]] || die "Existing repository has a different origin: $directory"
-    [[ -z $(git -C "$directory" status --porcelain) ]] || die "Local changes in $directory; commit or stash them before updating."
+    # Installers (rustup, git-credential-manager, ...) append to symlinked dotfiles,
+    # so carry local changes across the update instead of refusing to run.
+    local stashed=0
+    if [[ -n $(git -C "$directory" status --porcelain) ]]; then
+      log_warn "Local changes in $directory; stashing them for the update."
+      git -C "$directory" stash push --include-untracked --message "pop_os_config auto-stash" >/dev/null
+      stashed=1
+    fi
     if [[ -n "$ref" ]]; then
       git -C "$directory" fetch origin
       git -C "$directory" checkout --detach "$ref"
     else git -C "$directory" pull --ff-only; fi
+    if (( stashed )); then
+      git -C "$directory" stash pop >/dev/null ||
+        die "Could not reapply your local changes in $directory; they remain in 'git stash list'. Resolve the conflict there."
+    fi
   fi
   log_info "$directory is at $(git -C "$directory" rev-parse HEAD)."
 }
