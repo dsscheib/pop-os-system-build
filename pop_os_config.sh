@@ -42,10 +42,23 @@ validate_config() {
   fi
   if [[ ,$stages, == *,dotfiles,* ]]; then [[ -n ${DOTFILES_REPO:-} && $DOTFILES_REPO != *your-username* ]] || die "Set DOTFILES_REPO in config.env."; fi
   if [[ ,$stages, == *,neovim,* ]]; then [[ -n ${NVIM_CONFIG_REPO:-} && $NVIM_CONFIG_REPO != *your-username* ]] || die "Set NVIM_CONFIG_REPO in config.env."; fi
+  if [[ ,$stages, == *,google-drive,* ]]; then validate_gdrive_secrets; fi
   if [[ ,$stages, == *,private-dotfiles,* ]]; then
     [[ -n ${PRIVATE_DOTFILES_REPO:-} && $PRIVATE_DOTFILES_REPO != *your-username* ]] ||
       die "Set PRIVATE_DOTFILES_REPO in config.env, or leave private-dotfiles out with --stages."
   fi
+}
+# rclone's shared Google Drive client is rate-limited and being retired, so the
+# google-drive stage requires the user's own OAuth client from config.secrets.env.
+validate_gdrive_secrets() {
+  local file="$SCRIPT_DIR/config.secrets.env" mode key
+  [[ -f $file ]] || die "Create config.secrets.env (chmod 600) with GDRIVE_CLIENT_ID and GDRIVE_CLIENT_SECRET for the google-drive stage; see config.env.example."
+  mode=$(stat -c %a -- "$file")
+  (( (8#$mode & 8#077) == 0 )) || die "config.secrets.env holds a secret but is readable by others (mode $mode); run: chmod 600 $file"
+  for key in GDRIVE_CLIENT_ID GDRIVE_CLIENT_SECRET; do
+    [[ -n ${!key:-} && ${!key} != 1234567890-abc.apps.googleusercontent.com && ${!key} != 'GOCSPX-...' ]] ||
+      die "Set $key in config.secrets.env before selecting the google-drive stage."
+  done
 }
 
 install_prerequisites() {
@@ -713,12 +726,7 @@ switch_gdrive_client() {
 }
 authorize_gdrive() {
   if rclone listremotes | grep -Fxq "$GDRIVE_REMOTE:"; then switch_gdrive_client; return; fi
-  local -a options=(scope=drive)
-  if [[ -n ${GDRIVE_CLIENT_ID:-} ]]; then
-    options+=("client_id=$GDRIVE_CLIENT_ID" "client_secret=${GDRIVE_CLIENT_SECRET:-}")
-  else
-    log_warn "GDRIVE_CLIENT_ID is not set; rclone's shared client ID is often rate-limited."
-  fi
+  local -a options=(scope=drive "client_id=$GDRIVE_CLIENT_ID" "client_secret=$GDRIVE_CLIENT_SECRET")
   if [[ ! -t 0 || ! -t 1 ]]; then
     log_warn "Google Drive is not authorized. Run './pop_os_config.sh --stages google-drive' in a terminal."
     return 1

@@ -1425,6 +1425,31 @@ setup_dotfiles
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(result.stdout, expected)
 
+    def gdrive_validation(self, contents=None, mode=0o600):
+        secrets = self.root / 'config.secrets.env'
+        if contents is not None:
+            secrets.write_text(contents)
+            secrets.chmod(mode)
+        return self.bash('SCRIPT_DIR="$1"; unset GDRIVE_CLIENT_ID GDRIVE_CLIENT_SECRET; load_config; validate_config fonts,google-drive',
+                         self.root, script='pop_os_config.sh')
+
+    def test_gdrive_stage_requires_private_client_secrets(self):
+        cases = {
+            'missing file': (None, 0o600, 'Create config.secrets.env'),
+            'readable by others': ('GDRIVE_CLIENT_ID=id\nGDRIVE_CLIENT_SECRET=secret\n', 0o644, 'chmod 600'),
+            'missing secret': ('GDRIVE_CLIENT_ID=id\n', 0o600, 'Set GDRIVE_CLIENT_SECRET'),
+            'example placeholder': ('GDRIVE_CLIENT_ID=1234567890-abc.apps.googleusercontent.com\nGDRIVE_CLIENT_SECRET=s\n',
+                                    0o600, 'Set GDRIVE_CLIENT_ID'),
+        }
+        for name, (contents, mode, message) in cases.items():
+            with self.subTest(name):
+                (self.root / 'config.secrets.env').unlink(missing_ok=True)
+                result = self.gdrive_validation(contents, mode)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stderr)
+        result = self.gdrive_validation('GDRIVE_CLIENT_ID=id\nGDRIVE_CLIENT_SECRET=secret\n')
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_private_dotfiles_repo_is_required_when_selected(self):
         for value in ('', 'https://github.com/your-username/dotfiles-private.git'):
             with self.subTest(value=value):
