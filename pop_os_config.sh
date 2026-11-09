@@ -459,17 +459,96 @@ install_neovim_and_astronvim() {
     git clone "$NVIM_CONFIG_REPO" "$INSTALL_DIR"
     [[ -z ${NVIM_CONFIG_REF:-} ]] || git -C "$INSTALL_DIR" checkout --detach "$NVIM_CONFIG_REF"
     publish_install
-  else update_repository "$NVIM_CONFIG_REPO" "$HOME/.config/nvim" "${NVIM_CONFIG_REF:-}"; fi
+  else update_neovim_config "$HOME/.config/nvim" "${NVIM_CONFIG_REF:-}"; fi
   initialize_neovim_config
 }
 
+# ':Lazy update' rewrites the tracked lazy-lock.json. Carry those plugin
+# updates across the config update, merging them per plugin with any lockfile
+# change it brings. Where both sides moved the same plugin, the committed
+# revision wins, and initialize_neovim_config restores the merged revisions.
+NVIM_LOCK_MERGED=0
+update_neovim_config() {
+  local config=$1 ref=$2 base saved conflicts
+  if [[ ! -d "$config/.git" || $(git -C "$config" status --porcelain) != ' M lazy-lock.json' ]]; then
+    update_repository "$NVIM_CONFIG_REPO" "$config" "$ref"
+    return
+  fi
+  [[ $(git -C "$config" remote get-url origin) == "$NVIM_CONFIG_REPO" ]] || die "Existing repository has a different origin: $config"
+  # Kept in .git so the copy outlives a failed update without dirtying the checkout.
+  saved=$(git -C "$config" rev-parse --absolute-git-dir)/pop-workstation-lazy-lock.json
+  base=$(git -C "$config" rev-parse HEAD)
+  cp -- "$config/lazy-lock.json" "$saved"
+  git -C "$config" checkout -- lazy-lock.json
+  log_info "Keeping your local plugin updates in lazy-lock.json; a copy is at $saved."
+  update_repository "$NVIM_CONFIG_REPO" "$config" "$ref"
+  if git -C "$config" diff --quiet "$base" HEAD -- lazy-lock.json; then
+    cp -- "$saved" "$config/lazy-lock.json"
+  else
+    git -C "$config" show "$base:lazy-lock.json" > "$WORK_DIR/lazy-lock.base"
+    if merge_lazy_lock "$WORK_DIR/lazy-lock.base" "$config/lazy-lock.json" "$saved" > "$WORK_DIR/lazy-lock.merged"; then
+      conflicts=$(head -n1 "$WORK_DIR/lazy-lock.merged")
+      tail -n +2 "$WORK_DIR/lazy-lock.merged" > "$config/lazy-lock.json"
+      (( conflicts == 0 )) || log_warn "Kept the committed revision for $conflicts plugin(s) you had also updated; your version is at $saved."
+    else
+      log_warn "Could not merge your lazy-lock.json with the config update; using the committed lockfile. Your version is at $saved."
+    fi
+    NVIM_LOCK_MERGED=1
+  fi
+}
+
+# Three-way merge of lazy-lock.json objects keyed by plugin. Prints the number of
+# plugins both sides changed, then the merged lockfile in lazy.nvim's layout.
+merge_lazy_lock() {
+  jq -nr --slurpfile base "$1" --slurpfile upstream "$2" --slurpfile local "$3" '
+    ($base[0]) as $b | ($upstream[0]) as $u | ($local[0]) as $l
+    | [$u, $l | keys[]] | unique as $names
+    | reduce $names[] as $n ({lock: {}, conflicts: 0};
+        if ($u | has($n)) then
+          if ($l[$n] != $b[$n] and $u[$n] == $b[$n] and ($l | has($n))) then .lock[$n] = $l[$n]
+          else .lock[$n] = $u[$n]
+            | if ($l | has($n)) and $l[$n] != $b[$n] and $u[$n] != $b[$n] and $l[$n] != $u[$n] then .conflicts += 1 else . end
+          end
+        elif ($b | has($n) | not) then .lock[$n] = $l[$n]
+        else . end)
+    | (.conflicts | tostring),
+      "{",
+      (.lock | to_entries | map("  \(.key | tojson): { "
+        + (.value | to_entries | map("\(.key | tojson): \(.value | tojson)") | join(", ")) + " }")
+        | join(",\n")),
+      "}"'
+}
+
 initialize_neovim_config() {
-  local config="$HOME/.config/nvim" binary="$HOME/.local/bin/nvim"
+  local config="$HOME/.config/nvim" binary="$HOME/.local/bin/nvim" lock_clean=0
+  if lazy_lock_clean "$config"; then lock_clean=1; fi
   if [[ -f "$config/scripts/setup.sh" && -f "$config/lua/setup_checks.lua" ]]; then
     optional 'Neovim tools installation and verification' env NVIM_BIN="$binary" bash "$config/scripts/setup.sh" --install
   else
     optional 'Neovim plugin initialization (language tools unverified)' timeout --foreground 5m "$binary" --headless -c quitall
   fi
+  if (( NVIM_LOCK_MERGED )); then
+    optional 'Neovim plugin restore to merged lazy-lock.json' timeout --foreground 5m "$binary" --headless '+Lazy! restore' +qa
+  elif (( lock_clean )); then restore_lazy_lock "$config" "$binary"; fi
+}
+
+# True when the config tracks lazy-lock.json and the file is unmodified.
+lazy_lock_clean() {
+  [[ -d "$1/.git" ]] && git -C "$1" ls-files --error-unmatch lazy-lock.json >/dev/null 2>&1 &&
+    git -C "$1" diff --quiet -- lazy-lock.json
+}
+
+# A first plugin install can check out newer releases than the committed lock
+# and record them in lazy-lock.json, which then blocks later config updates.
+# Only this run's change is reverted: the lock was clean before initialization.
+restore_lazy_lock() {
+  local config=$1 binary=$2
+  ! lazy_lock_clean "$config" || return 0
+  log_info "Plugin installation changed lazy-lock.json; restoring the committed plugin versions."
+  git -C "$config" checkout -- lazy-lock.json || return
+  optional 'Neovim plugin restore to lazy-lock.json' timeout --foreground 5m "$binary" --headless '+Lazy! restore' +qa
+  lazy_lock_clean "$config" ||
+    log_warn "lazy-lock.json in $config still differs from the commit; review it with: git -C $config diff"
 }
 
 install_repository() {
