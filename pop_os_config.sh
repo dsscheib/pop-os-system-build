@@ -42,6 +42,10 @@ validate_config() {
   fi
   if [[ ,$stages, == *,dotfiles,* ]]; then [[ -n ${DOTFILES_REPO:-} && $DOTFILES_REPO != *your-username* ]] || die "Set DOTFILES_REPO in config.env."; fi
   if [[ ,$stages, == *,neovim,* ]]; then [[ -n ${NVIM_CONFIG_REPO:-} && $NVIM_CONFIG_REPO != *your-username* ]] || die "Set NVIM_CONFIG_REPO in config.env."; fi
+  if [[ ,$stages, == *,private-dotfiles,* ]]; then
+    [[ -n ${PRIVATE_DOTFILES_REPO:-} && $PRIVATE_DOTFILES_REPO != *your-username* ]] ||
+      die "Set PRIVATE_DOTFILES_REPO in config.env, or leave private-dotfiles out with --stages."
+  fi
 }
 
 install_prerequisites() {
@@ -235,13 +239,9 @@ setup_dotfiles() {
   fi
 }
 # Restore personal agent configuration from a private repository after the CLIs are
-# installed. Unconfigured is a skip; an unavailable GitHub sign-in is reported as an
-# optional failure so the rest of the setup still completes.
+# installed. validate_config requires PRIVATE_DOTFILES_REPO; an unavailable GitHub
+# sign-in is reported as an optional failure so the rest of the setup still completes.
 setup_private_dotfiles() {
-  if [[ -z ${PRIVATE_DOTFILES_REPO:-} ]]; then
-    log_info "PRIVATE_DOTFILES_REPO is not set in config.env; skipping private dotfiles."
-    return 0
-  fi
   if ! command -v gh >/dev/null || ! gh auth status --hostname github.com >/dev/null 2>&1; then
     log_warn "GitHub CLI is not signed in, so the private dotfiles cannot be cloned."
     log_warn "Run 'gh auth login --scopes workflow', then './pop_os_config.sh --stages private-dotfiles'."

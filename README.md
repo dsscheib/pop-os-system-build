@@ -345,7 +345,8 @@ The default setup ends with the `private-dotfiles` stage. It restores personal
 agent configuration (for example Claude Code, Codex and Antigravity CLI settings
 and memories) from a private repository, so it runs after the CLI stages. Set
 `PRIVATE_DOTFILES_REPO` (and optionally `PRIVATE_DOTFILES_REF`) in `config.env`;
-when it is unset the stage is skipped. The stage clones or fast-forwards the
+like the other repository settings, setup stops before any stage runs when it is
+unset. Without a private repository, leave the stage out with `--stages`. The stage clones or fast-forwards the
 repository into `~/.dotfiles-private` using the GitHub CLI's sign-in for that clone
 only, then runs the repository's `restore.sh`. It never backs up or pushes. If `gh`
 is not signed in, or the repository has no `restore.sh`, the stage is reported as
