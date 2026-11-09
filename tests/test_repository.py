@@ -851,6 +851,37 @@ if install_nasmfmt; then exit 0; else exit "$?"; fi
         self.assertEqual(result.returncode, 42, result.stderr)
         self.assertNotIn('should not run', result.stdout)
 
+    def test_language_install_overrides_inherited_goroot(self):
+        result = self.bash(r'''
+export HOME="$1" GOROOT="$1/stale-go"
+command() {
+  if [[ $1 == -v && ($2 == rustup || $2 == asm-lsp) ]]; then return 0; fi
+  builtin command "$@"
+}
+install_rust_toolchain() { :; }
+install_rust_completions() { :; }
+install_mise() { :; }
+mise() {
+  case $1 in
+    use) ;;
+    where) printf '%s\n' "$HOME/runtime-$2";;
+    *) return 99;;
+  esac
+}
+require_commands() { :; }
+install_nasmfmt() { printf 'nasmfmt-goroot:%s\n' "$GOROOT"; }
+install_go_completions() { printf 'completions-goroot:%s\n' "$GOROOT"; }
+install_uv() { :; }
+uv() { :; }
+install_django_completions() { :; }
+GO_VERSION=1.2.3 NODE_VERSION=4.5.6
+install_languages_and_tools
+''', self.root, script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        expected = str(self.root / 'runtime-go@1.2.3')
+        self.assertIn('nasmfmt-goroot:' + expected, result.stdout)
+        self.assertIn('completions-goroot:' + expected, result.stdout)
+
     def test_failed_build_tool_install_does_not_change_compiler_commands(self):
         result = self.bash('''
 latest_native_gcc() { printf '16\\n'; }

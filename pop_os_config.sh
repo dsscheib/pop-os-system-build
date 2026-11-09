@@ -449,6 +449,9 @@ install_languages_and_tools() {
   local go_directory node_directory
   go_directory=$("$mise" where "go@$GO_VERSION")
   node_directory=$("$mise" where "node@$NODE_VERSION")
+  # An inherited GOROOT (for example from `mise activate` with another Go
+  # version) would make this go binary use a mismatched compiler and stdlib.
+  export GOROOT="$go_directory"
   export PATH="$go_directory/bin:$node_directory/bin:$PATH"
   require_commands go node npm
   install_nasmfmt
