@@ -7,7 +7,7 @@ source "$SCRIPT_DIR/common.sh"
 # shellcheck source=resources/tool-versions.env
 source "$SCRIPT_DIR/resources/tool-versions.env"
 OPTIONAL_FAILURES=()
-STAGES=(system fonts git dependencies dotfiles tmux languages neovim firefox chrome applications hyper-backup-explorer podman arm avr riscv antigravity claudecode codex copilot private-dotfiles google-drive arm-avr)
+STAGES=(system fonts git dependencies dotfiles tmux herdr languages neovim firefox chrome applications hyper-backup-explorer podman arm avr riscv antigravity claudecode codex copilot private-dotfiles google-drive arm-avr)
 
 optional() {
   local description=$1
@@ -290,6 +290,31 @@ setup_tmux() {
   export TMUX_PLUGIN_MANAGER_PATH="$HOME/.local/share/tmux/plugins"
   update_repository https://github.com/tmux-plugins/tpm "$TMUX_PLUGIN_MANAGER_PATH/tpm" "$TPM_COMMIT"
   optional 'Tmux plugins' "$TMUX_PLUGIN_MANAGER_PATH/tpm/bin/install_plugins"
+}
+
+# Herdr (herdr.dev/tui), a terminal workspace manager for coding agents. Its
+# configuration comes from the dotfiles herdr package. An existing install is
+# kept: `herdr update` upgrades installer-managed copies in place.
+install_herdr() {
+  local herdr="$HOME/.local/bin/herdr" shell directory destination
+  if [[ ! -x $herdr ]]; then
+    fetch_locked herdr "$WORK_DIR/herdr" || return
+    install -m 0755 "$WORK_DIR/herdr" "$herdr" || return
+    hash -r
+  fi
+  check_executable "$herdr" || return
+  timeout --foreground 30s "$herdr" --version || return
+  for shell in bash zsh fish; do
+    case "$shell" in
+      bash) directory="$HOME/.local/share/bash-completion/completions"; destination=herdr ;;
+      zsh) directory="$HOME/.zsh/completion"; destination=_herdr ;;
+      fish) directory="$HOME/.config/fish/completions"; destination=herdr.fish ;;
+    esac
+    optional "Herdr $shell completions" completion_file "$directory/$destination" "$herdr" completion "$shell"
+  done
+  if [[ -f "$HOME/.config/herdr/config.toml" ]]; then
+    "$herdr" config check || log_warn "Herdr reported configuration issues; run 'herdr config check'."
+  fi
 }
 
 install_uv() {
@@ -959,7 +984,7 @@ install_django_completions() {
 }
 
 main() {
-  local selected='system,fonts,git,dependencies,dotfiles,tmux,languages,neovim,firefox,chrome,applications,hyper-backup-explorer,podman,arm,avr,riscv,antigravity,claudecode,codex,copilot,private-dotfiles,google-drive' stage
+  local selected='system,fonts,git,dependencies,dotfiles,tmux,herdr,languages,neovim,firefox,chrome,applications,hyper-backup-explorer,podman,arm,avr,riscv,antigravity,claudecode,codex,copilot,private-dotfiles,google-drive' stage
   case ${1:-} in
     --list-stages) [[ $# -eq 1 ]] || die "--list-stages takes no arguments."; printf '%s\n' "${STAGES[@]}"; return ;;
     --stages) [[ $# -eq 2 && -n $2 ]] || die "Usage: $0 --stages comma,separated,stages"; selected=$2 ;;
@@ -986,6 +1011,7 @@ main() {
     case "$stage" in
       system) setup_system ;; fonts) install_fonts ;; git) setup_git ;;
       dependencies) install_dependencies ;; dotfiles) setup_dotfiles ;; tmux) setup_tmux ;;
+      herdr) install_herdr ;;
       languages) install_languages_and_tools ;; neovim) install_neovim_and_astronvim ;;
       firefox) install_firefox_dev ;; chrome) install_google_chrome ;; applications) install_applications ;;
       google-drive) optional 'Google Drive sync' install_google_drive ;;

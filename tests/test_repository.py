@@ -1012,6 +1012,53 @@ begin_install "$1/second"
         self.assertEqual(result.returncode, 43, result.stderr)
         self.assertEqual((self.root / 'first/content').read_text(), 'preserved')
 
+    def herdr_stage(self, *, present=False, status=0):
+        directory = self.root / '.local/bin'
+        directory.mkdir(parents=True)
+        (self.root / 'work').mkdir()
+        fixture = self.root / 'herdr-fixture'
+        fixture.write_text('#!/bin/sh\n'
+                           'case "$1" in completion) echo "# $2 completion";; config) echo config-checked;; *) echo herdr-fixture;; esac\n'
+                           'exit ' + str(status) + '\n')
+        fixture.chmod(0o755)
+        if present:
+            (directory / 'herdr').write_bytes(fixture.read_bytes())
+            (directory / 'herdr').chmod(0o755)
+        return self.bash('''
+export HOME="$1" WORK_DIR="$1/work"
+fetch_locked() { [[ $1 == herdr ]] || return 90; cp "$HOME/herdr-fixture" "$2"; touch "$HOME/fetched"; }
+install_herdr
+''', self.root, script='pop_os_config.sh')
+
+    def test_herdr_stage_installs_pinned_binary_and_completions(self):
+        config = self.root / '.config/herdr/config.toml'
+        config.parent.mkdir(parents=True)
+        config.write_text('[keys]\n')
+        result = self.herdr_stage()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.root / 'fetched').exists())
+        self.assertTrue(os.access(self.root / '.local/bin/herdr', os.X_OK))
+        self.assertIn('herdr-fixture', result.stdout)
+        self.assertIn('config-checked', result.stdout)
+        for relative, shell in (('.local/share/bash-completion/completions/herdr', 'bash'),
+                                ('.zsh/completion/_herdr', 'zsh'),
+                                ('.config/fish/completions/herdr.fish', 'fish')):
+            self.assertEqual((self.root / relative).read_text(), f'# {shell} completion\n')
+
+    def test_herdr_stage_keeps_existing_install(self):
+        result = self.herdr_stage(present=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.root / 'fetched').exists())
+
+    def test_herdr_stage_fails_when_binary_does_not_run(self):
+        result = self.herdr_stage(status=42)
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_herdr_stage_is_listed_and_selected_by_default(self):
+        result = subprocess.run(['bash', str(REPO / 'pop_os_config.sh'), '--list-stages'], capture_output=True, text=True)
+        self.assertIn('herdr', result.stdout.splitlines())
+        self.assertIn(',tmux,herdr,languages,', (REPO / 'pop_os_config.sh').read_text())
+
     def test_ai_cli_stages_are_listed(self):
         result = subprocess.run(['bash', str(REPO / 'pop_os_config.sh'), '--list-stages'], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
