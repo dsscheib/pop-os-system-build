@@ -1018,7 +1018,7 @@ begin_install "$1/second"
         (self.root / 'work').mkdir()
         fixture = self.root / 'herdr-fixture'
         fixture.write_text('#!/bin/sh\n'
-                           'case "$1" in completion) echo "# $2 completion";; config) echo config-checked;; *) echo herdr-fixture;; esac\n'
+                           'case "$1" in completion) echo "# $2 completion";; --skill) echo "# herdr skill";; config) echo config-checked;; *) echo herdr-fixture;; esac\n'
                            'exit ' + str(status) + '\n')
         fixture.chmod(0o755)
         if present:
@@ -1044,6 +1044,8 @@ install_herdr
                                 ('.zsh/completion/_herdr', 'zsh'),
                                 ('.config/fish/completions/herdr.fish', 'fish')):
             self.assertEqual((self.root / relative).read_text(), f'# {shell} completion\n')
+        for relative in ('.agents/skills/herdr/SKILL.md', '.claude/skills/herdr/SKILL.md'):
+            self.assertEqual((self.root / relative).read_text(), '# herdr skill\n')
 
     def test_herdr_stage_keeps_existing_install(self):
         result = self.herdr_stage(present=True)
