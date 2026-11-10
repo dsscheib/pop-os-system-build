@@ -189,6 +189,7 @@ List or select stages:
 ./pop_os_config.sh --stages dependencies,languages,neovim
 ./pop_os_config.sh --stages system,arm,avr,riscv
 ./pop_os_config.sh --stages antigravity,claudecode,codex,copilot
+./pop_os_config.sh --stages dotfiles,herdr
 ```
 
 The `arm` stage includes ARM32 bare-metal tools (`arm-none-eabi-gcc`),
@@ -318,6 +319,14 @@ alone does not establish that the complete editor configuration works.
 When the `tmux` stage is selected, the dotfiles bootstrap delegates plugin setup
 to that stage. Both repositories use `~/.local/share/tmux/plugins` and the same
 TPM pin. A `dotfiles`-only selection lets its bootstrap install plugins normally.
+
+The `herdr` stage installs [Herdr](https://herdr.dev/tui/), a terminal workspace
+manager for coding agents, as the pinned, checksum-verified release binary in
+`~/.local/bin/herdr`, plus Bash, Zsh, and Fish completions. An existing binary is
+kept; upgrade it with `herdr update`. Its configuration, which matches the tmux
+keybindings, is the dotfiles `herdr` package (`~/.config/herdr/config.toml`). The
+stage runs `herdr config check` when that file is deployed, so select `dotfiles`
+first or together with it.
 
 Git setup installs the GitHub CLI (`gh`) from GitHub's signed APT repository
 and configures it as Git's credential helper for github.com, so Git and `gh`
