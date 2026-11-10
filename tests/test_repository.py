@@ -1045,7 +1045,8 @@ install_herdr
                                 ('.zsh/completion/_herdr', 'zsh'),
                                 ('.config/fish/completions/herdr.fish', 'fish')):
             self.assertEqual((self.root / relative).read_text(), f'# {shell} completion\n')
-        for relative in ('.agents/skills/herdr/SKILL.md', '.claude/skills/herdr/SKILL.md'):
+        for relative in ('.agents/skills/herdr/SKILL.md', '.claude/skills/herdr/SKILL.md',
+                         '.gemini/config/skills/herdr/SKILL.md'):
             self.assertEqual((self.root / relative).read_text(), '# herdr skill\n')
 
     def test_herdr_stage_keeps_existing_install(self):

@@ -324,9 +324,10 @@ The `herdr` stage installs [Herdr](https://herdr.dev/tui/), a terminal workspace
 manager for coding agents, as the pinned, checksum-verified release binary in
 `~/.local/bin/herdr`, plus Bash, Zsh, and Fish completions. It also installs the
 Herdr agent skill globally, from the binary's release-matched `herdr --skill`
-output, as `~/.agents/skills/herdr/SKILL.md` (the shared location Codex, Copilot,
-and other skills-aware agents read) and `~/.claude/skills/herdr/SKILL.md` (for
-Claude Code). An existing binary is kept; upgrade it with `herdr update`, then
+output, as `herdr/SKILL.md` in each agent's global skills directory:
+`~/.agents/skills` (Codex and Copilot), `~/.claude/skills` (Claude Code), and
+`~/.gemini/config/skills` (Antigravity, which reads `.agents/skills` only inside a
+workspace). An existing binary is kept; upgrade it with `herdr update`, then
 rerun the stage to refresh the skill. Its configuration, which matches the tmux
 keybindings, is the dotfiles `herdr` package (`~/.config/herdr/config.toml`). The
 stage runs `herdr config check` when that file is deployed, so select `dotfiles`
