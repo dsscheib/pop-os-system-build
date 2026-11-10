@@ -322,8 +322,12 @@ TPM pin. A `dotfiles`-only selection lets its bootstrap install plugins normally
 
 The `herdr` stage installs [Herdr](https://herdr.dev/tui/), a terminal workspace
 manager for coding agents, as the pinned, checksum-verified release binary in
-`~/.local/bin/herdr`, plus Bash, Zsh, and Fish completions. An existing binary is
-kept; upgrade it with `herdr update`. Its configuration, which matches the tmux
+`~/.local/bin/herdr`, plus Bash, Zsh, and Fish completions. It also installs the
+Herdr agent skill globally, from the binary's release-matched `herdr --skill`
+output, as `~/.agents/skills/herdr/SKILL.md` (the shared location Codex, Copilot,
+and other skills-aware agents read) and `~/.claude/skills/herdr/SKILL.md` (for
+Claude Code). An existing binary is kept; upgrade it with `herdr update`, then
+rerun the stage to refresh the skill. Its configuration, which matches the tmux
 keybindings, is the dotfiles `herdr` package (`~/.config/herdr/config.toml`). The
 stage runs `herdr config check` when that file is deployed, so select `dotfiles`
 first or together with it.
