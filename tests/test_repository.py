@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import shutil
 import stat
 import subprocess
 import sys
@@ -1055,6 +1056,47 @@ install_herdr
     def test_herdr_stage_fails_when_binary_does_not_run(self):
         result = self.herdr_stage(status=42)
         self.assertNotEqual(result.returncode, 0)
+
+    def herdr_integrations(self, clis, *, herdr=True, status=0):
+        # An isolated PATH keeps the host's own agent CLIs out of the test.
+        bin_dir = self.root / 'agents'
+        bin_dir.mkdir()
+        (bin_dir / 'timeout').symlink_to(shutil.which('timeout'))
+        for cli in clis:
+            (bin_dir / cli).write_text('#!/bin/sh\n')
+            (bin_dir / cli).chmod(0o755)
+        if herdr:
+            local_bin = self.root / '.local/bin'
+            local_bin.mkdir(parents=True)
+            (local_bin / 'herdr').write_text('#!/bin/sh\necho "$*" >> "$HOME/herdr-calls"\nexit ' + str(status) + '\n')
+            (local_bin / 'herdr').chmod(0o755)
+        return self.bash('''
+export HOME="$1" PATH="$1/agents"
+install_herdr_integrations
+echo "failures=${OPTIONAL_FAILURES[*]}"
+''', self.root, script='pop_os_config.sh')
+
+    def test_herdr_integrations_install_for_present_agents_only(self):
+        result = self.herdr_integrations(['claude', 'agy'])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.root / 'herdr-calls').read_text(),
+                         'integration install claude\nintegration install antigravity-cli\n')
+
+    def test_herdr_integrations_skip_without_herdr(self):
+        result = self.herdr_integrations(['claude', 'codex'], herdr=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.root / 'herdr-calls').exists())
+
+    def test_herdr_integration_failure_is_optional(self):
+        result = self.herdr_integrations(['codex'], status=3)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('failures=Herdr codex integration', result.stdout)
+
+    def test_herdr_integrations_run_after_every_stage(self):
+        source = (REPO / 'pop_os_config.sh').read_text()
+        main = source[source.index('\nmain() {'):]
+        self.assertLess(main.index('private-dotfiles) optional'), main.index('install_herdr_integrations'))
+        self.assertIn('HERDR_INTEGRATION_STAGES=(herdr antigravity claudecode codex copilot private-dotfiles)', source)
 
     def test_herdr_stage_is_listed_and_selected_by_default(self):
         result = subprocess.run(['bash', str(REPO / 'pop_os_config.sh'), '--list-stages'], capture_output=True, text=True)

@@ -332,6 +332,14 @@ keybindings, is the dotfiles `herdr` package (`~/.config/herdr/config.toml`). Th
 stage runs `herdr config check` when that file is deployed, so select `dotfiles`
 first or together with it.
 
+After all selected stages finish, the script also installs Herdr's agent
+integrations (`herdr integration install`) for each agent CLI present: Claude
+Code, Codex, Copilot, and Antigravity (`antigravity-cli`). It runs them whenever
+the `herdr`, an agent, or the `private-dotfiles` stage is selected. Running them
+last means a fresh install has the CLIs in place, and the hooks are put back
+after the private restore replaces `~/.claude/settings.json` and
+`~/.codex/config.toml`. A failed integration is reported as optional.
+
 Git setup installs the GitHub CLI (`gh`) from GitHub's signed APT repository
 and configures it as Git's credential helper for github.com, so Git and `gh`
 share one sign-in. When run in a terminal, it starts `gh auth login` with the
