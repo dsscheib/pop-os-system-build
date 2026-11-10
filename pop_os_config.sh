@@ -323,6 +323,22 @@ install_herdr() {
   fi
 }
 
+# Herdr's agent integrations add hooks to each agent's own configuration. main
+# runs them after every selected stage: the agent stages install the CLIs after
+# the herdr stage, and the private-dotfiles restore replaces the Claude and Codex
+# settings files that hold the hooks. Reinstalling a current integration is a no-op.
+HERDR_INTEGRATIONS=(claude:claude codex:codex copilot:copilot agy:antigravity-cli)
+HERDR_INTEGRATION_STAGES=(herdr antigravity claudecode codex copilot private-dotfiles)
+install_herdr_integrations() {
+  local herdr="$HOME/.local/bin/herdr" entry cli target
+  [[ -x $herdr ]] || return 0
+  for entry in "${HERDR_INTEGRATIONS[@]}"; do
+    cli=${entry%%:*} target=${entry#*:}
+    command -v "$cli" >/dev/null || continue
+    optional "Herdr $target integration" timeout --foreground 30s "$herdr" integration install "$target" </dev/null
+  done
+}
+
 install_uv() {
   if ! command -v uv >/dev/null; then
     fetch_locked uv "$WORK_DIR/uv.tar.gz"
@@ -1029,6 +1045,9 @@ main() {
       copilot) install_copilot_cli ;;
       private-dotfiles) optional 'Private dotfiles restore' setup_private_dotfiles ;;
     esac
+  done
+  for stage in "${HERDR_INTEGRATION_STAGES[@]}"; do
+    if [[ ,$selected, == *,$stage,* ]]; then install_herdr_integrations; break; fi
   done
   python3 "$SCRIPT_DIR/scripts/shell_integration.py" "$HOME" "$SCRIPT_DIR/resources"
   if (( ${#OPTIONAL_FAILURES[@]} )); then
