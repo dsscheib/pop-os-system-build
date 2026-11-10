@@ -295,9 +295,10 @@ setup_tmux() {
 # Herdr (herdr.dev/tui), a terminal workspace manager for coding agents. Its
 # configuration comes from the dotfiles herdr package. An existing install is
 # kept: `herdr update` upgrades installer-managed copies in place. The agent
-# skill is the release-matched copy from `herdr --skill`, written to the shared
-# ~/.agents/skills location and to Claude Code's ~/.claude/skills, which it
-# reads instead; rerun the stage after `herdr update` to refresh both.
+# skill is the release-matched copy from `herdr --skill`, written to each global
+# skills directory: ~/.agents/skills (Codex and Copilot), ~/.claude/skills
+# (Claude Code), and ~/.gemini/config/skills (Antigravity, which reads
+# .agents/skills only inside a workspace). Rerun the stage after `herdr update`.
 install_herdr() {
   local herdr="$HOME/.local/bin/herdr" shell directory destination skills
   if [[ ! -x $herdr ]]; then
@@ -315,7 +316,7 @@ install_herdr() {
     esac
     optional "Herdr $shell completions" completion_file "$directory/$destination" "$herdr" completion "$shell"
   done
-  for skills in "$HOME/.agents/skills" "$HOME/.claude/skills"; do
+  for skills in "$HOME/.agents/skills" "$HOME/.claude/skills" "$HOME/.gemini/config/skills"; do
     optional "Herdr agent skill in $skills" completion_file "$skills/herdr/SKILL.md" "$herdr" --skill
   done
   if [[ -f "$HOME/.config/herdr/config.toml" ]]; then
