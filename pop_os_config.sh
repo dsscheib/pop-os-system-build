@@ -7,7 +7,7 @@ source "$SCRIPT_DIR/common.sh"
 # shellcheck source=resources/tool-versions.env
 source "$SCRIPT_DIR/resources/tool-versions.env"
 OPTIONAL_FAILURES=()
-STAGES=(system fonts git dependencies dotfiles tmux herdr languages neovim firefox chrome applications hyper-backup-explorer podman arm avr riscv antigravity claudecode codex copilot private-dotfiles google-drive arm-avr)
+STAGES=(system fonts git dependencies llvm dotfiles tmux herdr languages neovim firefox chrome applications hyper-backup-explorer podman arm avr riscv antigravity claudecode codex copilot private-dotfiles google-drive arm-avr)
 
 optional() {
   local description=$1
@@ -155,44 +155,56 @@ apt_candidate() {
   awk -v package="$1" '$0 == package ":" {matched=1; next} matched && $1 == "Candidate:" {print $2; exit}' <<< "$policy"
 }
 
-latest_native_gcc() {
-  local names package major candidate
+# Print the highest major N for which every named package has an installable
+# "<package>-N" candidate. The first package supplies the majors to try.
+latest_package_major() {
+  local names package major base candidate
   names=$(apt-cache pkgnames) || return
   while IFS= read -r package; do
-    major=${package#gcc-}
-    grep -Fxq "g++-$major" <<< "$names" || continue
-    candidate=$(apt_candidate "$package") || return
-    [[ -n $candidate && $candidate != '(none)' ]] || continue
-    candidate=$(apt_candidate "g++-$major") || return
-    [[ -n $candidate && $candidate != '(none)' ]] || continue
+    major=${package#"$1"-}
+    for base in "$@"; do
+      grep -Fxq "$base-$major" <<< "$names" || continue 2
+      candidate=$(apt_candidate "$base-$major") || return
+      [[ -n $candidate && $candidate != '(none)' ]] || continue 2
+    done
     printf '%s\n' "$major"
     return
-  done < <(awk '/^gcc-[0-9]+$/' <<< "$names" | sort -u -t- -k2,2nr)
-  die "No installable native GCC/G++ pair found in the configured APT repositories."
+  done < <(awk -v prefix="$1-" 'index($0, prefix) == 1 && substr($0, length(prefix) + 1) ~ /^[0-9]+$/' <<< "$names" |
+    sort -u -t- -k2,2nr)
+  return 1
+}
+
+latest_native_gcc() {
+  latest_package_major gcc g++ || die "No installable native GCC/G++ pair found in the configured APT repositories."
+}
+
+# Point unversioned commands in ~/.local/bin at one major's versioned tools. Each
+# entry is "name" or "name=target". Validate all tools and destinations before
+# changing any links, and keep foreign executables and custom wrappers intact.
+link_versioned_commands() {
+  local major=$1 binaries=$2 directory="$HOME/.local/bin" entry name target existing
+  shift 2
+  mkdir -p "$directory"
+  for entry in "$@"; do
+    name=${entry%%=*} target=${entry#*=}
+    [[ -x "$binaries/$target-$major" ]] || die "Missing versioned tool: $binaries/$target-$major"
+    if [[ -e "$directory/$name" || -L "$directory/$name" ]]; then
+      [[ -L "$directory/$name" ]] || die "Existing command needs manual review: $directory/$name"
+      existing=$(readlink "$directory/$name")
+      [[ $existing == "$binaries/$target" || $existing =~ ^"$binaries/$target"-[0-9]+$ ]] ||
+        die "Existing command link needs manual review: $directory/$name -> $existing"
+    fi
+  done
+  for entry in "$@"; do
+    name=${entry%%=*} target=${entry#*=}
+    ln -sfnT -- "$binaries/$target-$major" "$directory/$name"
+  done
+  hash -r
 }
 
 configure_native_gcc() {
-  local major=$1 binaries=${2:-/usr/bin} directory="$HOME/.local/bin" name target existing
-  local -a names=(gcc g++ cc c++ gcc-ar gcc-nm gcc-ranlib gcov gcov-dump gcov-tool)
-  local -a targets=(gcc g++ gcc g++ gcc-ar gcc-nm gcc-ranlib gcov gcov-dump gcov-tool)
-  local index
-  mkdir -p "$directory"
-  # Validate all tools and destinations before changing any links. Keep foreign
-  # executables and custom compiler wrappers intact.
-  for index in "${!names[@]}"; do
-    name=${names[$index]} target=${targets[$index]}
-    [[ -x "$binaries/$target-$major" ]] || die "Missing compiler tool: $binaries/$target-$major"
-    if [[ -e "$directory/$name" || -L "$directory/$name" ]]; then
-      [[ -L "$directory/$name" ]] || die "Existing compiler command needs manual review: $directory/$name"
-      existing=$(readlink "$directory/$name")
-      [[ $existing == "$binaries/$target" || $existing =~ ^"$binaries/$target"-[0-9]+$ ]] ||
-        die "Existing compiler link needs manual review: $directory/$name -> $existing"
-    fi
-  done
-  for index in "${!names[@]}"; do
-    ln -sfnT -- "$binaries/${targets[$index]}-$major" "$directory/${names[$index]}"
-  done
-  hash -r
+  link_versioned_commands "$1" "${2:-/usr/bin}" gcc g++ cc=gcc c++=g++ \
+    gcc-ar gcc-nm gcc-ranlib gcov gcov-dump gcov-tool
 }
 
 install_build_tools() {
@@ -204,6 +216,51 @@ install_build_tools() {
   sudo apt-get install -y --no-install-recommends build-essential binutils gdb make dpkg-dev libc6-dev "gcc-$major" "g++-$major" || return
   configure_native_gcc "$major" || return
   log_info "Native compiler commands in ~/.local/bin now select GCC/G++ $major."
+}
+
+# LLVM's own signed APT repository (apt.llvm.org) carries each release branch as
+# its own suite. LLVM_VERSION in tool-versions.env selects the release branch to
+# add; the unversioned suite is the unreleased development snapshot and is not
+# used. As with GCC, the highest major with a complete toolchain in any
+# configured repository is installed and linked.
+LLVM_PACKAGES=(clang clangd clang-format clang-tidy lld lldb llvm)
+LLVM_COMMANDS=(clang clang++ clang-cpp clangd clang-format git-clang-format clang-tidy run-clang-tidy
+  lld ld.lld lldb lldb-dap llvm-ar llvm-nm llvm-ranlib llvm-objdump llvm-objcopy llvm-strip
+  llvm-symbolizer llvm-cov llvm-profdata llvm-config)
+llvm_codename() {
+  local codename
+  codename=$(awk -F= '$1 == "UBUNTU_CODENAME" {gsub(/"/, "", $2); print $2}' "$1") || return
+  [[ $codename =~ ^[a-z]+$ ]] || { log_error "Cannot determine the Ubuntu codename for LLVM's repository."; return 1; }
+  printf '%s\n' "$codename"
+}
+llvm_source_current() {
+  local source=$1 keyring=${2:-/etc/apt/keyrings/llvm.asc} listing=${3:-/etc/apt/sources.list.d/llvm.list}
+  [[ -s $keyring && -f $listing && $(<"$listing") == "$source" ]]
+}
+add_llvm_repository() {
+  local codename source
+  codename=$(llvm_codename /etc/os-release) || return
+  source="deb [arch=amd64 signed-by=/etc/apt/keyrings/llvm.asc] https://apt.llvm.org/$codename/ llvm-toolchain-$codename-$LLVM_VERSION main"
+  # Skip the key download and index refresh when the source is already current.
+  llvm_source_current "$source" || install_repository llvm llvm-key "$source"
+}
+latest_llvm() {
+  latest_package_major "${LLVM_PACKAGES[@]}" || {
+    log_error "No installable LLVM toolchain (${LLVM_PACKAGES[*]}) found in the configured APT repositories."
+    return 1
+  }
+}
+install_llvm_toolchain() {
+  local major package
+  local -a packages=()
+  add_llvm_repository || return
+  major=$(latest_llvm) || return
+  log_info "Installing newest APT LLVM toolchain: Clang $major"
+  for package in "${LLVM_PACKAGES[@]}"; do packages+=("$package-$major"); done
+  sudo apt-get install -y "${packages[@]}" || return
+  link_versioned_commands "$major" /usr/bin "${LLVM_COMMANDS[@]}" || return
+  timeout --foreground 30s "$HOME/.local/bin/clang" --version || return
+  log_info "Clang/LLVM commands in ~/.local/bin now select LLVM $major."
 }
 
 install_dependencies() {
@@ -1007,7 +1064,7 @@ install_django_completions() {
 }
 
 main() {
-  local selected='system,fonts,git,dependencies,dotfiles,tmux,herdr,languages,neovim,firefox,chrome,applications,hyper-backup-explorer,podman,arm,avr,riscv,antigravity,claudecode,codex,copilot,private-dotfiles,google-drive' stage
+  local selected='system,fonts,git,dependencies,llvm,dotfiles,tmux,herdr,languages,neovim,firefox,chrome,applications,hyper-backup-explorer,podman,arm,avr,riscv,antigravity,claudecode,codex,copilot,private-dotfiles,google-drive' stage
   case ${1:-} in
     --list-stages) [[ $# -eq 1 ]] || die "--list-stages takes no arguments."; printf '%s\n' "${STAGES[@]}"; return ;;
     --stages) [[ $# -eq 2 && -n $2 ]] || die "Usage: $0 --stages comma,separated,stages"; selected=$2 ;;
@@ -1033,7 +1090,8 @@ main() {
     log_info "Running stage: $stage"
     case "$stage" in
       system) setup_system ;; fonts) install_fonts ;; git) setup_git ;;
-      dependencies) install_dependencies ;; dotfiles) setup_dotfiles ;; tmux) setup_tmux ;;
+      dependencies) install_dependencies ;; llvm) install_llvm_toolchain ;;
+      dotfiles) setup_dotfiles ;; tmux) setup_tmux ;;
       herdr) install_herdr ;;
       languages) install_languages_and_tools ;; neovim) install_neovim_and_astronvim ;;
       firefox) install_firefox_dev ;; chrome) install_google_chrome ;; applications) install_applications ;;

@@ -187,6 +187,7 @@ List or select stages:
 ```bash
 ./pop_os_config.sh --list-stages
 ./pop_os_config.sh --stages dependencies,languages,neovim
+./pop_os_config.sh --stages llvm
 ./pop_os_config.sh --stages system,arm,avr,riscv
 ./pop_os_config.sh --stages antigravity,claudecode,codex,copilot
 ./pop_os_config.sh --stages dotfiles,herdr
@@ -237,6 +238,17 @@ links and existing compiler packages are preserved. Older versions may be pulled
 in by `build-essential` or other package dependencies. Cross-compilers in the
 ARM/AVR/RISC-V stages also use their current APT candidates and keep their target
 prefixes.
+
+The `llvm` stage adds LLVM's signed APT repository (`apt.llvm.org`) for the
+release branch named by `LLVM_VERSION` in `resources/tool-versions.env`, using the
+system's Ubuntu codename. The development snapshot suite is not added. Like the
+GCC selection, the stage then installs the highest major for which Clang, clangd,
+clang-format, clang-tidy, LLD, LLDB, and the LLVM tools are all installable from
+any configured repository, so a newer distribution package still wins. Managed
+links in `~/.local/bin` select that major for `clang`, `clang++`, `clangd`,
+`clang-format`, `clang-tidy`, `ld.lld`, `lldb`, `llvm-symbolizer` and the other
+common LLVM tools; `cc` and `c++` stay with GCC. Raise `LLVM_VERSION` when LLVM
+publishes a new release branch.
 
 The default setup includes four independent AI CLI stages:
 
