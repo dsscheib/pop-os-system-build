@@ -130,8 +130,28 @@ configure_git_credentials() {
   # matches 'gh auth setup-git', which always writes to the global file: the
   # empty helper clears inherited helpers before gh's is added.
   for host in github.com gist.github.com; do
-    git config --file "$file" --replace-all "credential.https://$host.helper" ''
-    git config --file "$file" --add "credential.https://$host.helper" "!$gh auth git-credential"
+    set_credential_helper_last "$file" "credential.https://$host" "!$gh auth git-credential" || return
+  done
+}
+
+# Git reads helpers in file order, and an empty helper clears every helper before
+# it, including host-specific ones. A generic [credential] section written after
+# the host's (as 'git-credential-manager configure' does) would therefore replace
+# gh. Rewrite the host's section at the end of the file, keeping its other keys.
+set_credential_helper_last() {
+  local file=$1 section=$2 helper=$3 entry key value index
+  local -a kept=()
+  while IFS= read -r -d '' entry; do
+    key=${entry%%$'\n'*} value=''
+    [[ $entry != *$'\n'* ]] || value=${entry#*$'\n'}
+    [[ ${key,,} == "${section,,}.helper" ]] || kept+=("$key" "$value")
+  done < <(git config --file "$file" --null --get-regexp "^${section//./\\.}\\." 2>/dev/null)
+  # Fails harmlessly when the file or section does not exist yet.
+  git config --file "$file" --remove-section "$section" 2>/dev/null || true
+  git config --file "$file" --add "$section.helper" '' || return
+  git config --file "$file" --add "$section.helper" "$helper" || return
+  for (( index = 0; index < ${#kept[@]}; index += 2 )); do
+    git config --file "$file" --add "${kept[index]}" "${kept[index + 1]}" || return
   done
 }
 

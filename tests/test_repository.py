@@ -1235,6 +1235,35 @@ configure_git_credentials
         self.assertEqual((dotfiles / 'gitconfig').read_text(), tracked)
         self.assertIn('Test User', (self.root / '.gitconfig.local').read_text())
 
+    def test_gh_helper_follows_generic_credential_helper(self):
+        config = self.root / '.gitconfig'
+        config.write_text(
+            '[credential "https://github.com"]\n\thelper =\n\thelper = !/old/gh auth git-credential\n'
+            '\tusername = kept-user\n'
+            '[credential]\n\thelper =\n\thelper = /usr/local/bin/git-credential-manager\n'
+            '\tcredentialStore = gpg\n')
+        result = self.bash('''
+export HOME="$1" GIT_CONFIG_GLOBAL="$1/.gitconfig" GIT_CONFIG_NOSYSTEM=1
+GIT_NAME='Test User' GIT_EMAIL=test@example.com
+gh() { :; }
+configure_git_credentials
+configure_git_credentials
+cd "$1"
+printf 'protocol=https\\nhost=github.com\\n\\n' | GIT_TRACE=1 git credential fill 2>&1 >/dev/null | grep run_command || true
+''', self.root, script='pop_os_config.sh', env={'GIT_TERMINAL_PROMPT': '0'})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('auth git-credential get', result.stdout)
+        self.assertNotIn('git-credential-manager', result.stdout)
+        get = lambda *args: subprocess.run(['git', 'config', '--file', str(config), *args],
+                                           capture_output=True, text=True, check=True).stdout.splitlines()
+        self.assertEqual(get('--get-all', 'credential.https://github.com.helper')[0], '')
+        self.assertEqual(len(get('--get-all', 'credential.https://github.com.helper')), 2)
+        self.assertEqual(get('credential.https://github.com.username'), ['kept-user'])
+        self.assertEqual(get('credential.credentialStore'), ['gpg'])
+        text = config.read_text()
+        self.assertLess(text.index('[credential]'), text.index('[credential "https://github.com"]'))
+        self.assertEqual(text.count('[credential "https://github.com"]'), 1)
+
     def test_git_stage_skips_sign_in_when_gh_is_authenticated(self):
         result = self.git_stage(authenticated=True)
         self.assertEqual(result.returncode, 0, result.stderr)
