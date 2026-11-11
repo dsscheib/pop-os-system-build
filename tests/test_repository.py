@@ -893,6 +893,146 @@ if install_build_tools; then exit 0; else exit "$?"; fi
         self.assertEqual(result.returncode, 42, result.stderr)
         self.assertNotIn('should not run', result.stdout)
 
+    def llvm_selection(self, missing=''):
+        return self.bash('''
+apt-cache() {
+    case "$1" in
+        pkgnames)
+            for major in 18 23 24; do
+                for package in clang clangd clang-format clang-tidy lld lldb llvm; do
+                    [[ $package-$major == "$MISSING" ]] || printf '%s-%s\\n' "$package" "$major"
+                done
+            done
+            printf '%s\\n' clang-tools-24 libclang-24-dev;;
+        policy)
+            printf '%s:\\n' "$2"
+            case "$2" in
+                *-24) printf '  Candidate: (none)\\n';;
+                *) printf '  Candidate: 1:%s\\n' "${2##*-}";;
+            esac;;
+    esac
+}
+latest_llvm
+''', script='pop_os_config.sh', env={'MISSING': missing})
+
+    def test_latest_llvm_selects_highest_complete_toolchain(self):
+        result = self.llvm_selection()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), '23')
+
+    def test_latest_llvm_skips_incomplete_toolchains(self):
+        result = self.llvm_selection('clangd-23')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), '18')
+
+    def test_latest_llvm_rejects_empty_repositories(self):
+        result = self.bash('apt-cache() { return 0; }; latest_llvm', script='pop_os_config.sh')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('No installable LLVM toolchain', result.stderr)
+
+    def test_llvm_repository_uses_pinned_release_branch_for_codename(self):
+        result = self.bash('''
+llvm_codename() { printf 'noble\\n'; }
+llvm_source_current() { printf 'check:%s\\n' "$1"; return 1; }
+install_repository() { printf '%s\\n' "$@"; }
+LLVM_VERSION=23
+add_llvm_repository
+''', script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        source = ('deb [arch=amd64 signed-by=/etc/apt/keyrings/llvm.asc] https://apt.llvm.org/noble/ '
+                  'llvm-toolchain-noble-23 main')
+        self.assertEqual(result.stdout.splitlines(), ['check:' + source, 'llvm', 'llvm-key', source])
+        downloads = json.loads((REPO / 'resources/downloads.json').read_text())
+        self.assertEqual(downloads['llvm-key']['url'], 'https://apt.llvm.org/llvm-snapshot.gpg.key')
+
+    def test_llvm_repository_is_not_refreshed_when_current(self):
+        result = self.bash('''
+llvm_codename() { printf 'noble\\n'; }
+llvm_source_current() { return 0; }
+install_repository() { printf 'should not run'; }
+add_llvm_repository
+''', script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('should not run', result.stdout)
+
+    def test_llvm_source_current_compares_list_and_keyring(self):
+        keyring, listing = self.root / 'llvm.asc', self.root / 'llvm.list'
+        code = 'llvm_source_current "deb example main" "$1" "$2"'
+        result = self.bash(code, keyring, listing, script='pop_os_config.sh')
+        self.assertNotEqual(result.returncode, 0)
+        keyring.write_text('key')
+        listing.write_text('deb example-22 main\n')
+        result = self.bash(code, keyring, listing, script='pop_os_config.sh')
+        self.assertNotEqual(result.returncode, 0)
+        listing.write_text('deb example main\n')
+        result = self.bash(code, keyring, listing, script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_llvm_codename_reads_ubuntu_base(self):
+        os_release = self.root / 'os-release'
+        os_release.write_text('ID=pop\nVERSION_CODENAME=popcodename\nUBUNTU_CODENAME="jammy"\n')
+        result = self.bash('llvm_codename "$1"', os_release, script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), 'jammy')
+        os_release.write_text('ID=pop\n')
+        result = self.bash('llvm_codename "$1"', os_release, script='pop_os_config.sh')
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_llvm_stage_installs_selected_toolchain_and_links_commands(self):
+        result = self.bash('''
+export HOME="$1"
+add_llvm_repository() { printf 'repository\\n'; }
+latest_llvm() { printf '23\\n'; }
+sudo() { printf 'sudo:%s\\n' "$*"; }
+link_versioned_commands() { printf 'link:%s\\n' "$*"; }
+timeout() { printf 'verify:%s\\n' "${*: -2}"; }
+install_llvm_toolchain
+''', self.root, script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines[0], 'repository')
+        self.assertIn('sudo:apt-get install -y clang-23 clangd-23 clang-format-23 clang-tidy-23 lld-23 lldb-23 llvm-23', lines)
+        link = next(line for line in lines if line.startswith('link:')).split()
+        self.assertEqual(link[:2], ['link:23', '/usr/bin'])
+        for command in ('clang', 'clang++', 'clangd', 'clang-format', 'clang-tidy', 'ld.lld', 'lldb', 'llvm-symbolizer'):
+            self.assertIn(command, link)
+        self.assertNotIn('cc', link)
+        self.assertIn(f'verify:{self.root}/.local/bin/clang --version', lines)
+
+    def test_failed_llvm_install_does_not_change_commands(self):
+        result = self.bash('''
+add_llvm_repository() { :; }
+latest_llvm() { printf '23\\n'; }
+sudo() { return 42; }
+link_versioned_commands() { printf 'should not run'; }
+if install_llvm_toolchain; then exit 0; else exit "$?"; fi
+''', script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 42, result.stderr)
+        self.assertNotIn('should not run', result.stdout)
+
+    def test_llvm_links_upgrade_together_beside_gcc(self):
+        binaries = self.compiler_tools('16')
+        for major in ('22', '23'):
+            for name in ('clang', 'clang++', 'clangd', 'ld.lld'):
+                path = binaries / f'{name}-{major}'
+                path.write_text('#!/bin/sh\\nexit 0\\n')
+                path.chmod(0o755)
+        result = self.bash('''
+export HOME="$1"
+configure_native_gcc 16 "$2"
+link_versioned_commands 22 "$2" clang clang++ clangd ld.lld
+link_versioned_commands 23 "$2" clang clang++ clangd ld.lld
+''', self.root, binaries, script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for name in ('clang', 'clang++', 'clangd', 'ld.lld'):
+            self.assertEqual((self.root / '.local/bin' / name).readlink(), binaries / f'{name}-23')
+        self.assertEqual((self.root / '.local/bin/cc').readlink(), binaries / 'gcc-16')
+
+    def test_llvm_stage_is_listed_and_selected_by_default(self):
+        result = subprocess.run(['bash', str(REPO / 'pop_os_config.sh'), '--list-stages'], capture_output=True, text=True)
+        self.assertIn('llvm', result.stdout.splitlines())
+        self.assertIn(',dependencies,llvm,dotfiles,', (REPO / 'pop_os_config.sh').read_text())
+
     def test_zsh_completion_install_refreshes_standard_and_xdg_caches(self):
         result = self.bash(r'''
 export HOME="$1" XDG_CACHE_HOME="$1/cache"
