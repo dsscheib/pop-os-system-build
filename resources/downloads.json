@@ -89,6 +89,11 @@
     "url": "https://github.com/arduino/arduino-ide/releases/download/2.3.10/arduino-ide_2.3.10_Linux_64bit.zip",
     "sha256": "cc8a0b01e763d4646b670ce70c1bc8c389a0fa14ab556dcc0749c03f475a7975"
   },
+  "kicad-key": {
+    "version": "2026-11-13",
+    "url": "https://keyserver.ubuntu.com/pks/lookup?op=get&options=mr&search=0xFDA854F61C4D0D9572BB95E5245D5502FAD7A805",
+    "sha256": "427647b82357bf86e9d7176639c6cabbb3ca6bfe23218b0436e61cc1a47ad532"
+  },
   "google-chrome-key": {
     "version": "2026-10-31",
     "url": "https://dl.google.com/linux/linux_signing_key.pub",
