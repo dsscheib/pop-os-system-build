@@ -976,6 +976,7 @@ install_applications() {
     optional 'Synology Drive' install_deb "$WORK_DIR/synology.deb"
   fi
   optional KiCad install_kicad
+  optional 'KiCad Python API' install_kicad_python
   sudo apt-get install -y litecli pgcli mycli openscad libreoffice evince
 }
 # Ubuntu 24.04's archive only carries KiCad 7.0, so use the official KiCad PPA.
@@ -984,6 +985,15 @@ install_kicad() {
   install_repository kicad kicad-key \
     'deb [arch=amd64 signed-by=/etc/apt/keyrings/kicad.asc] https://ppa.launchpadcontent.net/kicad/kicad-10.0-releases/ubuntu noble main' || return
   sudo apt-get install -y kicad
+}
+# kicad-python (import kipy) drives a running KiCad PCB Editor through its IPC API.
+# It is a library, so it gets its own venv; scripts run with "$venv/bin/python".
+install_kicad_python() {
+  install_uv || return
+  local venv="$HOME/.local/share/kicad-python"
+  if [[ ! -e "$venv" ]]; then uv venv "$venv" || return; fi
+  check_executable "$venv/bin/python" || return
+  uv pip install --python "$venv/bin/python" "kicad-python==$KICAD_PYTHON_VERSION"
 }
 install_hyper_backup_explorer() {
   local archive="$WORK_DIR/hyper-backup-explorer.tar.bz2"

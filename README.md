@@ -458,6 +458,10 @@ Saleae Logic launches through a per-app wrapper that selects Qt's XWayland backe
 and suppresses AppImageLauncher integration prompts without changing desktop settings.
 Its desktop entry uses the Logic 2 icon linked by the
 [Linux installation instructions](https://mikrocontroller.ti.bfh.ch/faq/saleae.html).
+KiCad 10 comes from the official KiCad PPA. The pinned `kicad-python` bindings
+(`import kipy`) go into a venv at `~/.local/share/kicad-python`; run IPC scripts
+with `~/.local/share/kicad-python/bin/python`. They talk to a running PCB Editor
+only after you enable the API server in KiCad under Preferences > Plugins.
 
 The default setup also includes the `hyper-backup-explorer` stage. Run it on its own
 with `./pop_os_config.sh --stages hyper-backup-explorer`. It installs Synology Hyper

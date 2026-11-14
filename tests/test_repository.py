@@ -842,6 +842,34 @@ install_nasmfmt
 ''', self.root, script='pop_os_config.sh')
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_kicad_python_installs_pinned_bindings_into_own_venv(self):
+        result = self.bash(r'''
+export HOME="$1"
+install_uv() { :; }
+uv() {
+  if [[ $1 == venv ]]; then
+    [[ $2 == "$HOME/.local/share/kicad-python" ]]
+    mkdir -p "$2/bin" && printf '#!/bin/sh\n' > "$2/bin/python" && chmod +x "$2/bin/python"
+    return
+  fi
+  [[ "$*" == "pip install --python $HOME/.local/share/kicad-python/bin/python kicad-python==$KICAD_PYTHON_VERSION" ]]
+  printf 'installed\n'
+}
+install_kicad_python
+install_kicad_python
+''', self.root, script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.count('installed'), 2)
+
+    def test_kicad_python_install_propagates_uv_failure(self):
+        result = self.bash(r'''
+export HOME="$1"
+install_uv() { :; }
+uv() { return 42; }
+if install_kicad_python; then exit 0; else exit "$?"; fi
+''', self.root, script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 42, result.stderr)
+
     def test_nasmfmt_install_propagates_go_failure(self):
         result = self.bash(r'''
 export HOME="$1"
