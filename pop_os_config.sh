@@ -905,10 +905,12 @@ install_google_drive() {
   systemctl --user enable --now rclone-gdrive-bisync.timer || return
   log_info "Google Drive syncs $local_dir every ${GDRIVE_SYNC_INTERVAL:-15min}; logs: journalctl --user -u rclone-gdrive-bisync"
 }
-install_freecad() {
+install_flathub_app() {
   flatpak --user remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo || return
-  flatpak --user install -y flathub org.freecad.FreeCAD
+  flatpak --user install -y flathub "$1"
 }
+install_freecad() { install_flathub_app org.freecad.FreeCAD; }
+install_orcaslicer() { install_flathub_app com.orcaslicer.OrcaSlicer; }
 install_arduino_ide() {
   local archive="$WORK_DIR/arduino-ide.zip"
   local app_dir icon
@@ -968,11 +970,20 @@ install_applications() {
   install_system_file "$SCRIPT_DIR/resources/udev/99-SaleaeLogic.rules" /etc/udev/rules.d/99-SaleaeLogic.rules
   sudo udevadm control --reload-rules
   optional FreeCAD install_freecad
+  optional OrcaSlicer install_orcaslicer
   if ! package_installed synology-drive; then
     fetch_locked synology "$WORK_DIR/synology.deb"
     optional 'Synology Drive' install_deb "$WORK_DIR/synology.deb"
   fi
-  sudo apt-get install -y litecli pgcli mycli kicad openscad libreoffice evince
+  optional KiCad install_kicad
+  sudo apt-get install -y litecli pgcli mycli openscad libreoffice evince
+}
+# Ubuntu 24.04's archive only carries KiCad 7.0, so use the official KiCad PPA.
+# Change the series in the source line when a new major version is released.
+install_kicad() {
+  install_repository kicad kicad-key \
+    'deb [arch=amd64 signed-by=/etc/apt/keyrings/kicad.asc] https://ppa.launchpadcontent.net/kicad/kicad-10.0-releases/ubuntu noble main' || return
+  sudo apt-get install -y kicad
 }
 install_hyper_backup_explorer() {
   local archive="$WORK_DIR/hyper-backup-explorer.tar.bz2"
