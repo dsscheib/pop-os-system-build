@@ -216,8 +216,8 @@ then restored to the merged lockfile. A fresh install that records newer
 plugins than the committed lockfile is restored to the committed revisions.
 
 The `dependencies` stage includes NASM for x86-64 assembly tasks, ShellCheck,
-DNS/Netcat tools, the NetworkManager OpenVPN GUI plugin, rsync, wget, Kitty,
-and libsecret tools. It installs Fastfetch from APT when a candidate exists;
+Cppcheck, DNS/Netcat tools, the NetworkManager OpenVPN GUI plugin, rsync, wget,
+Kitty, and libsecret tools. It installs Fastfetch from APT when a candidate exists;
 otherwise it installs the pinned upstream Debian package after checking its
 SHA-256. An existing Fastfetch command is kept. Bash integration loads the
 installed `bash-completion` package for APT tab completion; linked `.bashrc`
