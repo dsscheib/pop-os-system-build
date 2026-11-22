@@ -56,9 +56,10 @@ class AntigravityPermissionsTest(unittest.TestCase):
         self.assertEqual(self.path.read_bytes(), before)
 
     def test_adds_only_missing_rules(self):
-        self.write({'permissions': {'ask': ['command(git push)']}})
+        self.write({'permissions': {'ask': ['command(git reset --hard)']}})
         self.assertEqual(permissions.apply(self.path), RULES[1:])
-        self.assertEqual(self.read()['permissions']['ask'].count('command(git push)'), 1)
+        self.assertEqual(self.read()['permissions']['ask'].count('command(git reset --hard)'), 1)
+        self.assertNotIn('command(git push)', self.read()['permissions']['ask'])
 
     def test_malformed_files_are_left_untouched(self):
         for content in ['{not json', '[]', '{"permissions": []}', '{"permissions": {"ask": "x"}}']:

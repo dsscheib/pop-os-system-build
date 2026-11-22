@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Merge the agent-guidance command guardrails into Antigravity CLI settings.
 
-Adds remote and destructive git commands to permissions.ask in
+Adds destructive git commands to permissions.ask in
 ~/.gemini/antigravity-cli/settings.json. Antigravity evaluates deny > ask >
 allow, so these prompts win over broader allow rules. Every other setting and
 rule is kept; a settings file that is not a JSON object is left untouched.
@@ -15,7 +15,6 @@ from st_assets import atomic_text
 
 # Mirrors the Antigravity CLI rules in agent-guidance docs/AGENT_TOOLS.md.
 ASK_RULES = [
-    'command(git push)',
     'command(git reset --hard)',
     'command(git clean)',
     'command(git branch -D)',

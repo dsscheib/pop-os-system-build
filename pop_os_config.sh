@@ -66,10 +66,18 @@ install_prerequisites() {
   sudo apt-get update
   sudo apt-get install -y ca-certificates curl git gnupg jq unzip tar xz-utils fontconfig python3 python3-venv python3-pil ufw bash-completion desktop-file-utils
 }
+JOURNALD_DROPIN=/etc/systemd/journald.conf.d/zz-pop-workstation.conf
 setup_system() {
   sudo apt-get upgrade -y
   sudo ufw --force enable
   sudo usermod -aG dialout,plugdev "$(id -un)"
+  # systemd-oomd kills the app cgroup under sustained memory pressure in the
+  # user session before swap thrashing freezes the desktop.
+  sudo apt-get install -y systemd-oomd
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now systemd-oomd.service
+  install_system_file "$SCRIPT_DIR/resources/systemd/journald.conf" "$JOURNALD_DROPIN"
+  sudo systemctl restart systemd-journald.service
 }
 
 install_fonts() {
@@ -434,7 +442,7 @@ verify_ai_cli() {
 }
 
 # Antigravity reads no command policy from a repository, so the agent-guidance
-# ask rules for remote and destructive git commands go into user settings.
+# ask rules for destructive git commands go into user settings.
 install_antigravity_guardrails() {
   python3 -B "$SCRIPT_DIR/scripts/antigravity_permissions.py"
 }

@@ -11,6 +11,7 @@ def integrate(home, resources):
     destination = home / '.config/pop-workstation'
     for shell in ('bash', 'zsh', 'fish'):
         atomic_text(destination / shell, (resources / f'shell.{shell}').read_text(), 0o644)
+    atomic_text(destination / 'agent-scope', (resources / 'agent-scope').read_text(), 0o755)
     for name, shell in (('.bashrc', 'bash'), ('.zshenv', 'zsh')):
         path = home / name
         # A linked startup file may belong to a Git-managed dotfiles checkout.

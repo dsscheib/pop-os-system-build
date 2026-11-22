@@ -1308,9 +1308,10 @@ echo "failures=${OPTIONAL_FAILURES[*]}"
     def assertAntigravityGuardrails(self):
         settings = self.root / '.gemini/antigravity-cli/settings.json'
         data = json.loads(settings.read_text())
-        for rule in ('command(git push)', 'command(git reset --hard)', 'command(git clean)',
+        for rule in ('command(git reset --hard)', 'command(git clean)',
                      'command(git branch -D)', 'command(git rebase)', 'command(git checkout --)'):
             self.assertIn(rule, data['permissions']['ask'])
+        self.assertNotIn('command(git push)', data['permissions']['ask'])
         return data
 
     def test_antigravity_failed_native_check_does_not_publish(self):
@@ -1799,6 +1800,97 @@ setup_dotfiles
         with redirect_stderr(io.StringIO()):
             shell_integration.integrate(self.root, REPO / 'resources')
         self.assertEqual((self.root / '.zshenv').read_text().count('# Pop workstation tools'), 1)
+        self.assertEqual((self.root / '.config/pop-workstation/agent-scope').stat().st_mode & 0o777, 0o755)
+
+    def agent_scope(self, *arguments, env=None, bus=True):
+        directory = self.root / 'bin'
+        directory.mkdir(exist_ok=True)
+        for name, body in (('systemd-run', 'printf "%s\\n" "$@" > "$HOME/systemd-run-args"\n'
+                                           'printf "%s\\n" "${POP_AGENT_SCOPE:-}" > "$HOME/scope-env"\n'),
+                           ('claude', 'printf "%s\\n" "$@" > "$HOME/claude-args"\n')):
+            (directory / name).write_text('#!/bin/sh\n' + body)
+            (directory / name).chmod(0o755)
+        runtime = self.root / ('run' if bus else 'run-without-bus')
+        runtime.mkdir(exist_ok=True)
+        if bus and not (runtime / 'bus').exists():
+            import socket
+            server = socket.socket(socket.AF_UNIX)
+            self.addCleanup(server.close)
+            server.bind(str(runtime / 'bus'))
+        environment = {key: value for key, value in os.environ.items()
+                       if not key.startswith('POP_AGENT_')}
+        environment.update(HOME=str(self.root), XDG_RUNTIME_DIR=str(runtime),
+                           PATH=f'{directory}:{os.environ["PATH"]}', **(env or {}))
+        return subprocess.run([str(REPO / 'resources/agent-scope'), *arguments],
+                              env=environment, capture_output=True, text=True)
+
+    def test_agent_scope_limits_agent_process_tree(self):
+        result = self.agent_scope('claude', '-p', 'two words')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        arguments = (self.root / 'systemd-run-args').read_text().splitlines()
+        self.assertEqual(arguments[:4], ['--user', '--scope', '--quiet', '--collect'])
+        self.assertRegex(arguments[4], r'^--unit=agent-claude-\d+$')
+        self.assertEqual(arguments[5:], ['-p', 'TasksMax=2048', '-p', 'MemoryMax=50%', '-p', 'MemorySwapMax=8G',
+                                         '-p', 'OOMPolicy=kill', '--', 'claude', '-p', 'two words'])
+        self.assertEqual((self.root / 'scope-env').read_text(), '1\n')
+
+    def test_agent_scope_limits_can_be_overridden(self):
+        result = self.agent_scope('claude', env={'POP_AGENT_TASKS_MAX': '512', 'POP_AGENT_MEMORY_MAX': '8G',
+                                                 'POP_AGENT_SWAP_MAX': '0'})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        arguments = (self.root / 'systemd-run-args').read_text().splitlines()
+        for limit in ('TasksMax=512', 'MemoryMax=8G', 'MemorySwapMax=0'):
+            self.assertIn(limit, arguments)
+
+    def test_agent_scope_runs_nested_or_unmanaged_agents_directly(self):
+        for env, bus in (({'POP_AGENT_SCOPE': '1'}, True), ({}, False)):
+            with self.subTest(env=env, bus=bus):
+                result = self.agent_scope('claude', 'a b', env=env, bus=bus)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual((self.root / 'claude-args').read_text(), 'a b\n')
+                self.assertFalse((self.root / 'systemd-run-args').exists())
+                (self.root / 'claude-args').unlink()
+
+    def test_interactive_shells_run_agents_through_scope(self):
+        helper = self.root / '.config/pop-workstation/agent-scope'
+        helper.parent.mkdir(parents=True)
+        helper.write_text('#!/bin/sh\nprintf "%s\\n" "$@" >> "$HOME/scope-calls"\n')
+        helper.chmod(0o755)
+        shells = {'bash': ['bash', '--noprofile', '--norc', '-ic'],
+                  'zsh': ['zsh', '-f', '-i', '-c'], 'fish': ['fish', '--no-config', '-i', '-c']}
+        for shell, command in shells.items():
+            if not shutil.which(shell):
+                continue
+            with self.subTest(shell=shell):
+                script = f'source {shlex.quote(str(REPO / f"resources/shell.{shell}"))}; '
+                script += '; '.join(f"{agent} 'x y'" for agent in ('agy', 'claude', 'codex', 'copilot'))
+                result = subprocess.run([*command, script], env=dict(os.environ, HOME=str(self.root)),
+                                        stdin=subprocess.DEVNULL, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual((self.root / 'scope-calls').read_text().splitlines(),
+                                 ['agy', 'x y', 'claude', 'x y', 'codex', 'x y', 'copilot', 'x y'])
+                (self.root / 'scope-calls').unlink()
+
+    def test_system_stage_enables_oomd_and_journal_retention(self):
+        result = self.bash('''
+export HOME="$1"
+sudo() { printf '%s\\n' "$*" >> "$HOME/sudo-calls"; }
+install_system_file() { cp "$1" "$HOME/journald.conf"; printf '%s\\n' "$2" > "$HOME/installed-path"; }
+setup_system
+''', self.root, script='pop_os_config.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = (self.root / 'sudo-calls').read_text().splitlines()
+        self.assertEqual(calls[3:], ['apt-get install -y systemd-oomd', 'systemctl daemon-reload',
+                                     'systemctl enable --now systemd-oomd.service',
+                                     'systemctl restart systemd-journald.service'])
+        destination = Path((self.root / 'installed-path').read_text().strip())
+        self.assertEqual(destination.parent, Path('/etc/systemd/journald.conf.d'))
+        # Drop-ins apply in name order; Pop's own pop.conf caps the journal at 1000M.
+        self.assertGreater(destination.name, 'pop.conf')
+        self.assertGreater(destination.name, 'syslog.conf')
+        settings = dict(line.split('=', 1) for line in (self.root / 'journald.conf').read_text().splitlines()
+                        if '=' in line and not line.startswith('#'))
+        self.assertEqual(settings, {'SystemMaxUse': '4G', 'RateLimitIntervalSec': '30s', 'RateLimitBurst': '200'})
 
     def test_bash_integration_enables_apt_completion(self):
         if not Path('/usr/share/bash-completion/completions/apt').exists():
