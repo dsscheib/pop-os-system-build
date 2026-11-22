@@ -201,6 +201,15 @@ stage installs AVR GCC/binutils, avr-libc, avrdude, and `gdb-avr`. The default s
 both stages. Existing `--stages arm-avr` commands still run both as a compatibility
 option.
 
+The `system` stage upgrades packages, enables UFW, and adds you to the `dialout`
+and `plugdev` groups. It also installs and enables `systemd-oomd`: under sustained
+memory pressure it kills the busiest app in your session (for example a terminal
+and everything started from it) instead of letting swap thrashing freeze the
+desktop. It installs `/etc/systemd/journald.conf.d/zz-pop-workstation.conf`,
+which raises the journal limit from Pop's 1000M to 4G and rate-limits each unit
+to 200 messages per 30 seconds (scaled up by journald with free disk space), so a
+flooding desktop component cannot rotate earlier crash history away.
+
 All selections install the small prerequisite package set first. The `git` stage
 requires your own name, email, and GitHub username. The `dotfiles` and `neovim`
 stages require the respective repository URLs. Set `DOTFILES_REF` and
@@ -266,7 +275,7 @@ command and option lists with filename fallback for arguments. Rerun the stage t
 refresh completions. Completion failures are reported as optional failures.
 
 The `antigravity` stage also adds ask rules to
-`~/.gemini/antigravity-cli/settings.json` so the CLI asks before `git push`,
+`~/.gemini/antigravity-cli/settings.json` so the CLI asks before
 `git reset --hard`, `git clean`, `git branch -D`, `git rebase` and
 `git checkout --`, matching the agent-guidance command guardrails. Existing
 settings and rules are kept, and ask rules take precedence over broader allow
@@ -279,6 +288,16 @@ separate products and are not installed. Each stage checks `--version` and stops
 on a missing or broken CLI. An existing CLI on `PATH` is verified and preserved.
 No sign-in runs during setup; launch `agy`, `claude`, `codex`, or `copilot` afterward
 to authenticate with your account. In Copilot CLI, follow the `/login` prompts.
+
+In interactive Bash, Zsh, and Fish shells, `agy`, `claude`, `codex`, and `copilot`
+run through `~/.config/pop-workstation/agent-scope`, which starts each session in
+its own systemd user scope (`agent-<command>-<pid>.scope`) limited to 2048 tasks,
+50% of RAM, and 8G of swap. If the agent or anything it starts hits the memory
+limit, the whole scope is killed, not the rest of the desktop; hitting the task
+limit makes further process creation fail. Agents started by an agent stay inside
+the outer scope. Set `POP_AGENT_TASKS_MAX`, `POP_AGENT_MEMORY_MAX`, or
+`POP_AGENT_SWAP_MAX` to change the limits; scripts, `command claude`, and shells
+without a user service manager run the CLIs unconfined.
 
 Antigravity, Codex, and Copilot install under `~/.local/share/pop-workstation` with
 launchers in `~/.local/bin`, preserving the project's working directory. Codex and
