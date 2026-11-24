@@ -111,6 +111,7 @@
     mode: "0644"
   become: true
   notify: Reload udev rules
+  when: install_samsung_970_evo_nvme_rule | bool
 
 - name: Enable UFW firewall on live hosts
   community.general.ufw:

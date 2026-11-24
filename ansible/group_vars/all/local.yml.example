@@ -11,3 +11,6 @@
 # Enable post-boot Snapper & hibernation role (requires @ / @snapshots Btrfs layout)
 # enable_snapper: true
 # enable_hibernation: true
+
+# Install Samsung 970 EVO NVMe power-management udev rule (PCI 0000:00:1d.0)
+# install_samsung_970_evo_nvme_rule: true
