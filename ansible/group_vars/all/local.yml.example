@@ -8,8 +8,9 @@
 # nvim_config_repo: "https://github.com/your-username/astronvim_v6"
 # nvim_config_ref: ""
 
-# Enable post-boot Snapper & hibernation role (requires @ / @snapshots Btrfs layout)
-# enable_snapper: true
+# Snapper runs by default (set enable_snapper: false on non-Btrfs hosts);
+# enable_hibernation is opt-in (set true on laptops)
+# enable_snapper: false
 # enable_hibernation: true
 
 # Install Samsung 970 EVO NVMe power-management udev rule (PCI 0000:00:1d.0)

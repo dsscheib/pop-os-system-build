@@ -99,8 +99,8 @@ herdr_agent_integrations:
   - cli: agy
     target: antigravity-cli
 
-# Snapper / hibernation (post-boot role; opt-in unless system uses @ / @snapshots layout)
-enable_snapper: false
+# Snapper runs by default (requires @ / @snapshots Btrfs layout); hibernation is opt-in (laptops)
+enable_snapper: true
 enable_hibernation: false
 
 # Rootless Podman search registry

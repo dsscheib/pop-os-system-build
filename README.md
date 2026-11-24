@@ -27,7 +27,7 @@ sudo ./preboot/setup_secondary_btrfs_drive.sh --format  # Partition & format fro
 
 ## 2. Optional: Standalone Post-Boot Snapper & Hibernation
 
-To configure Snapper root snapshots, `snapper-rollback`, `80pop-snapper` APT hooks, and a `/swap/hibernate.swap` Btrfs swapfile outside Ansible (or set `enable_snapper: true` in `ansible/group_vars/all/local.yml`):
+To configure Snapper root snapshots, `snapper-rollback`, `80pop-snapper` APT hooks, and a `/swap/hibernate.swap` Btrfs swapfile outside Ansible (Ansible runs Snapper by default; set `enable_hibernation: true` in `ansible/group_vars/all/local.yml` on laptops):
 
 ```bash
 sudo ./preboot/setup_btrfs_snapper.sh
@@ -56,7 +56,7 @@ Run a single role/tag with `mise run role <tag>`:
 | Role / Tag | Scope |
 | :--- | :--- |
 | `system` | APT upgrades, UFW, `dialout`/`plugdev`, `systemd-oomd`, `journald` retention, `gh` CLI, NVMe udev rule |
-| `snapper` | Opt-in (`enable_snapper: true`): Snapper, `snapper-rollback`, APT hooks, hibernation |
+| `snapper` | Snapper, `snapper-rollback`, APT hooks (default on; hibernation opt-in via `enable_hibernation: true`) |
 | `toolchains` (`gcc`, `llvm`, `arm`, `avr`, `riscv`) | Latest complete GCC/G++ & LLVM (`apt.llvm.org`) majors linked in `~/.local/bin`, cross-compilers |
 | `containers` (`podman`) | Rootless Podman (`subuid`/`subgid` validated), `docker.io` search registry, Fish completion |
 | `browsers` (`firefox`, `chrome`) | Firefox Developer Edition (Mozilla APT repo + pin) and Google Chrome stable |
