@@ -8,15 +8,23 @@ main() {
   [[ $# -le 1 ]] || die "Usage: $0 [archive.zip]"
   st_preflight
   local archive payload icon=applications-development
+  local target="$HOME/STMicroelectronics/STM32Cube/STM32CubeProgrammer"
+  local wrapper="$HOME/.local/bin/stm32cubeprogrammer"
+  local cli_wrapper="$HOME/.local/bin/STM32_Programmer_CLI"
+  local desktop="$HOME/.local/share/applications/st-com-stm32cubeprogrammer.desktop"
   archive=$(find_archive "${1:-}" 'SetupSTM32CubeProgrammer_*.zip' 'SetupSTM32CubeProgrammer-*.zip')
   verify_installer "$archive"
+  if install_is_current "$target" "$wrapper" "$cli_wrapper" "$desktop"; then
+    log_info "STM32CubeProgrammer is already installed from this archive at $target (unchanged)."
+    return 0
+  fi
   start_workspace cubeprogrammer
   python3 "$SCRIPT_DIR/scripts/st_assets.py" zip "$archive" "$WORK_DIR/archive"
   # The supplied Linux launcher loads the adjacent .exe, which is an IzPack JAR.
   # Invoke Java directly so paths are quoted and its failure status is preserved.
   payload=$(unique_file "$WORK_DIR/archive" 'SetupSTM32CubeProgrammer-*.exe')
   check_executable "$WORK_DIR/archive/jre/bin/java"
-  begin_install "$HOME/STMicroelectronics/STM32Cube/STM32CubeProgrammer"
+  begin_install "$target"
   python3 "$SCRIPT_DIR/scripts/st_assets.py" response "$SCRIPT_DIR/resources/izpack/cubeprogrammer.xml" "$INSTALL_DIR" "$WORK_DIR/response.xml" "$payload"
   # ST's post-install script copies ./jre into bin/jre. Preserve its expected
   # working directory without requiring a display for unattended setup.
@@ -31,8 +39,8 @@ main() {
   if convert_icon_to_png "$INSTALL_DIR/util/Programmer.ico" "$INSTALL_DIR/launcher.png"; then icon="$INSTALL_DIR/launcher.png"; fi
   # GUI and CLI both execute from bin so their relative library paths work.
   # Match the actual X11 class reported by CubeProgrammer's main window.
-  st_finish STM32CubeProgrammer "$HOME/.local/bin/stm32cubeprogrammer" "$INSTALL_DIR/bin/STM32CubeProgrammerLauncher" "$INSTALL_DIR/bin" "$icon" com.st.app.Main "$HOME/.local/share/applications/st-com-stm32cubeprogrammer.desktop"
-  write_wrapper "$HOME/.local/bin/STM32_Programmer_CLI" "$INSTALL_DIR/bin" "$INSTALL_DIR/bin/STM32_Programmer_CLI"
+  st_finish STM32CubeProgrammer "$wrapper" "$INSTALL_DIR/bin/STM32CubeProgrammerLauncher" "$INSTALL_DIR/bin" "$icon" com.st.app.Main "$desktop"
+  write_wrapper "$cli_wrapper" "$INSTALL_DIR/bin" "$INSTALL_DIR/bin/STM32_Programmer_CLI"
   if [[ -x "$INSTALL_DIR/bin/STM32TrustedPackageCreator_CLI" ]]; then
     write_wrapper "$HOME/.local/bin/STM32TrustedPackageCreator_CLI" "$INSTALL_DIR/bin" "$INSTALL_DIR/bin/STM32TrustedPackageCreator_CLI"
   fi

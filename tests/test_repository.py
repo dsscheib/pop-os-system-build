@@ -15,6 +15,7 @@ import unittest
 from unittest import mock
 import xml.etree.ElementTree as ET
 import zipfile
+import yaml
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / 'scripts'))
@@ -738,6 +739,96 @@ configure_user_links "$1" "$(id -u)" "$(id -g)"
                 with mock.patch.object(assets.subprocess, 'run', return_value=proc):
                     with self.assertRaises(ValueError):
                         assets.verify_pgp(key, fpr)
+
+    def test_stm32_install_is_current_and_publish_records_sha256(self):
+        target = self.root / 'app'
+        wrapper = self.root / 'bin/app'
+        desktop = self.root / 'apps/app.desktop'
+        wrapper.parent.mkdir(parents=True)
+        desktop.parent.mkdir(parents=True)
+        wrapper.write_text('wrapper')
+        desktop.write_text('desktop')
+        digest = 'a' * 64
+        result = self.bash('''
+VERIFIED_ARCHIVE_SHA256="$1"
+begin_install "$2"
+printf installed > "$INSTALL_DIR/marker"
+publish_install
+install_is_current "$2" "$3" "$4"
+''', digest, target, wrapper, desktop)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((target / '.source.sha256').read_text().strip(), digest)
+
+        mismatch = self.bash(
+            'VERIFIED_ARCHIVE_SHA256="$1"; install_is_current "$2" "$3" "$4"',
+            'b' * 64, target, wrapper, desktop,
+        )
+        self.assertNotEqual(mismatch.returncode, 0)
+
+        forced = self.bash(
+            'VERIFIED_ARCHIVE_SHA256="$1"; install_is_current "$2" "$3" "$4"',
+            digest, target, wrapper, desktop,
+            env={'ST_FORCE_REINSTALL': '1'},
+        )
+        self.assertNotEqual(forced.returncode, 0)
+
+        wrapper.unlink()
+        missing_artifact = self.bash(
+            'VERIFIED_ARCHIVE_SHA256="$1"; install_is_current "$2" "$3" "$4"',
+            digest, target, wrapper, desktop,
+        )
+        self.assertNotEqual(missing_artifact.returncode, 0)
+
+    def test_stm32_cubemx_rerun_reports_unchanged_without_extra_version_dir(self):
+        jar = self.root / 'SetupSTM32CubeMX-test'
+        self.jar_fixture(jar, REPO / 'resources/izpack/cubemx.xml')
+        archive = self.root / 'mx.zip'
+        fake_java = '''#!/usr/bin/env bash
+python3 - "$4" <<'PY'
+from pathlib import Path
+import shutil, sys, xml.etree.ElementTree as ET
+directory = Path(ET.parse(sys.argv[1]).find('.//installpath').text)
+binary = directory / 'STM32CubeMX'
+binary.write_text('#!/bin/sh\\nexit 0\\n')
+binary.chmod(0o755)
+shutil.copytree('jre', directory / 'jre')
+PY
+'''
+        with zipfile.ZipFile(archive, 'w') as zip_file:
+            zip_file.write(jar, jar.name)
+            info = zipfile.ZipInfo('jre/bin/java')
+            info.external_attr = (stat.S_IFREG | 0o755) << 16
+            zip_file.writestr(info, fake_java)
+
+        home = self.root / 'home'
+        home.mkdir()
+        env = {
+            'HOME': str(home),
+            'ST_SKIP_UDEV': '1',
+            'ST_INSTALLER_SHA256': hashlib.sha256(archive.read_bytes()).hexdigest(),
+        }
+        code = '''
+st_preflight() { require_commands python3 sha256sum realpath find mktemp desktop-file-validate; }
+check_elf_dependencies() { return 0; }
+refresh_desktop_environment() { return 0; }
+main "$1"
+'''
+        first = self.bash(code, archive, script='install_stm32_cube_mx.sh', env=env)
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        versions_dir = home / 'STMicroelectronics/STM32Cube/.STM32CubeMX.versions'
+        self.assertEqual(len(list(versions_dir.iterdir())), 1)
+
+        second = self.bash(code, archive, script='install_stm32_cube_mx.sh', env=env)
+        self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
+        self.assertIn('(unchanged)', second.stdout)
+        self.assertEqual(len(list(versions_dir.iterdir())), 1)
+
+    def test_stm32_role_uses_repo_root_and_idempotent_changed_when(self):
+        tasks = yaml.safe_load((REPO / 'ansible/roles/stm32/tasks/main.yml').read_text(encoding='utf-8'))
+        probe = next(t for t in tasks if t['name'] == 'Check local availability of requested STMicroelectronics archives')
+        self.assertEqual(probe['ansible.builtin.command']['chdir'], '{{ repo_root }}')
+        run = next(t for t in tasks if t['name'] == 'Run requested STMicroelectronics user-space installers')
+        self.assertIn('(unchanged)', run['changed_when'])
 
 
 if __name__ == '__main__':

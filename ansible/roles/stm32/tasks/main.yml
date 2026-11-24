@@ -19,6 +19,7 @@
 
 - name: Check local availability of requested STMicroelectronics archives
   ansible.builtin.command:
+    chdir: "{{ repo_root }}"
     argv: >-
       {{
         [
@@ -75,7 +76,8 @@
   environment:
     ST_SKIP_UDEV: "1"
   loop: "{{ stm32_archive_probes.results }}"
-  changed_when: true
+  register: stm32_install_results
+  changed_when: "'(unchanged)' not in (stm32_install_results.stdout | default(''))"
   when:
     - item.item.key in stm32_tools
     - (item.rc | default(1)) == 0

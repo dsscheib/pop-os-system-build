@@ -10,8 +10,15 @@ main() {
   st_preflight
   require_commands dpkg-deb
   local archive installer package selected="" server="" binary icon
+  local target="$HOME/STMicroelectronics/STM32Cube/stm32cubeide"
+  local wrapper="$HOME/.local/bin/stm32cubeide"
+  local desktop="$HOME/.local/share/applications/stm32cubeide.desktop"
   archive=$(find_archive "${1:-}" 'stm32cubeide_*.sh.zip' 'stm32cubeide_*.zip')
   verify_installer "$archive"
+  if install_is_current "$target" "$wrapper" "$desktop"; then
+    log_info "STM32CubeIDE is already installed from this archive at $target (unchanged)."
+    return 0
+  fi
   start_workspace stm32cubeide
   python3 "$SCRIPT_DIR/scripts/st_assets.py" zip "$archive" "$WORK_DIR/archive"
   installer=$(unique_file "$WORK_DIR/archive" 'stm32cubeide_*.sh')
@@ -26,7 +33,7 @@ main() {
   dpkg-deb --extract "$selected" "$WORK_DIR/unpacked"
   binary=$(unique_file "$WORK_DIR/unpacked" stm32cubeide)
   check_executable "$binary"
-  begin_install "$HOME/STMicroelectronics/STM32Cube/stm32cubeide"
+  begin_install "$target"
   cp -a -- "$(dirname "$binary")/." "$INSTALL_DIR/"
   dpkg-deb --extract "$server" "$WORK_DIR/server"
   cp -a -- "$WORK_DIR/server/usr/bin/stlink-server" "$INSTALL_DIR/stlink-server"
@@ -36,7 +43,7 @@ main() {
   icon="$INSTALL_DIR/icon.xpm"
   if [[ -f "$icon" ]] && convert_icon_to_png "$icon" "$INSTALL_DIR/launcher.png"; then icon="$INSTALL_DIR/launcher.png"; fi
   [[ -f "$icon" ]] || icon=applications-development
-  st_finish STM32CubeIDE "$HOME/.local/bin/stm32cubeide" "$INSTALL_DIR/stm32cubeide" "$INSTALL_DIR" "$icon" stm32cubeide "$HOME/.local/share/applications/stm32cubeide.desktop"
+  st_finish STM32CubeIDE "$wrapper" "$INSTALL_DIR/stm32cubeide" "$INSTALL_DIR" "$icon" stm32cubeide "$desktop"
   log_info "STM32CubeIDE installed at $INSTALL_TARGET; previous versions are retained."
 }
 if [[ ${BASH_SOURCE[0]} == "$0" ]]; then main "$@"; fi
