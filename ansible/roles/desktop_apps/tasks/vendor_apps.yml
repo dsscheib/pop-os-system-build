@@ -284,6 +284,8 @@
       ansible.builtin.apt:
         name: "{{ apt_hyper_backup_deps }}"
         state: present
+        update_cache: true
+        cache_valid_time: 3600
       become: true
 
     - name: Set Hyper Backup Explorer path facts

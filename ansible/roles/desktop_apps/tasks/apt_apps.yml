@@ -7,6 +7,9 @@
     group: root
     mode: "0755"
   become: true
+  tags:
+    - vscode
+    - kicad
 
 - name: Configure and install Visual Studio Code
   tags:
@@ -230,6 +233,8 @@
   ansible.builtin.apt:
     name: "{{ apt_desktop_packages }}"
     state: present
+    update_cache: true
+    cache_valid_time: 3600
   become: true
   tags:
     - desktop_packages
@@ -243,6 +248,8 @@
       ansible.builtin.apt:
         name: nautilus-dropbox
         state: present
+        update_cache: true
+        cache_valid_time: 3600
       register: desktop_apps_dropbox_apt
       become: true
   rescue:

@@ -13,6 +13,15 @@
   tags:
     - desktop_apps
     - desktop_gui
+    - fonts
+    - vscode
+    - kicad
+    - flatpak
+    - arduino
+    - saleae
+    - synology
+    - hyper_backup
+    - appimagelauncher
 
 - name: Install Nerd Fonts
   ansible.builtin.import_tasks: fonts.yml

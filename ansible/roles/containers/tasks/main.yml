@@ -28,6 +28,8 @@
   ansible.builtin.apt:
     name: "{{ apt_podman_packages }}"
     state: present
+    update_cache: true
+    cache_valid_time: 3600
   become: true
 
 - name: Ensure Podman registries configuration directory exists

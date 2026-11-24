@@ -6,6 +6,7 @@
     mode: "0755"
   tags:
     - ai_agents
+    - antigravity
 
 - name: Install Claude Code CLI from Anthropic APT repository
   tags:
