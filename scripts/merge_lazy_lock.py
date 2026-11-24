@@ -3,6 +3,7 @@
 import argparse
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -57,6 +58,40 @@ def _sync_update(dest, ref):
         _git(dest, 'pull', '--ff-only')
 
 
+def _resolve_check_mode_changed(dest, old_head, ref):
+    if ref:
+        if re.fullmatch(r'[0-9a-fA-F]{7,40}', ref):
+            return not old_head.lower().startswith(ref.lower())
+        out = _git(
+            dest, 'ls-remote', 'origin',
+            f'refs/heads/{ref}', f'refs/tags/{ref}', f'refs/tags/{ref}^{{}}',
+        ).stdout
+        refs = {}
+        for line in out.splitlines():
+            parts = line.split(None, 1)
+            if len(parts) == 2:
+                refs[parts[1]] = parts[0]
+        remote_head = (
+            refs.get(f'refs/heads/{ref}')
+            or refs.get(f'refs/tags/{ref}^{{}}')
+            or refs.get(f'refs/tags/{ref}')
+        )
+        if not remote_head:
+            fallback_line = _git(dest, 'ls-remote', 'origin', ref).stdout.strip()
+            remote_head = fallback_line.split()[0] if fallback_line else ''
+        return bool(remote_head and remote_head != old_head)
+
+    upstream = _git(dest, 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}', check=False)
+    upstream_name = upstream.stdout.strip() if upstream.returncode == 0 else ''
+    if upstream_name.startswith('origin/'):
+        target_ref = f'refs/heads/{upstream_name.removeprefix("origin/")}'
+    else:
+        target_ref = 'HEAD'
+    remote_line = _git(dest, 'ls-remote', 'origin', target_ref).stdout.strip()
+    remote_head = remote_line.split()[0] if remote_line else ''
+    return bool(remote_head and remote_head != old_head)
+
+
 def sync_repo(repo_url, dest_dir, *, ref='', check_mode=False):
     """Clone or fast-forward `dest_dir` from `repo_url`, merging `lazy-lock.json` if dirty."""
     dest = Path(dest_dir)
@@ -84,10 +119,7 @@ def sync_repo(repo_url, dest_dir, *, ref='', check_mode=False):
 
     old_head = _git(dest, 'rev-parse', 'HEAD').stdout.strip()
     if check_mode:
-        target_ref = ref or 'HEAD'
-        remote_line = _git(dest, 'ls-remote', 'origin', target_ref).stdout.strip()
-        remote_head = remote_line.split()[0] if remote_line else ''
-        changed = bool(remote_head and remote_head != old_head)
+        changed = _resolve_check_mode_changed(dest, old_head, ref)
         return {'changed': changed, 'merged': False, 'conflicts': 0, 'head': old_head}
 
     merged = False
@@ -98,19 +130,25 @@ def sync_repo(repo_url, dest_dir, *, ref='', check_mode=False):
         lock_path = dest / 'lazy-lock.json'
         saved_text = lock_path.read_text(encoding='utf-8')
         saved_path.write_text(saved_text, encoding='utf-8')
-        _git(dest, 'checkout', '--', 'lazy-lock.json')
-        _sync_update(dest, ref)
-        new_head = _git(dest, 'rev-parse', 'HEAD').stdout.strip()
-        diff_res = _git(dest, 'diff', '--quiet', old_head, new_head, '--', 'lazy-lock.json', check=False)
-        if diff_res.returncode == 0:
+        try:
+            _git(dest, 'checkout', '--', 'lazy-lock.json')
+            _sync_update(dest, ref)
+            new_head = _git(dest, 'rev-parse', 'HEAD').stdout.strip()
+            diff_res = _git(dest, 'diff', '--quiet', old_head, new_head, '--', 'lazy-lock.json', check=False)
+            if diff_res.returncode == 0:
+                lock_path.write_text(saved_text, encoding='utf-8')
+            elif not lock_path.exists():
+                pass
+            else:
+                base_obj = json.loads(_git(dest, 'show', f'{old_head}:lazy-lock.json').stdout)
+                upstream_obj = json.loads(lock_path.read_text(encoding='utf-8'))
+                local_obj = json.loads(saved_text)
+                merged_obj, conflicts = merge_lazy_lock(base_obj, upstream_obj, local_obj)
+                lock_path.write_text(format_lazy_lock(merged_obj), encoding='utf-8')
+                merged = True
+        except Exception:
             lock_path.write_text(saved_text, encoding='utf-8')
-        else:
-            base_obj = json.loads(_git(dest, 'show', f'{old_head}:lazy-lock.json').stdout)
-            upstream_obj = json.loads(lock_path.read_text(encoding='utf-8'))
-            local_obj = json.loads(saved_text)
-            merged_obj, conflicts = merge_lazy_lock(base_obj, upstream_obj, local_obj)
-            lock_path.write_text(format_lazy_lock(merged_obj), encoding='utf-8')
-            merged = True
+            raise
     else:
         _sync_update(dest, ref)
         new_head = _git(dest, 'rev-parse', 'HEAD').stdout.strip()
@@ -138,7 +176,7 @@ def main(argv=None):
         if args.command == 'sync-repo':
             result = sync_repo(args.repo, args.dest, ref=args.ref, check_mode=args.check)
             print(json.dumps(result))
-    except (RuntimeError, json.JSONDecodeError, subprocess.CalledProcessError) as exc:
+    except (OSError, RuntimeError, json.JSONDecodeError, subprocess.CalledProcessError) as exc:
         print(f'ERROR: {exc}', file=sys.stderr)
         return 1
     return 0
