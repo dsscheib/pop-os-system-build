@@ -1,0 +1,17 @@
+---
+- name: Configure native GCC/G++ toolchain
+  ansible.builtin.import_tasks: gcc.yml
+  tags:
+    - toolchains
+    - gcc
+
+- name: Configure Clang/LLVM toolchain
+  ansible.builtin.import_tasks: llvm.yml
+  tags:
+    - toolchains
+    - llvm
+
+- name: Configure embedded cross-compilers
+  ansible.builtin.import_tasks: embedded.yml
+  tags:
+    - toolchains

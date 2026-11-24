@@ -1,0 +1,13 @@
+---
+# Copy to ansible/group_vars/all/local.yml (gitignored) for per-machine overrides.
+
+# Private Chezmoi dotfiles repository (cloned via gh or SSH)
+# dotfiles_repo: "https://github.com/your-username/dotfiles.git"
+
+# Neovim configuration repository
+# nvim_config_repo: "https://github.com/your-username/astronvim_v6"
+# nvim_config_ref: ""
+
+# Enable post-boot Snapper & hibernation role (requires @ / @snapshots Btrfs layout)
+# enable_snapper: true
+# enable_hibernation: true

@@ -1,0 +1,34 @@
+---
+- name: Install reviewed ST-LINK udev rules
+  ansible.builtin.copy:
+    src: "{{ repo_root }}/resources/udev/{{ item }}"
+    dest: "/etc/udev/rules.d/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - 49-stlinkv1.rules
+    - 49-stlinkv2.rules
+    - 49-stlinkv2-1.rules
+    - 49-stlinkv3.rules
+  become: true
+  notify: Reload stm32 udev rules
+
+- name: Run requested STMicroelectronics user-space installers
+  ansible.builtin.command:
+    argv:
+      - bash
+      - "{{ repo_root }}/{{ item.script }}"
+  loop:
+    - key: cubeide
+      script: install_stm32_cube_ide.sh
+    - key: cubemx
+      script: install_stm32_cube_mx.sh
+    - key: cubeprog
+      script: install_stm32_cube_prog.sh
+    - key: sw4stm32
+      script: install_sw4stm32.sh
+  changed_when: true
+  when:
+    - item.key in stm32_tools
+    - not ansible_check_mode

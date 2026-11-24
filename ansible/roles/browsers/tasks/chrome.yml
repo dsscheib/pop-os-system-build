@@ -1,0 +1,61 @@
+---
+- name: Prevent Google Chrome package from creating a duplicate APT source
+  ansible.builtin.copy:
+    content: |
+      repo_add_once="false"
+      repo_reenable_on_distupgrade="false"
+    dest: /etc/default/google-chrome
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+
+- name: Download Google Chrome APT signing key
+  ansible.builtin.get_url:
+    url: "{{ pinned_downloads.google_chrome_key.url }}"
+    dest: /etc/apt/keyrings/google-chrome.asc
+    checksum: "sha256:{{ pinned_downloads.google_chrome_key.sha256 }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+
+- name: Remove legacy Google Chrome APT source list
+  ansible.builtin.file:
+    path: /etc/apt/sources.list.d/google-chrome.list
+    state: absent
+  become: true
+
+- name: Configure Google Chrome deb822 APT repository
+  ansible.builtin.deb822_repository:
+    name: google-chrome
+    types:
+      - deb
+    uris:
+      - https://dl.google.com/linux/chrome/deb/
+    suites:
+      - stable
+    components:
+      - main
+    architectures:
+      - amd64
+    signed_by: /etc/apt/keyrings/google-chrome.asc
+  become: true
+  notify: Update browsers APT cache
+
+- name: Flush browsers handlers before installing Google Chrome
+  ansible.builtin.meta: flush_handlers
+
+- name: Install Google Chrome stable
+  ansible.builtin.apt:
+    name: google-chrome-stable
+    state: present
+  become: true
+
+- name: Verify Google Chrome executable version
+  ansible.builtin.command:
+    argv:
+      - google-chrome
+      - --version
+  changed_when: false
+  when: not ansible_check_mode

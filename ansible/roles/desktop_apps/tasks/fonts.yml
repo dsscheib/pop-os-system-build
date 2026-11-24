@@ -1,0 +1,68 @@
+---
+- name: Set JetBrainsMono font version directory facts
+  ansible.builtin.set_fact:
+    desktop_apps_font_versions_dir: "{{ workstation_home }}/.local/share/fonts/.JetBrainsMono.versions"
+    desktop_apps_font_version_dir: "{{ workstation_home }}/.local/share/fonts/.JetBrainsMono.versions/{{ pinned_downloads.font.version }}"
+
+- name: Ensure JetBrainsMono versions directory exists
+  ansible.builtin.file:
+    path: "{{ desktop_apps_font_versions_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Check whether pinned JetBrainsMono version is already extracted
+  ansible.builtin.stat:
+    path: "{{ desktop_apps_font_version_dir }}"
+  register: desktop_apps_font_stat
+
+- name: Download and extract pinned JetBrainsMono Nerd Font
+  when:
+    - not desktop_apps_font_stat.stat.exists
+    - not ansible_check_mode
+  block:
+    - name: Create temporary workspace for JetBrainsMono download
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: pop-font-
+      register: desktop_apps_font_tmpdir
+
+    - name: Download verified JetBrainsMono Nerd Font archive
+      ansible.builtin.get_url:
+        url: "{{ pinned_downloads.font.url }}"
+        dest: "{{ desktop_apps_font_tmpdir.path }}/JetBrainsMono.zip"
+        checksum: "sha256:{{ pinned_downloads.font.sha256 }}"
+        mode: "0644"
+
+    - name: Extract JetBrainsMono Nerd Font archive safely
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ repo_root }}/scripts/st_assets.py"
+          - zip
+          - "{{ desktop_apps_font_tmpdir.path }}/JetBrainsMono.zip"
+          - "{{ desktop_apps_font_version_dir }}"
+      changed_when: true
+
+    - name: Verify JetBrainsMono archive contains TTF files
+      ansible.builtin.find:
+        paths: "{{ desktop_apps_font_version_dir }}"
+        patterns: "*.ttf"
+        recurse: true
+      register: desktop_apps_font_ttfs
+      failed_when: desktop_apps_font_ttfs.matched == 0
+
+    - name: Remove temporary JetBrainsMono workspace
+      ansible.builtin.file:
+        path: "{{ desktop_apps_font_tmpdir.path }}"
+        state: absent
+  notify: Refresh font cache
+
+- name: Link active JetBrainsMono font directory
+  ansible.builtin.file:
+    src: "{{ desktop_apps_font_version_dir }}"
+    dest: "{{ workstation_home }}/.local/share/fonts/JetBrainsMono"
+    state: link
+    force: true
+    mode: "0755"
+  when: not ansible_check_mode
+  notify: Refresh font cache

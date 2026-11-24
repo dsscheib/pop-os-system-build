@@ -1,0 +1,139 @@
+---
+- name: Configure Pop!_OS / Ubuntu 24.04+ workstation
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: true
+
+  pre_tasks:
+    - name: Verify supported OS, architecture, and non-root execution
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['architecture'] == 'x86_64'
+          - ansible_facts['distribution'] in ['Pop!_OS', 'Ubuntu']
+          - (ansible_facts['distribution_major_version'] | int) >= 24
+          - ansible_facts['user_uid'] != 0
+        fail_msg: >-
+          This playbook requires Pop!_OS or Ubuntu 24.04+ on x86_64 and must run
+          as your desktop user (not root).
+      tags:
+        - always
+
+  roles:
+    - role: system
+      tags:
+        - system
+    - role: snapper
+      when: enable_snapper | bool
+      tags:
+        - snapper
+    - role: toolchains
+      tags:
+        - toolchains
+    - role: containers
+      tags:
+        - containers
+        - podman
+    - role: browsers
+      tags:
+        - browsers
+    - role: desktop_apps
+      tags:
+        - desktop_apps
+        - desktop_gui
+    - role: ai_agents
+      tags:
+        - ai_agents
+    - role: workstation
+      tags:
+        - workstation
+    - role: stm32
+      tags:
+        - never
+        - stm32
+
+  post_tasks:
+    - name: Locate Herdr binary for skill and integration sync
+      ansible.builtin.command:
+        argv:
+          - which
+          - herdr
+      environment:
+        PATH: "{{ workstation_local_bin }}:{{ workstation_home }}/.local/share/mise/shims:{{ ansible_facts['env'].PATH | default('/usr/bin:/bin') }}"
+      register: playbook_herdr_which
+      changed_when: false
+      failed_when: false
+      tags:
+        - ai_agents
+        - herdr
+        - workstation
+
+    - name: Sync Herdr agent skills and integrations
+      when:
+        - playbook_herdr_which.rc == 0
+        - not ansible_check_mode
+      tags:
+        - ai_agents
+        - herdr
+        - workstation
+      block:
+        - name: Generate release-matched Herdr SKILL.md
+          ansible.builtin.command:
+            argv:
+              - "{{ playbook_herdr_which.stdout | trim }}"
+              - --skill
+          register: playbook_herdr_skill
+          changed_when: false
+
+        - name: Ensure Herdr skill directories exist
+          ansible.builtin.file:
+            path: "{{ item }}/herdr"
+            state: directory
+            mode: "0755"
+          loop: "{{ herdr_skill_dirs }}"
+
+        - name: Install Herdr SKILL.md into agent skill directories
+          ansible.builtin.copy:
+            content: "{{ playbook_herdr_skill.stdout }}\n"
+            dest: "{{ item }}/herdr/SKILL.md"
+            mode: "0644"
+          loop: "{{ herdr_skill_dirs }}"
+
+        - name: Check Herdr configuration file presence
+          ansible.builtin.stat:
+            path: "{{ workstation_home }}/.config/herdr/config.toml"
+          register: playbook_herdr_config
+
+        - name: Validate Herdr configuration
+          ansible.builtin.command:
+            argv:
+              - "{{ playbook_herdr_which.stdout | trim }}"
+              - config
+              - check
+          changed_when: false
+          failed_when: false
+          when: playbook_herdr_config.stat.exists
+
+        - name: Check installed agent CLIs for Herdr integrations
+          ansible.builtin.command:
+            argv:
+              - which
+              - "{{ item.cli }}"
+          environment:
+            PATH: "{{ workstation_local_bin }}:{{ workstation_home }}/.local/share/mise/shims:{{ ansible_facts['env'].PATH | default('/usr/bin:/bin') }}"
+          loop: "{{ herdr_agent_integrations }}"
+          register: playbook_agent_clis
+          changed_when: false
+          failed_when: false
+
+        - name: Install Herdr integrations for present agent CLIs
+          ansible.builtin.command:
+            argv:
+              - "{{ playbook_herdr_which.stdout | trim }}"
+              - integration
+              - install
+              - "{{ item.item.target }}"
+          loop: "{{ playbook_agent_clis.results }}"
+          changed_when: false
+          failed_when: false
+          when: item.rc == 0

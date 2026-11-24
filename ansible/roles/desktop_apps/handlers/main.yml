@@ -1,0 +1,31 @@
+---
+- name: Update desktop_apps APT cache
+  ansible.builtin.apt:
+    update_cache: true
+  become: true
+
+- name: Refresh user font cache
+  ansible.builtin.command:
+    argv:
+      - fc-cache
+      - -f
+      - "{{ workstation_home }}/.local/share/fonts"
+  changed_when: true
+
+- name: Refresh desktop applications database
+  ansible.builtin.command:
+    argv:
+      - update-desktop-database
+      - "{{ workstation_home }}/.local/share/applications"
+  changed_when: true
+  failed_when: false
+
+- name: Reload desktop udev rules
+  ansible.builtin.command:
+    argv:
+      - udevadm
+      - control
+      - --reload-rules
+  changed_when: true
+  become: true
+  when: ansible_facts['service_mgr'] == 'systemd'

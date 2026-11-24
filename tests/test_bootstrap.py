@@ -1,0 +1,153 @@
+"""Tests for v2 Phase 1 bootstrap, Ansible foundation, and pinned download metadata."""
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import subprocess
+import tempfile
+import unittest
+import yaml
+
+REPO = Path(__file__).resolve().parents[1]
+BOOTSTRAP = REPO / 'bootstrap.sh'
+ANSIBLE_DIR = REPO / 'ansible'
+
+
+class BootstrapAndV2FoundationTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='pop-v2-test-')
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+
+    def bash(self, code, *arguments, env=None):
+        environment = dict(os.environ, TMPDIR=str(self.root))
+        if env:
+            environment.update(env)
+        return subprocess.run(
+            ['bash', '-euo', 'pipefail', '-c',
+             f'source {shlex.quote(str(BOOTSTRAP))}\n{code}',
+             'test', *map(str, arguments)],
+            cwd=self.root,
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
+
+    def write_os_release(self, os_id, version_id):
+        path = self.root / 'os-release'
+        path.write_text(f'ID="{os_id}"\nVERSION_ID="{version_id}"\n')
+        return path
+
+    def test_bootstrap_rejects_root_user(self):
+        result = self.bash('require_user 0')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('without sudo', result.stderr)
+
+    def test_bootstrap_accepts_non_root_user(self):
+        result = self.bash('require_user 1000')
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_bootstrap_accepts_supported_24_plus_systems(self):
+        for os_id, version_id in (('pop', '24.04'), ('ubuntu', '24.04'), ('pop', '26.04')):
+            with self.subTest(os_id=os_id, version_id=version_id):
+                os_release = self.write_os_release(os_id, version_id)
+                result = self.bash('require_supported_system "$1" x86_64', os_release)
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_bootstrap_rejects_legacy_or_unsupported_systems(self):
+        cases = (
+            ('pop', '22.04', 'x86_64'),
+            ('ubuntu', '22.04', 'x86_64'),
+            ('debian', '12', 'x86_64'),
+            ('pop', 'rolling', 'x86_64'),
+            ('pop', '24.04', 'aarch64'),
+        )
+        for os_id, version_id, arch in cases:
+            with self.subTest(os_id=os_id, version_id=version_id, arch=arch):
+                os_release = self.write_os_release(os_id, version_id)
+                result = self.bash('require_supported_system "$1" "$2"', os_release, arch)
+                self.assertNotEqual(result.returncode, 0)
+
+    def test_bootstrap_verify_sha256(self):
+        sample = self.root / 'sample.bin'
+        sample.write_bytes(b'pop-v2-checksum-test')
+        good = self.bash('verify_sha256 "$1" "$(sha256sum "$1" | cut -d" " -f1)"', sample)
+        self.assertEqual(good.returncode, 0, good.stderr)
+
+        bad_digest = self.bash('verify_sha256 "$1" "0000"', sample)
+        self.assertNotEqual(bad_digest.returncode, 0)
+
+        mismatch = self.bash('verify_sha256 "$1" "' + ('0' * 64) + '"', sample)
+        self.assertNotEqual(mismatch.returncode, 0)
+
+    def test_bootstrap_pins_match_downloads_json(self):
+        downloads = json.loads((REPO / 'resources/downloads.json').read_text())
+        result = self.bash(
+            'printf "%s\\n%s\\n%s\\n%s\\n%s\\n%s\\n" '
+            '"$MISE_VERSION" "$MISE_URL" "$MISE_SHA256" '
+            '"$UV_VERSION" "$UV_URL" "$UV_SHA256"'
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        mise_ver, mise_url, mise_sha, uv_ver, uv_url, uv_sha = result.stdout.splitlines()
+        self.assertEqual((mise_ver, mise_url, mise_sha),
+                         (downloads['mise']['version'], downloads['mise']['url'], downloads['mise']['sha256']))
+        self.assertEqual((uv_ver, uv_url, uv_sha),
+                         (downloads['uv']['version'], downloads['uv']['url'], downloads['uv']['sha256']))
+
+    def test_ansible_yaml_files_parse_cleanly(self):
+        yaml_files = sorted(ANSIBLE_DIR.rglob('*.yml'))
+        self.assertTrue(yaml_files)
+        for path in yaml_files:
+            with self.subTest(path=path.relative_to(REPO)):
+                yaml.safe_load(path.read_text())
+
+    def test_playbook_references_all_v2_roles(self):
+        playbook = yaml.safe_load((ANSIBLE_DIR / 'playbook.yml').read_text())
+        role_names = [entry['role'] for entry in playbook[0]['roles']]
+        self.assertEqual(
+            role_names,
+            [
+                'system',
+                'snapper',
+                'toolchains',
+                'containers',
+                'browsers',
+                'desktop_apps',
+                'ai_agents',
+                'workstation',
+                'stm32',
+            ],
+        )
+        for role_name in role_names:
+            self.assertTrue((ANSIBLE_DIR / 'roles' / role_name / 'tasks/main.yml').is_file())
+
+    def test_ansible_downloads_match_downloads_json(self):
+        legacy = json.loads((REPO / 'resources/downloads.json').read_text())
+        v2_downloads = yaml.safe_load((ANSIBLE_DIR / 'group_vars/all/downloads.yml').read_text())['pinned_downloads']
+
+        mapping = {
+            'font': 'font',
+            'appimagelauncher': 'appimagelauncher',
+            'saleae': 'saleae',
+            'synology': 'synology',
+            'hyper_backup_explorer': 'hyper-backup-explorer',
+            'antigravity_cli': 'antigravity-cli',
+            'arduino_ide': 'arduino-ide',
+            'vscode_key': 'vscode-key',
+            'mozilla_key': 'mozilla-key',
+            'githubcli_key': 'githubcli-key',
+            'claude_code_key': 'claude-code-key',
+            'kicad_key': 'kicad-key',
+            'google_chrome_key': 'google-chrome-key',
+            'llvm_key': 'llvm-key',
+        }
+        self.assertEqual(set(v2_downloads.keys()), set(mapping.keys()))
+        for v2_key, legacy_key in mapping.items():
+            with self.subTest(key=v2_key):
+                entry = v2_downloads[v2_key]
+                self.assertTrue(entry['url'].startswith('https://'))
+                self.assertRegex(entry['sha256'], re.compile(r'^[0-9a-f]{64}$'))
+                self.assertEqual(entry['version'], legacy[legacy_key]['version'])
+                self.assertEqual(entry['url'], legacy[legacy_key]['url'])
+                self.assertEqual(entry['sha256'], legacy[legacy_key]['sha256'])

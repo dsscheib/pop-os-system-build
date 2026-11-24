@@ -1,0 +1,41 @@
+---
+- name: Ensure workstation user directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ workstation_home }}/Applications"
+    - "{{ workstation_home }}/Projects"
+    - "{{ workstation_home }}/Downloads"
+    - "{{ workstation_local_bin }}"
+    - "{{ workstation_home }}/.local/share/applications"
+  tags:
+    - desktop_apps
+    - desktop_gui
+
+- name: Install Nerd Fonts
+  ansible.builtin.import_tasks: fonts.yml
+  tags:
+    - desktop_apps
+    - desktop_gui
+    - fonts
+
+- name: Install desktop APT applications
+  ansible.builtin.import_tasks: apt_apps.yml
+  tags:
+    - desktop_apps
+    - desktop_gui
+
+- name: Install Flathub user applications
+  ansible.builtin.import_tasks: flatpak.yml
+  tags:
+    - desktop_apps
+    - desktop_gui
+    - flatpak
+
+- name: Install pinned vendor desktop applications
+  ansible.builtin.import_tasks: vendor_apps.yml
+  tags:
+    - desktop_apps
+    - desktop_gui

@@ -12,10 +12,21 @@ python3 -B -m unittest discover -s tests -v
 python3 -B - <<'PY'
 import ast
 from pathlib import Path
+import yaml
+
 for folder in ('scripts', 'tests'):
     for path in Path(folder).glob('*.py'):
         ast.parse(path.read_text(), filename=str(path))
+
+for path in sorted(Path('ansible').rglob('*.yml')):
+    yaml.safe_load(path.read_text())
 PY
+if command -v ansible-playbook >/dev/null; then
+  ANSIBLE_CONFIG="$PWD/ansible/ansible.cfg" ansible-playbook -i ansible/inventory/hosts.yml --syntax-check ansible/playbook.yml
+fi
+if command -v ansible-lint >/dev/null; then
+  (cd ansible && ansible-lint)
+fi
 if command -v fish >/dev/null; then
   for script in resources/*.fish resources/completions/*.fish; do fish --no-execute "$script"; done
 fi
