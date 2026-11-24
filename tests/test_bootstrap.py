@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -375,3 +376,93 @@ install_ansible
                     'local.yml',
                     f'{path.relative_to(REPO)} must sort before local.yml so local overrides win',
                 )
+
+    def test_e2e_container_test_cli_guards_and_inner_shell(self):
+        script = REPO / 'scripts/e2e_container_test.sh'
+        self.assertTrue(script.is_file(), f'missing {script}')
+        self.assertTrue(os.access(script, os.X_OK), f'{script} must be executable')
+
+        help_res = subprocess.run(
+            ['bash', str(script), '--help'],
+            cwd=REPO,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(help_res.returncode, 0, help_res.stderr)
+        self.assertIn('podman run', help_res.stdout)
+        self.assertIn('scripts/e2e_container_test.sh', help_res.stdout)
+
+        bad_opt = subprocess.run(
+            ['bash', str(script), '--unknown-flag'],
+            cwd=REPO,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(bad_opt.returncode, 2, bad_opt.stderr)
+        self.assertIn('Unknown option', bad_opt.stderr)
+
+        in_container = Path('/.dockerenv').exists() or Path('/run/.containerenv').exists()
+        if not in_container:
+            guard = subprocess.run(
+                ['bash', str(script)],
+                cwd=REPO,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(guard.returncode, 1, guard.stderr)
+            self.assertIn('Refusing to run outside a disposable container', guard.stderr)
+        elif os.geteuid() != 0:
+            guard = subprocess.run(
+                ['bash', str(script)],
+                cwd=REPO,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(guard.returncode, 1, guard.stderr)
+            self.assertIn('must start as root inside the container', guard.stderr)
+
+        # Verify the dynamic version extraction against bootstrap.sh matches semver.
+        awk_res = subprocess.run(
+            [
+                'bash',
+                '-euo',
+                'pipefail',
+                '-c',
+                'core=$(awk -F\'"\' \'$1 == "ANSIBLE_CORE_VERSION=" { print $2; exit }\' ./bootstrap.sh); '
+                'lint=$(awk -F\'"\' \'$1 == "ANSIBLE_LINT_VERSION=" { print $2; exit }\' ./bootstrap.sh); '
+                'printf "%s\\n%s\\n" "$core" "$lint"',
+            ],
+            cwd=REPO,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(awk_res.returncode, 0, awk_res.stderr)
+        lines = awk_res.stdout.strip().splitlines()
+        self.assertEqual(len(lines), 2, awk_res.stdout)
+        for ver in lines:
+            self.assertRegex(ver, r'^\d+\.\d+\.\d+$')
+
+        # Validate the inner su heredoc body with bash -n and shellcheck.
+        text = script.read_text()
+        marker = "su - tester -s /bin/bash <<'EOF'\n"
+        self.assertIn(marker, text)
+        inner_and_tail = text.split(marker, 1)[1]
+        self.assertTrue(inner_and_tail.endswith('\nEOF\n'))
+        inner = inner_and_tail[:-len('\nEOF\n')]
+
+        bash_n = subprocess.run(
+            ['bash', '-n'],
+            input=inner,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(bash_n.returncode, 0, bash_n.stderr)
+
+        if shutil.which('shellcheck'):
+            sc = subprocess.run(
+                ['shellcheck', '-s', 'bash', '-'],
+                input=inner,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(sc.returncode, 0, sc.stdout + sc.stderr)
