@@ -217,6 +217,10 @@ apt_desktop_packages:
   - openscad
   - libreoffice
   - evince
+  # sigrok logic-analyzer GUI, CLI, and firmware for Cypress FX2-based analyzers
+  - pulseview
+  - sigrok-cli
+  - sigrok-firmware-fx2lafw
 
 apt_hyper_backup_deps:
   - bzip2
