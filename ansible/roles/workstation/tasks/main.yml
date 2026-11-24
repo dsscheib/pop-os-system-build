@@ -34,6 +34,8 @@
         argv:
           - "{{ workstation_chezmoi_which.stdout | trim }}"
           - status
+      environment:
+        PATH: "{{ workstation_local_bin }}:{{ workstation_home }}/.local/share/mise/shims:{{ ansible_facts['env'].PATH | default('/usr/bin:/bin') }}"
       register: workstation_chezmoi_status
       changed_when: false
       check_mode: false
@@ -47,6 +49,8 @@
           - "{{ workstation_chezmoi_which.stdout | trim }}"
           - apply
           - --no-tty
+      environment:
+        PATH: "{{ workstation_local_bin }}:{{ workstation_home }}/.local/share/mise/shims:{{ ansible_facts['env'].PATH | default('/usr/bin:/bin') }}"
       changed_when: true
       when:
         - workstation_chezmoi_which.rc == 0
@@ -82,6 +86,8 @@
           - "{{ workstation_mise_which.stdout | trim }}"
           - ls
           - --missing
+      environment:
+        PATH: "{{ workstation_local_bin }}:{{ workstation_home }}/.local/share/mise/shims:{{ ansible_facts['env'].PATH | default('/usr/bin:/bin') }}"
       register: workstation_mise_missing
       changed_when: false
       check_mode: false
@@ -95,6 +101,8 @@
           - "{{ workstation_mise_which.stdout | trim }}"
           - install
           - --yes
+      environment:
+        PATH: "{{ workstation_local_bin }}:{{ workstation_home }}/.local/share/mise/shims:{{ ansible_facts['env'].PATH | default('/usr/bin:/bin') }}"
       changed_when: true
       when:
         - workstation_mise_which.rc == 0
@@ -135,6 +143,8 @@
               - "{{ workstation_uv_which.stdout | trim }}"
               - venv
               - "{{ workstation_home }}/.local/share/nvim-python"
+          environment:
+            PATH: "{{ workstation_local_bin }}:{{ workstation_home }}/.local/share/mise/shims:{{ ansible_facts['env'].PATH | default('/usr/bin:/bin') }}"
           changed_when: true
           when: not workstation_nvim_venv_stat.stat.exists
 
@@ -147,6 +157,8 @@
               - --python
               - "{{ workstation_home }}/.local/share/nvim-python/bin/python"
               - pynvim
+          environment:
+            PATH: "{{ workstation_local_bin }}:{{ workstation_home }}/.local/share/mise/shims:{{ ansible_facts['env'].PATH | default('/usr/bin:/bin') }}"
           register: workstation_pynvim_show
           changed_when: false
           failed_when: false
@@ -160,6 +172,8 @@
               - --python
               - "{{ workstation_home }}/.local/share/nvim-python/bin/python"
               - "pynvim=={{ pynvim_version }}"
+          environment:
+            PATH: "{{ workstation_local_bin }}:{{ workstation_home }}/.local/share/mise/shims:{{ ansible_facts['env'].PATH | default('/usr/bin:/bin') }}"
           changed_when: true
           when: >-
             workstation_pynvim_show.rc != 0
@@ -184,7 +198,7 @@
               }}
           register: workstation_nvim_sync_cmd
           check_mode: false
-          changed_when: (workstation_nvim_sync_cmd.stdout | from_json).changed | bool
+          changed_when: workstation_nvim_sync_cmd.rc == 0 and ((workstation_nvim_sync_cmd.stdout | from_json).changed | bool)
 
         - name: Parse Neovim sync metadata
           ansible.builtin.set_fact:
@@ -234,7 +248,7 @@
             txt = '\n'.join(c.read_text(encoding='utf-8') for c in confs if c.exists());
             pat = r'^set(?:-option)?\s+-g\s+@plugin\s+';
             lines = [re.sub(pat, '', ln.strip()) for ln in txt.splitlines() if re.match(pat, ln.strip())];
-            plugins = [v.split('#', 1)[0].strip(" \t'\"").rstrip('/').split('/')[-1] for v in lines];
+            plugins = [v.split('#', 1)[0].strip(" \t'\"").rstrip('/').split('/')[-1].removesuffix('.git') for v in lines];
             print('\n'.join(p for p in plugins if p and not (pdir / p).is_dir()))
           - "{{ workstation_home }}"
       register: workstation_tpm_missing_plugins

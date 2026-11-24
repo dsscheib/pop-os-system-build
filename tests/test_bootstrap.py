@@ -128,10 +128,46 @@ install_ansible
             "# set -g @plugin 'commented/ignored'\n"
             "  set -g @plugin 'tmux-plugins/tpm'\n"
             "set -g @plugin 'user/branch-plugin#main'\n"
+            "set -g @plugin 'https://github.com/user/git-plugin.git'\n"
             "set-option -g @plugin \"user/installed-plugin#v2\" # inline comment\n"
         )
         res = subprocess.run(['python3', '-c', py_script, str(home)], capture_output=True, text=True, check=True)
-        self.assertEqual(res.stdout.splitlines(), ['tpm', 'branch-plugin'])
+        self.assertEqual(res.stdout.splitlines(), ['tpm', 'branch-plugin', 'git-plugin'])
+
+    def test_desktop_apps_and_systemd_check_mode_guards(self):
+        apt_apps = yaml.safe_load((ANSIBLE_DIR / 'roles/desktop_apps/tasks/apt_apps.yml').read_text(encoding='utf-8'))
+        kicad_block = next(entry['block'] for entry in apt_apps if 'kicad' in entry.get('tags', []))
+        uv_probe = next(t for t in kicad_block if t['name'] == 'Check whether uv is available for kicad-python venv')
+        self.assertIs(uv_probe['check_mode'], False)
+        kicad_key_verify = next(t for t in kicad_block if t['name'] == 'Verify installed KiCad PPA signing key fingerprint')
+        self.assertIs(kicad_key_verify['check_mode'], False)
+        self.assertIn('pgp-verify', kicad_key_verify['ansible.builtin.command']['argv'])
+        kicad_key_dl = next(t for t in kicad_block if t['name'] == 'Download and verify KiCad PPA signing key')
+        self.assertIn('not ansible_check_mode', kicad_key_dl['when'])
+
+        vendor_apps = yaml.safe_load((ANSIBLE_DIR / 'roles/desktop_apps/tasks/vendor_apps.yml').read_text(encoding='utf-8'))
+        saleae_block = next(entry['block'] for entry in vendor_apps if 'saleae' in entry.get('tags', []))
+        saleae_dir_stat = next(t for t in saleae_block if t['name'] == 'Check whether Saleae Logic destination directory exists')
+        self.assertEqual(saleae_dir_stat['register'], 'desktop_apps_saleae_dir_stat')
+        saleae_dl = next(t for t in saleae_block if t['name'] == 'Download verified Saleae Logic 2 AppImage')
+        self.assertIn('desktop_apps_saleae_dir_stat.stat.exists', saleae_dl['when'])
+
+        flatpak_tasks = yaml.safe_load((ANSIBLE_DIR / 'roles/desktop_apps/tasks/flatpak.yml').read_text(encoding='utf-8'))
+        fp_probe = next(t for t in flatpak_tasks if t['name'] == 'Check whether flatpak binary is installed')
+        self.assertIs(fp_probe['check_mode'], False)
+        for task_name in ('Configure user Flathub remote', 'Install Flathub desktop applications'):
+            task = next(t for t in flatpak_tasks if t['name'] == task_name)
+            self.assertIn('desktop_apps_flatpak_which.rc == 0', task['when'])
+
+        system_tasks = yaml.safe_load((ANSIBLE_DIR / 'roles/system/tasks/main.yml').read_text(encoding='utf-8'))
+        ufw_probe = next(t for t in system_tasks if t['name'] == 'Check whether UFW binary is installed')
+        oomd_probe = next(t for t in system_tasks if t['name'] == 'Check whether systemd-oomd.service unit exists')
+        self.assertIs(ufw_probe['check_mode'], False)
+        self.assertIs(oomd_probe['check_mode'], False)
+
+        snapper_tasks = yaml.safe_load((ANSIBLE_DIR / 'roles/snapper/tasks/main.yml').read_text(encoding='utf-8'))
+        cleanup_probe = next(t for t in snapper_tasks if t['name'] == 'Check whether snapper-cleanup.timer unit exists')
+        self.assertIs(cleanup_probe['check_mode'], False)
 
     def test_bootstrap_pins_are_valid_https_and_sha256(self):
         result = self.bash(
@@ -313,12 +349,18 @@ install_ansible
             'arduino_ide',
         }
         deb_version_keys = {'synology', 'appimagelauncher'}
+        fingerprint_key_keys = {'kicad_key'}
         for key, entry in v2_downloads.items():
             with self.subTest(key=key):
                 self.assertTrue(entry['version'])
                 self.assertTrue(entry['url'].startswith('https://'))
                 self.assertNotIn('/latest/', entry['url'])
-                self.assertRegex(entry['sha256'], re.compile(r'^[0-9a-f]{64}$'))
+                if key in fingerprint_key_keys:
+                    self.assertRegex(entry['fingerprint'], re.compile(r'^[0-9A-F]{40}$'))
+                    self.assertIn(entry['fingerprint'], entry['url'])
+                    self.assertNotIn('sha256', entry)
+                else:
+                    self.assertRegex(entry['sha256'], re.compile(r'^[0-9a-f]{64}$'))
                 if key in url_version_keys:
                     self.assertIn(entry['version'], entry['url'])
                 if key in deb_version_keys:

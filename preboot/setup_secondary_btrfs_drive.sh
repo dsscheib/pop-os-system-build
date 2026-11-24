@@ -263,7 +263,7 @@ main() {
     local -a args=()
     (( do_format )) && args+=(--format)
     [[ -n "$explicit_disk" ]] && args+=("$explicit_disk")
-    exec sudo -- "$SCRIPT_DIR/${BASH_SOURCE[0]##*/}" "${args[@]}"
+    exec sudo -- "$PREBOOT_DIR/${BASH_SOURCE[0]##*/}" "${args[@]}"
   fi
 
   require_commands awk blkid btrfs cmp findmnt getent id install ln lsblk mkfs.btrfs mount parted partprobe readlink systemctl udevadm umount

@@ -42,7 +42,9 @@ def configure(root_config, default_config, initialize=False):
     root_backup = root.with_name(root.name + '.pre-pop-setup')
     if not root_backup.exists():
         atomic_text(root_backup, text, 0o600)
-    atomic_text(root, update(text, settings), 0o640)
+    updated_root = update(text, settings)
+    if updated_root != text or (root.stat().st_mode & 0o777) != 0o640:
+        atomic_text(root, updated_root, 0o640)
     defaults_text = defaults.read_text() if defaults.exists() else ''
     default_values = read_assignments(defaults_text)
     names = list(dict.fromkeys(default_values.get('SNAPPER_CONFIGS', '').split() + ['root']))
@@ -50,7 +52,9 @@ def configure(root_config, default_config, initialize=False):
     if not defaults_backup.exists():
         atomic_text(defaults_backup, defaults_text, 0o600)
     # Disable distribution-provided APT hooks; our helper provides the paired ones.
-    atomic_text(defaults, update(defaults_text, {'SNAPPER_CONFIGS': ' '.join(names), 'DISABLE_APT_SNAPSHOT': 'yes'}), 0o644)
+    updated_defaults = update(defaults_text, {'SNAPPER_CONFIGS': ' '.join(names), 'DISABLE_APT_SNAPSHOT': 'yes'})
+    if not defaults.exists() or updated_defaults != defaults_text or (defaults.stat().st_mode & 0o777) != 0o644:
+        atomic_text(defaults, updated_defaults, 0o644)
 
 
 if __name__ == '__main__':

@@ -90,6 +90,8 @@
             argv:
               - "{{ playbook_herdr_which.stdout | trim }}"
               - --skill
+          environment:
+            PATH: "{{ workstation_local_bin }}:{{ workstation_home }}/.local/share/mise/shims:{{ ansible_facts['env'].PATH | default('/usr/bin:/bin') }}"
           register: playbook_herdr_skill
           changed_when: false
 
@@ -121,6 +123,8 @@
                   - "{{ playbook_herdr_which.stdout | trim }}"
                   - config
                   - check
+              environment:
+                PATH: "{{ workstation_local_bin }}:{{ workstation_home }}/.local/share/mise/shims:{{ ansible_facts['env'].PATH | default('/usr/bin:/bin') }}"
               register: playbook_herdr_config_check
               changed_when: false
           rescue:
@@ -154,6 +158,8 @@
               - integration
               - install
               - "{{ item.item.target }}"
+          environment:
+            PATH: "{{ workstation_local_bin }}:{{ workstation_home }}/.local/share/mise/shims:{{ ansible_facts['env'].PATH | default('/usr/bin:/bin') }}"
           loop: "{{ playbook_agent_clis.results }}"
           register: playbook_herdr_integrations
           changed_when: false

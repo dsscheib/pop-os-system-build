@@ -134,12 +134,18 @@
         desktop_apps_saleae_appimage: "{{ workstation_home }}/Applications/Logic-{{ pinned_downloads.saleae.version }}-linux-x64.AppImage"
         desktop_apps_saleae_icon: "{{ workstation_home }}/.local/share/icons/hicolor/512x512/apps/saleae-logic.png"
 
+    - name: Check whether Saleae Logic destination directory exists
+      ansible.builtin.stat:
+        path: "{{ desktop_apps_saleae_appimage | dirname }}"
+      register: desktop_apps_saleae_dir_stat
+
     - name: Download verified Saleae Logic 2 AppImage
       ansible.builtin.get_url:
         url: "{{ pinned_downloads.saleae.url }}"
         dest: "{{ desktop_apps_saleae_appimage }}"
         checksum: "sha256:{{ pinned_downloads.saleae.sha256 }}"
         mode: "0755"
+      when: not ansible_check_mode or desktop_apps_saleae_dir_stat.stat.exists
 
     - name: Ensure Saleae Logic icon directory exists
       ansible.builtin.file:
@@ -247,11 +253,12 @@
         - name: Install Synology Drive deb package
           ansible.builtin.apt:
             deb: "{{ desktop_apps_synology_tmpdir.path }}/synology-drive.deb"
-
+      always:
         - name: Remove temporary Synology Drive staging directory
           ansible.builtin.file:
             path: "{{ desktop_apps_synology_tmpdir.path }}"
             state: absent
+          when: desktop_apps_synology_tmpdir.path is defined
 
 - name: Install Synology Hyper Backup Explorer
   tags:
@@ -428,8 +435,9 @@
         - name: Install AppImageLauncher deb package
           ansible.builtin.apt:
             deb: "{{ desktop_apps_ail_tmpdir.path }}/appimagelauncher.deb"
-
+      always:
         - name: Remove temporary AppImageLauncher staging directory
           ansible.builtin.file:
             path: "{{ desktop_apps_ail_tmpdir.path }}"
             state: absent
+          when: desktop_apps_ail_tmpdir.path is defined

@@ -4,6 +4,14 @@
     - ai_agents
     - completions
     - workstation
+  environment:
+    PATH: >-
+      {{ [
+        workstation_local_bin,
+        workstation_home ~ '/.local/share/mise/shims',
+        workstation_home ~ '/.cargo/bin',
+        ansible_facts['env'].PATH | default('/usr/bin:/bin'),
+      ] | join(':') }}
   block:
     - name: Ensure shell completion directories exist
       ansible.builtin.file:
@@ -20,14 +28,6 @@
         argv:
           - which
           - "{{ item }}"
-      environment:
-        PATH: >-
-          {{ [
-            workstation_local_bin,
-            workstation_home ~ '/.local/share/mise/shims',
-            workstation_home ~ '/.cargo/bin',
-            ansible_facts['env'].PATH | default('/usr/bin:/bin'),
-          ] | join(':') }}
       loop:
         - codex
         - herdr

@@ -20,6 +20,7 @@ usermod --add-subuids 100000-165535 --add-subgids 100000-165535 tester
 
 rm -rf /home/tester/repo
 cp -a "$REPO_SRC" /home/tester/repo
+rm -f /home/tester/repo/ansible/group_vars/all/local.yml
 chown -R tester:tester /home/tester/repo
 
 su - tester -s /bin/bash <<'EOF'

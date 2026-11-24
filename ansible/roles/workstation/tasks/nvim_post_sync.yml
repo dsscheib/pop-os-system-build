@@ -37,6 +37,7 @@
           - --install
       environment:
         NVIM_BIN: "{{ workstation_nvim_which.stdout | trim }}"
+        PATH: "{{ workstation_local_bin }}:{{ workstation_home }}/.local/share/mise/shims:{{ ansible_facts['env'].PATH | default('/usr/bin:/bin') }}"
       register: workstation_nvim_setup_cmd
       changed_when: true
       when:
@@ -53,6 +54,8 @@
           - --headless
           - -c
           - quitall
+      environment:
+        PATH: "{{ workstation_local_bin }}:{{ workstation_home }}/.local/share/mise/shims:{{ ansible_facts['env'].PATH | default('/usr/bin:/bin') }}"
       register: workstation_nvim_headless_cmd
       changed_when: true
       when: not (workstation_nvim_setup_sh.stat.exists and workstation_nvim_setup_checks.stat.exists)
@@ -67,6 +70,8 @@
           - --headless
           - "+Lazy! restore"
           - +qa
+      environment:
+        PATH: "{{ workstation_local_bin }}:{{ workstation_home }}/.local/share/mise/shims:{{ ansible_facts['env'].PATH | default('/usr/bin:/bin') }}"
       register: workstation_nvim_lazy_cmd
       changed_when: true
       when: >-

@@ -451,5 +451,5 @@ if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
   # Sourcing in the child runs main once without re-entering this launcher.
   # shellcheck disable=SC2016 # Positional arguments belong to the child shell.
   exec unshare --mount --propagation private /bin/bash -c 'source "$1"; main "${@:2}"' \
-    bash "$SCRIPT_DIR/${BASH_SOURCE[0]##*/}" "$@"
+    bash "$PREBOOT_DIR/${BASH_SOURCE[0]##*/}" "$@"
 fi

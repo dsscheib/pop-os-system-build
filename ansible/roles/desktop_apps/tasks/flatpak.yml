@@ -1,10 +1,21 @@
 ---
+- name: Check whether flatpak binary is installed
+  ansible.builtin.command:
+    argv:
+      - which
+      - flatpak
+  register: desktop_apps_flatpak_which
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
 - name: Configure user Flathub remote
   community.general.flatpak_remote:
     name: flathub
     flatpakrepo_url: https://flathub.org/repo/flathub.flatpakrepo
     method: user
     state: present
+  when: not ansible_check_mode or desktop_apps_flatpak_which.rc == 0
 
 - name: Install Flathub desktop applications
   community.general.flatpak:
@@ -12,3 +23,4 @@
     remote: flathub
     method: user
     state: present
+  when: not ansible_check_mode or desktop_apps_flatpak_which.rc == 0

@@ -48,7 +48,7 @@ Only GUI/vendor downloads and signed APT repository keys remain pinned in Ansibl
 - **Downloads (7)**: `font` (JetBrainsMono Nerd Font), `arduino_ide`, `saleae`, `synology`, `hyper_backup_explorer`, `antigravity_cli`, `appimagelauncher`
 - **APT signing keys (7)**: `githubcli_key`, `llvm_key`, `mozilla_key`, `google_chrome_key`, `vscode_key`, `claude_code_key`, `kicad_key`
 
-*(And `llvm_version`, `kicad_python_version`, `pynvim_version`, `tpm_commit`, and `arduino_ide_version` live in `ansible/group_vars/all/00-defaults.yml`.)*
+*(And `llvm_version`, `kicad_python_version`, `pynvim_version`, and `tpm_commit` live in `ansible/group_vars/all/00-defaults.yml`.)*
 
 ---
 
@@ -93,9 +93,12 @@ pop-os-system-build/
 ### Day-1 Fresh Install (after Live USB `setup_btrfs_live_install.sh` + reboot)
 1. `git clone https://github.com/dsscheib/pop-os-system-build && cd pop-os-system-build`
 2. `./bootstrap.sh`
-3. `mise run plan` *(optional dry-run with `--check --diff`)*
-4. `mise run apply` *(non-interactive OS + toolchains + apps + Chezmoi + Mise convergence; one `sudo` prompt)*
-5. `mise run auth` *(interactive `gh auth login`, `rclone` Google Drive OAuth + bisync confirmation, final Herdr hook sync)*
+3. `cp ansible/group_vars/all/local.yml.example ansible/group_vars/all/local.yml` *(set `dotfiles_repo` / `nvim_config_repo`)*
+4. Restore `~/.config/chezmoi/key.txt` (`0600`) if decrypting Chezmoi secrets
+5. `mise run plan` *(optional dry-run with `--check --diff`)*
+6. `mise run apply` *(Pass 1: OS, toolchains, containers, browsers, apps, Antigravity/Claude CLIs)*
+7. `mise run auth` *(interactive `gh auth login`, Chezmoi init/apply + Mise lock install, Google Drive `rclone`, Herdr)*
+8. `mise run apply` *(Pass 2: converge Chezmoi/Mise-dependent Neovim/TPM plugins & dynamic completions)*
 
 ### Day-2 Ongoing Management
 - **Upgrade dev runtimes & CLIs**: `mise upgrade --bump && chezmoi re-add ~/.config/mise` (then commit & push `dotfiles`)
@@ -138,7 +141,8 @@ pop-os-system-build/
 
 ### Phase 5: End-to-End Validation & v1 Retirement
 - [x] Validate upgrade-in-place convergence and post-convergence `changed=0` idempotency on live Pop!_OS 24.04.
-- [ ] Run greenfield fresh-machine Pop!_OS 24.04 rebuild (`preboot/setup_btrfs_live_install.sh` → reboot → `./bootstrap.sh` → `mise run apply` → `mise run auth` → `mise run apply` → `mise run plan`) and confirm CI `ansible-integration` passes all 4 stages (`Pass 0`–`Pass 3`).
+- [x] Verify greenfield Ubuntu 24.04 end-to-end lifecycle in rootless Podman (`./bootstrap.sh` → fresh `--check` → Pass 1 `apply` incl. `desktop_apps` → `auth.sh` + `age` decrypt + Chezmoi + Mise → Pass 2 `apply` → post-converge `--check` / Pass 3 `changed=0` → `stm32`) and confirm CI `ansible-integration` passes all 4 stages (`Pass 0`–`Pass 3`).
+- [ ] Verify hardware-only rebuild steps on physical Pop!_OS hardware (Live USB `preboot/setup_btrfs_live_install.sh` → reboot → `snapper` + `enable_hibernation` resume cycle + desktop Flatpak user session install).
 - [x] Move live-install / secondary-drive scripts under `preboot/` and remove retired v1 files (`pop_os_config.sh`, `resources/downloads.json`, `resources/tool-versions.env`, `scripts/shell_integration.py`, `scripts/neovim_wrapper.py`, `scripts/user_launcher.py`, and Chezmoi-migrated shell/completion resources).
 - [x] Update `README.md` for v2.
 - **Verify**: `mise run check`, `ansible-lint`, and container CI (`bootstrap.sh` + fresh `--check` + apply + post-converge `--check` + repeat apply) pass cleanly.

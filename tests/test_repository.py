@@ -12,6 +12,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from unittest import mock
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -587,6 +588,90 @@ configure_user_links "$1" "$(id -u)" "$(id -g)"
         self.assertTrue((home / 'Downloads').is_symlink())
         self.assertEqual((home / 'Downloads').resolve(), (mnt_data / 'Downloads').resolve())
         self.assertEqual((mnt_data / 'Downloads/file.txt').read_text(), 'saved-download')
+
+    def test_preboot_non_root_sudo_reexec_points_to_existing_script(self):
+        bin_dir = self.root / 'bin'
+        bin_dir.mkdir()
+        sudo_log = self.root / 'sudo.log'
+        sudo_stub = bin_dir / 'sudo'
+        sudo_stub.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$@" > "$SUDO_LOG"\n')
+        sudo_stub.chmod(0o755)
+        env = dict(os.environ, PATH=f'{bin_dir}:{os.environ["PATH"]}', SUDO_LOG=str(sudo_log))
+        for rel_path, args, expected_flag in (
+            ('preboot/setup_secondary_btrfs_drive.sh', ['--format', '/dev/nvme9n1'], '--format'),
+            ('preboot/setup_btrfs_snapper.sh', ['--skip-hibernation'], '--skip-hibernation'),
+        ):
+            with self.subTest(script=rel_path):
+                sudo_log.unlink(missing_ok=True)
+                res = subprocess.run(
+                    ['bash', str(REPO / rel_path), *args],
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(res.returncode, 0, res.stderr)
+                recorded = sudo_log.read_text().splitlines()
+                self.assertEqual(recorded[0], '--')
+                self.assertEqual(recorded[1], str(REPO / rel_path))
+                self.assertTrue(Path(recorded[1]).is_file())
+                self.assertIn(expected_flag, recorded[2:])
+
+    def test_snapper_config_skips_rewrite_when_unchanged(self):
+        root = self.root / 'root-config'
+        root.write_text('SUBVOLUME="/"\nALLOW_GROUPS=""\nNUMBER_LIMIT="10"\n')
+        defaults = self.root / 'snapper-defaults'
+        defaults.write_text('SNAPPER_CONFIGS=""\n')
+        snapper_config.configure(root, defaults)
+        root_stat_1 = root.stat()
+        defaults_stat_1 = defaults.stat()
+        snapper_config.configure(root, defaults)
+        root_stat_2 = root.stat()
+        defaults_stat_2 = defaults.stat()
+        self.assertEqual((root_stat_1.st_ino, root_stat_1.st_mtime_ns),
+                         (root_stat_2.st_ino, root_stat_2.st_mtime_ns))
+        self.assertEqual((defaults_stat_1.st_ino, defaults_stat_1.st_mtime_ns),
+                         (defaults_stat_2.st_ino, defaults_stat_2.st_mtime_ns))
+
+    def test_verify_pgp_accepts_exact_single_primary_fingerprint(self):
+        key = self.root / 'kicad.asc'
+        key.write_text('dummy key')
+        fpr = 'FDA854F61C4D0D9572BB95E5245D5502FAD7A805'
+        colons = f'pub:-:4096:1:245D5502FAD7A805:1594116023:::-:::scSC::::::23::0:\nfpr:::::::::{fpr}:\n'
+        observed_mode = None
+
+        def fake_run(cmd, env=None, **_kwargs):
+            nonlocal observed_mode
+            self.assertIn('--with-colons', cmd)
+            observed_mode = os.stat(env['GNUPGHOME']).st_mode & 0o777
+            return subprocess.CompletedProcess(cmd, 0, stdout=colons, stderr='')
+
+        with mock.patch.object(assets.subprocess, 'run', side_effect=fake_run):
+            assets.verify_pgp(key, fpr.lower())
+        self.assertEqual(observed_mode, 0o700)
+
+    def test_verify_pgp_rejects_mismatch_extra_keys_or_bad_inputs(self):
+        key = self.root / 'kicad.asc'
+        key.write_text('dummy key')
+        fpr = 'FDA854F61C4D0D9572BB95E5245D5502FAD7A805'
+        other = '0' * 40
+
+        with self.assertRaises(ValueError):
+            assets.verify_pgp(key, 'not-a-fingerprint')
+        with self.assertRaises(ValueError):
+            assets.verify_pgp(self.root / 'missing.asc', fpr)
+
+        bad_outputs = (
+            (1, '', 'gpg error'),
+            (0, f'pub:-:4096:\nfpr:::::::::{other}:\n', ''),
+            (0, f'pub:-:4096:\nfpr:::::::::{fpr}:\nsub:-:4096:\n', ''),
+            (0, f'pub:-:4096:\nfpr:::::::::{fpr}:\npub:-:4096:\nfpr:::::::::{fpr}:\n', ''),
+        )
+        for rc, stdout, stderr in bad_outputs:
+            with self.subTest(rc=rc, stdout=stdout):
+                proc = subprocess.CompletedProcess(['gpg'], rc, stdout=stdout, stderr=stderr)
+                with mock.patch.object(assets.subprocess, 'run', return_value=proc):
+                    with self.assertRaises(ValueError):
+                        assets.verify_pgp(key, fpr)
 
 
 if __name__ == '__main__':
