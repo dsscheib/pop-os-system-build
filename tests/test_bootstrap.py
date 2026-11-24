@@ -197,3 +197,13 @@ class BootstrapAndV2FoundationTests(unittest.TestCase):
                 self.assertTrue(entry['url'].startswith('https://'))
                 self.assertNotIn('/latest/', entry['url'])
                 self.assertRegex(entry['sha256'], re.compile(r'^[0-9a-f]{64}$'))
+
+    def test_group_vars_local_yml_sorts_last(self):
+        group_vars_dir = ANSIBLE_DIR / 'group_vars/all'
+        for path in sorted(group_vars_dir.iterdir()):
+            if path.is_file() and path.suffix in {'.yml', '.yaml', '.json'} and path.name != 'local.yml':
+                self.assertLess(
+                    path.name,
+                    'local.yml',
+                    f'{path.relative_to(REPO)} must sort before local.yml so local overrides win',
+                )

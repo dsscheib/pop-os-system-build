@@ -48,7 +48,7 @@ Only GUI/vendor downloads and signed APT repository keys remain pinned in Ansibl
 - **Downloads (7)**: `font` (JetBrainsMono Nerd Font), `arduino_ide`, `saleae`, `synology`, `hyper_backup_explorer`, `antigravity_cli`, `appimagelauncher`
 - **APT signing keys (7)**: `githubcli_key`, `llvm_key`, `mozilla_key`, `google_chrome_key`, `vscode_key`, `claude_code_key`, `kicad_key`
 
-*(And `llvm_version`, `kicad_python_version`, `pynvim_version`, `tpm_commit`, and `arduino_ide_version` live in `ansible/group_vars/all/main.yml`.)*
+*(And `llvm_version`, `kicad_python_version`, `pynvim_version`, `tpm_commit`, and `arduino_ide_version` live in `ansible/group_vars/all/00-defaults.yml`.)*
 
 ---
 
@@ -69,7 +69,7 @@ pop-os-system-build/
 │   ├── inventory/hosts.yml       # localhost
 │   ├── requirements.yml          # community.general, ansible.posix
 │   ├── group_vars/all/
-│   │   ├── main.yml              # Non-secret defaults & package lists
+│   │   ├── 00-defaults.yml       # Non-secret defaults & package lists
 │   │   ├── downloads.yml         # Remaining 7 GUI/vendor pins + 7 APT keys
 │   │   └── local.yml.example     # Optional gitignored local overrides template
 │   ├── playbook.yml              # Ordered roles + final post_tasks (herdr skill & integrations)
@@ -113,7 +113,7 @@ pop-os-system-build/
 - [x] Document v2 plan in `docs/v2-migration-plan.md`
 - [x] Add `bootstrap.sh` (non-root & 24.04+ `x86_64` guards, verified `uv` & `mise` bootstrap, `ansible-core` via `uv`, Galaxy collections)
 - [x] Add repo-local `mise.toml` tasks (`bootstrap`, `apply`, `plan`, `role`, `auth`, `lint`, `check`)
-- [x] Add Ansible foundation (`ansible/ansible.cfg`, `ansible/inventory/hosts.yml`, `ansible/requirements.yml`, `ansible/.ansible-lint`, `ansible/group_vars/all/{main,downloads}.yml`, `ansible/group_vars/all/local.yml.example`, `ansible/playbook.yml`)
+- [x] Add Ansible foundation (`ansible/ansible.cfg`, `ansible/inventory/hosts.yml`, `ansible/requirements.yml`, `ansible/.ansible-lint`, `ansible/group_vars/all/{00-defaults,downloads}.yml`, `ansible/group_vars/all/local.yml.example`, `ansible/playbook.yml`)
 - [x] Update `.gitignore`, `scripts/check.sh`, and `.github/workflows/check.yml` (`ubuntu-24.04` only, YAML parse + conditional `ansible-playbook --syntax-check` & `ansible-lint`)
 - [x] Add unit tests in `tests/test_bootstrap.py`
 - **Verify**: `bash scripts/check.sh` and `mise tasks` pass without altering v1 behavior.
