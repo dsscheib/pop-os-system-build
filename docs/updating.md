@@ -49,6 +49,8 @@ mise run pins --bump-all         # update every pin that can be bumped automatic
 
 For each download, a bump fetches the new release, computes its SHA-256 (and cross-checks published upstream digests when available, such as GitHub SHA-256 or Antigravity SHA-512), and edits `downloads.yml`, `00-defaults.yml`, `bootstrap.sh` or `requirements.yml`.
 
+When `mise run apply` later installs the new version of Arduino IDE, Saleae Logic, Hyper Backup Explorer, the JetBrainsMono Nerd Font or the Antigravity CLI, it removes the previous versions once the new one is linked (the `prune_versions` role). It never removes anything if the new version isn't there.
+
 Some pins are report-only, because a safe bump needs a decision or a value the checker can't find:
 
 | Pin | Why it's manual |

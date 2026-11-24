@@ -92,3 +92,10 @@
     mode: "0755"
   when: not ansible_check_mode
   notify: Refresh user font cache
+
+- name: Prune superseded JetBrainsMono font versions
+  ansible.builtin.import_role:
+    name: prune_versions
+  vars:
+    prune_versions_dir: "{{ desktop_apps_font_versions_dir }}"
+    prune_versions_keep: "{{ pinned_downloads.font.version }}"

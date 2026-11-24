@@ -1,0 +1,39 @@
+---
+# Remove superseded versions next to the active one after an upgrade.
+# Imported with `ansible.builtin.import_role` (static), so the tasks inherit the
+# caller's tags and `mise run role <tag>` prunes too.
+#
+# Variables:
+#   prune_versions_dir       directory holding the versions
+#   prune_versions_keep      basename of the active version (never removed)
+#   prune_versions_type      `directory` (default) or `file`
+#   prune_versions_patterns  basename glob(s) eligible for removal (default `*`)
+#
+# Nothing is removed unless the active version exists, and hidden entries
+# (such as in-progress `.tmp-pop-*` downloads) are never touched.
+
+- name: Check that the active version exists before pruning {{ prune_versions_dir }}
+  ansible.builtin.stat:
+    path: "{{ prune_versions_dir }}/{{ prune_versions_keep }}"
+  register: prune_versions_keep_stat
+
+- name: Find superseded versions in {{ prune_versions_dir }}
+  ansible.builtin.find:
+    paths: "{{ prune_versions_dir }}"
+    file_type: "{{ prune_versions_type | default('directory') }}"
+    patterns: "{{ prune_versions_patterns | default('*') }}"
+    excludes: "{{ prune_versions_keep }}"
+    hidden: false
+    recurse: false
+  register: prune_versions_found
+  check_mode: false
+  when: prune_versions_keep_stat.stat.exists
+
+- name: Remove superseded versions from {{ prune_versions_dir }}
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ prune_versions_found.files | default([]) }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+  when: prune_versions_keep_stat.stat.exists

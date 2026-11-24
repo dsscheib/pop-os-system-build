@@ -167,6 +167,13 @@
         mode: "0755"
       when: not ansible_check_mode
 
+    - name: Prune superseded Antigravity CLI versions
+      ansible.builtin.import_role:
+        name: prune_versions
+      vars:
+        prune_versions_dir: "{{ ai_agents_agy_versions }}"
+        prune_versions_keep: "{{ pinned_downloads.antigravity_cli.version }}"
+
     - name: Install agy launcher in ~/.local/bin
       ansible.builtin.copy:
         content: |
