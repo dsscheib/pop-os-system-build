@@ -128,6 +128,7 @@ apt_base_packages:
   - python3-pil
   - python3-yaml
   - python3-debian
+  - python3-apt
   - ufw
   - bash-completion
   - desktop-file-utils

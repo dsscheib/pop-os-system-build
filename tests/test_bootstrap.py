@@ -80,6 +80,59 @@ class BootstrapAndV2FoundationTests(unittest.TestCase):
         mismatch = self.bash('verify_sha256 "$1" "' + ('0' * 64) + '"', sample)
         self.assertNotEqual(mismatch.returncode, 0)
 
+    def test_bootstrap_download_verified_preserves_existing_file_on_failure(self):
+        dest = self.root / 'tool.bin'
+        dest.write_text('working')
+        bad_hash = self.bash('''
+curl() { printf partial > "${@: -1}"; }
+download_verified https://example.invalid/tool.bin "$1" "$(printf '%064d' 0)"
+''', dest)
+        self.assertNotEqual(bad_hash.returncode, 0)
+        self.assertEqual(dest.read_text(), 'working')
+        self.assertFalse(list(self.root.glob('*.download.*')))
+
+        net_err = self.bash(
+            'curl() { return 42; }; download_verified https://example.invalid/tool.bin "$1" ignored',
+            dest,
+        )
+        self.assertNotEqual(net_err.returncode, 0)
+        self.assertEqual(dest.read_text(), 'working')
+
+    def test_bootstrap_install_ansible_enforces_exact_pins_when_version_differs(self):
+        calls = self.root / 'calls.log'
+        result = self.bash('''
+SCRIPT_DIR="$2"
+log_file="$1"
+ansible-playbook() { printf 'ansible-playbook [core 2.19.0]\n'; }
+ansible-lint() { printf 'ansible-lint 25.1.0\n'; }
+uv() { printf 'uv %s\n' "$*" >> "$log_file"; }
+ansible-galaxy() { printf 'galaxy %s\n' "$*" >> "$log_file"; }
+install_ansible
+''', calls, REPO)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        logged = calls.read_text()
+        self.assertIn('uv tool install --force --with-executables-from ansible-core ansible-core==', logged)
+        self.assertIn('uv tool install --force ansible-lint==', logged)
+
+    def test_tpm_missing_plugin_probe_ignores_comments_and_strips_branch_refs(self):
+        tasks = yaml.safe_load((ANSIBLE_DIR / 'roles/workstation/tasks/main.yml').read_text(encoding='utf-8'))
+        tmux_block = next(entry['block'] for entry in tasks if 'tmux' in entry.get('tags', []))
+        probe_task = next(t for t in tmux_block if t['name'] == 'Check declared tmux plugins missing from plugin directory')
+        py_script = probe_task['ansible.builtin.command']['argv'][2]
+
+        home = self.root / 'home'
+        pdir = home / '.local/share/tmux/plugins'
+        (home / '.config/tmux').mkdir(parents=True)
+        (pdir / 'installed-plugin').mkdir(parents=True)
+        (home / '.config/tmux/tmux.conf').write_text(
+            "# set -g @plugin 'commented/ignored'\n"
+            "  set -g @plugin 'tmux-plugins/tpm'\n"
+            "set -g @plugin 'user/branch-plugin#main'\n"
+            "set-option -g @plugin \"user/installed-plugin#v2\" # inline comment\n"
+        )
+        res = subprocess.run(['python3', '-c', py_script, str(home)], capture_output=True, text=True, check=True)
+        self.assertEqual(res.stdout.splitlines(), ['tpm', 'branch-plugin'])
+
     def test_bootstrap_pins_are_valid_https_and_sha256(self):
         result = self.bash(
             'printf "%s\\n%s\\n%s\\n%s\\n%s\\n%s\\n" '

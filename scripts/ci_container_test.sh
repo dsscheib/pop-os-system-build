@@ -6,12 +6,15 @@ REPO_SRC=${1:-/workspace}
 export DEBIAN_FRONTEND=noninteractive
 
 apt-get update
-apt-get install -y sudo python3 python3-venv python3-yaml curl git ca-certificates pipx
+apt-get install -y sudo
 
 if ! id -u tester >/dev/null 2>&1; then
   useradd -m -s /bin/bash tester
 fi
-echo 'tester ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/tester
+cat > /etc/sudoers.d/tester <<'EOF'
+Defaults env_keep += "DEBIAN_FRONTEND"
+tester ALL=(ALL) NOPASSWD:ALL
+EOF
 chmod 0440 /etc/sudoers.d/tester
 usermod --add-subuids 100000-165535 --add-subgids 100000-165535 tester
 
@@ -21,10 +24,14 @@ chown -R tester:tester /home/tester/repo
 
 su - tester -s /bin/bash <<'EOF'
 set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
 export PATH="$HOME/.local/bin:$PATH"
-pipx install "ansible-core==2.22.0"
 cd /home/tester/repo
-ansible-galaxy collection install -r ansible/requirements.yml
+
+echo "=== Bootstrap (APT prereqs, uv, mise, pinned ansible-core/ansible-lint) ==="
+bash ./bootstrap.sh
+mise run lint
+
 export ANSIBLE_CONFIG="$PWD/ansible/ansible.cfg"
 
 echo "=== Ansible Pass 0 (fresh --check --diff) ==="

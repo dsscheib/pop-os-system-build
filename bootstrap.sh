@@ -90,7 +90,7 @@ install_apt_prereqs() {
   log_info "Installing APT bootstrap prerequisites..."
   sudo -v
   sudo apt-get update
-  sudo apt-get install -y ca-certificates curl git gnupg tar xz-utils python3 python3-venv python3-yaml python3-debian age
+  sudo apt-get install -y ca-certificates curl git gnupg tar xz-utils python3 python3-venv python3-yaml python3-debian python3-apt age
 }
 
 install_uv() {
@@ -121,19 +121,26 @@ install_mise() {
 }
 
 install_ansible() {
-  if ! command -v ansible-playbook >/dev/null; then
-    log_info "Installing pinned ansible-core $ANSIBLE_CORE_VERSION via uv..."
-    uv tool install --with-executables-from ansible-core "ansible-core==${ANSIBLE_CORE_VERSION}"
-    hash -r
-  else
-    log_info "ansible-playbook is already installed: $(command -v ansible-playbook)"
+  local current_core="" current_lint=""
+  if command -v ansible-playbook >/dev/null; then
+    current_core=$(ansible-playbook --version 2>/dev/null | head -n1 || true)
   fi
-  if ! command -v ansible-lint >/dev/null; then
-    log_info "Installing pinned ansible-lint $ANSIBLE_LINT_VERSION via uv..."
-    uv tool install "ansible-lint==${ANSIBLE_LINT_VERSION}"
-    hash -r
+  if [[ $current_core == *"[core $ANSIBLE_CORE_VERSION]"* ]]; then
+    log_info "ansible-core $ANSIBLE_CORE_VERSION is already installed: $(command -v ansible-playbook)"
   else
-    log_info "ansible-lint is already installed: $(command -v ansible-lint)"
+    log_info "Installing pinned ansible-core $ANSIBLE_CORE_VERSION via uv..."
+    uv tool install --force --with-executables-from ansible-core "ansible-core==${ANSIBLE_CORE_VERSION}"
+    hash -r
+  fi
+  if command -v ansible-lint >/dev/null; then
+    current_lint=$(ansible-lint --version 2>/dev/null | head -n1 || true)
+  fi
+  if [[ $current_lint =~ (^|[^0-9.])${ANSIBLE_LINT_VERSION//./\\.}([^0-9.]|$) ]]; then
+    log_info "ansible-lint $ANSIBLE_LINT_VERSION is already installed: $(command -v ansible-lint)"
+  else
+    log_info "Installing pinned ansible-lint $ANSIBLE_LINT_VERSION via uv..."
+    uv tool install --force "ansible-lint==${ANSIBLE_LINT_VERSION}"
+    hash -r
   fi
   log_info "Installing Ansible Galaxy collections..."
   ansible-galaxy collection install -r "$SCRIPT_DIR/ansible/requirements.yml"

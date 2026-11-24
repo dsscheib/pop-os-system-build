@@ -232,7 +232,9 @@
             pdir = home / '.local/share/tmux/plugins';
             confs = [home / '.tmux.conf', home / '.config/tmux/tmux.conf'];
             txt = '\n'.join(c.read_text(encoding='utf-8') for c in confs if c.exists());
-            plugins = [m.split('/')[-1] for m in re.findall(r"set(?:-option)?\s+-g\s+@plugin\s+['\"]([^'\"]+)['\"]", txt)];
+            pat = r'^set(?:-option)?\s+-g\s+@plugin\s+';
+            lines = [re.sub(pat, '', ln.strip()) for ln in txt.splitlines() if re.match(pat, ln.strip())];
+            plugins = [v.split('#', 1)[0].strip(" \t'\"").rstrip('/').split('/')[-1] for v in lines];
             print('\n'.join(p for p in plugins if p and not (pdir / p).is_dir()))
           - "{{ workstation_home }}"
       register: workstation_tpm_missing_plugins

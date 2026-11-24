@@ -48,11 +48,17 @@
     - name: Flush desktop_apps handlers before installing VS Code
       ansible.builtin.meta: flush_handlers
 
+    - name: Check whether VS Code deb822 repository is configured on disk
+      ansible.builtin.stat:
+        path: /etc/apt/sources.list.d/vscode.sources
+      register: desktop_apps_vscode_repo_stat
+
     - name: Install VS Code package
       ansible.builtin.apt:
         name: code
         state: present
       become: true
+      when: not ansible_check_mode or desktop_apps_vscode_repo_stat.stat.exists
 
 - name: Configure and install KiCad 10 and kicad-python
   tags:
@@ -94,11 +100,17 @@
     - name: Flush desktop_apps handlers before installing KiCad
       ansible.builtin.meta: flush_handlers
 
+    - name: Check whether KiCad deb822 repository is configured on disk
+      ansible.builtin.stat:
+        path: /etc/apt/sources.list.d/kicad.sources
+      register: desktop_apps_kicad_repo_stat
+
     - name: Install KiCad package
       ansible.builtin.apt:
         name: kicad
         state: present
       become: true
+      when: not ansible_check_mode or desktop_apps_kicad_repo_stat.stat.exists
 
     - name: Check whether uv is available for kicad-python venv
       ansible.builtin.command:

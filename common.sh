@@ -229,14 +229,3 @@ st_finish() {
   write_desktop "$desktop_file" "$name" "$wrapper" "$working_dir" "$icon" "$wmclass" || return
   refresh_desktop_environment "$(dirname "$desktop_file")"
 }
-
-install_system_file() {
-  local source=$1 destination=$2 mode=${3:-0644} temporary
-  sudo install -d -o root -g root -m 0755 "$(dirname "$destination")" || return
-  temporary=$(sudo mktemp "${destination}.tmp.XXXXXX") || return
-  if ! sudo install -o root -g root -m "$mode" "$source" "$temporary"; then
-    sudo rm -f -- "$temporary"
-    return 1
-  fi
-  sudo mv -Tf -- "$temporary" "$destination"
-}

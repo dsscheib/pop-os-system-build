@@ -137,7 +137,8 @@ pop-os-system-build/
 - **Verify**: `chezmoi diff`, `chezmoi apply`, `mise doctor`, and `herdr config check` succeed cleanly.
 
 ### Phase 5: End-to-End Validation & v1 Retirement
-- [x] Validate full workstation convergence and post-convergence `changed=0` idempotency on live Pop!_OS 24.04; test greenfield VM/machine rebuild (`./bootstrap.sh` → `mise run apply` → `mise run auth` → `mise run apply`) on next fresh install.
+- [x] Validate upgrade-in-place convergence and post-convergence `changed=0` idempotency on live Pop!_OS 24.04.
+- [ ] Run greenfield fresh-machine Pop!_OS 24.04 rebuild (`preboot/setup_btrfs_live_install.sh` → reboot → `./bootstrap.sh` → `mise run apply` → `mise run auth` → `mise run apply` → `mise run plan`) and confirm CI `ansible-integration` passes all 4 stages (`Pass 0`–`Pass 3`).
 - [x] Move live-install / secondary-drive scripts under `preboot/` and remove retired v1 files (`pop_os_config.sh`, `resources/downloads.json`, `resources/tool-versions.env`, `scripts/shell_integration.py`, `scripts/neovim_wrapper.py`, `scripts/user_launcher.py`, and Chezmoi-migrated shell/completion resources).
 - [x] Update `README.md` for v2.
-- **Verify**: `mise run check`, `ansible-lint`, and container CI (`--check` + two-pass apply) pass cleanly; live workstation converged (`changed=0` on repeat pass).
+- **Verify**: `mise run check`, `ansible-lint`, and container CI (`bootstrap.sh` + fresh `--check` + apply + post-converge `--check` + repeat apply) pass cleanly.

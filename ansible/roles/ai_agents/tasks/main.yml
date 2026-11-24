@@ -57,11 +57,17 @@
     - name: Flush ai_agents handlers before installing Claude Code
       ansible.builtin.meta: flush_handlers
 
+    - name: Check whether Claude Code deb822 repository is configured on disk
+      ansible.builtin.stat:
+        path: /etc/apt/sources.list.d/claude-code.sources
+      register: ai_agents_claude_repo_stat
+
     - name: Install claude-code package
       ansible.builtin.apt:
         name: claude-code
         state: present
       become: true
+      when: not ansible_check_mode or ai_agents_claude_repo_stat.stat.exists
 
     - name: Verify Claude Code CLI version
       ansible.builtin.command:

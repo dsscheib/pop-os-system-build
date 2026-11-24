@@ -58,11 +58,17 @@
 - name: Flush system handlers before installing GitHub CLI
   ansible.builtin.meta: flush_handlers
 
+- name: Check whether GitHub CLI deb822 repository is configured on disk
+  ansible.builtin.stat:
+    path: /etc/apt/sources.list.d/githubcli.sources
+  register: system_githubcli_repo_stat
+
 - name: Install GitHub CLI package
   ansible.builtin.apt:
     name: gh
     state: present
   become: true
+  when: not ansible_check_mode or system_githubcli_repo_stat.stat.exists
 
 - name: Ensure hardware device groups exist
   ansible.builtin.group:
