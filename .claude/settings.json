@@ -24,7 +24,11 @@
       "Bash(./install_stm32_cube_ide.sh:*)",
       "Bash(./install_stm32_cube_mx.sh:*)",
       "Bash(./install_stm32_cube_prog.sh:*)",
-      "Bash(./install_sw4stm32.sh:*)"
+      "Bash(./install_sw4stm32.sh:*)",
+      "Bash(mise run update:*)",
+      "Bash(bash ./scripts/update.sh:*)",
+      "Bash(bash scripts/update.sh:*)",
+      "Bash(./scripts/update.sh:*)"
     ],
     "deny": [
       "Read(./.env)",
