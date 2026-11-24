@@ -87,7 +87,7 @@ install_apt_prereqs() {
   log_info "Installing APT bootstrap prerequisites..."
   sudo -v
   sudo apt-get update
-  sudo apt-get install -y ca-certificates curl git gnupg tar xz-utils python3 python3-venv python3-yaml age
+  sudo apt-get install -y ca-certificates curl git gnupg tar xz-utils python3 python3-venv python3-yaml python3-debian age
 }
 
 install_uv() {

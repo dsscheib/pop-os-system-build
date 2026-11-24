@@ -107,10 +107,7 @@ chezmoi = "latest"
 go = "1.27.2"
 node = "24.21.0"
 uv = "0.13.0"
-
-[tools.rust]
-version = "1.99.0"
-components = "rust-analyzer,rustfmt,clippy,rust-src"
+rust = { version = "1.99.0", components = "rust-analyzer,rustfmt,clippy,rust-src" }
 
 # CLI utilities (previously hand-pinned in downloads.json or APT)
 neovim = "0.12.6"

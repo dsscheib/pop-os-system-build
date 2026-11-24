@@ -127,6 +127,7 @@ apt_base_packages:
   - python3-venv
   - python3-pil
   - python3-yaml
+  - python3-debian
   - ufw
   - bash-completion
   - desktop-file-utils
