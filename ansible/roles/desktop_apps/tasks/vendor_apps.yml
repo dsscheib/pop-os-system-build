@@ -89,6 +89,13 @@
         mode: "0755"
       when: not ansible_check_mode
 
+    - name: Prune superseded Arduino IDE versions
+      ansible.builtin.import_role:
+        name: prune_versions
+      vars:
+        prune_versions_dir: "{{ desktop_apps_arduino_versions_dir }}"
+        prune_versions_keep: "{{ pinned_downloads.arduino_ide.version }}"
+
     - name: Install Arduino IDE wrapper script
       ansible.builtin.copy:
         content: |
@@ -206,6 +213,15 @@
           - "{{ workstation_home }}/.local/share/applications/saleae-logic.desktop"
       changed_when: false
       when: not ansible_check_mode
+
+    - name: Prune superseded Saleae Logic AppImages
+      ansible.builtin.import_role:
+        name: prune_versions
+      vars:
+        prune_versions_dir: "{{ desktop_apps_saleae_appimage | dirname }}"
+        prune_versions_keep: "{{ desktop_apps_saleae_appimage | basename }}"
+        prune_versions_type: file
+        prune_versions_patterns: Logic-*-linux-x64.AppImage
 
 - name: Install Synology Drive client
   tags:
@@ -350,6 +366,13 @@
         force: true
         mode: "0755"
       when: not ansible_check_mode
+
+    - name: Prune superseded Hyper Backup Explorer versions
+      ansible.builtin.import_role:
+        name: prune_versions
+      vars:
+        prune_versions_dir: "{{ desktop_apps_hbe_versions_dir }}"
+        prune_versions_keep: "{{ pinned_downloads.hyper_backup_explorer.version }}"
 
     - name: Install Hyper Backup Explorer wrapper script
       ansible.builtin.copy:
