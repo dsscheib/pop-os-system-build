@@ -1,0 +1,12 @@
+---
+- name: Configure Firefox Developer Edition
+  ansible.builtin.import_tasks: firefox.yml
+  tags:
+    - browsers
+    - firefox
+
+- name: Configure Google Chrome
+  ansible.builtin.import_tasks: chrome.yml
+  tags:
+    - browsers
+    - chrome

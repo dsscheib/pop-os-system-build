@@ -2,6 +2,7 @@
 config.env
 config.secrets.env
 .env
+ansible/group_vars/all/local.yml
 
 # Downloaded installer archives & executables
 *.zip

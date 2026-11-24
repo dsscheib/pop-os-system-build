@@ -1,0 +1,43 @@
+---
+- name: Determine newest installable native GCC/G++ major
+  ansible.builtin.command:
+    argv:
+      - python3
+      - "{{ repo_root }}/scripts/toolchain_links.py"
+      - latest-major
+      - gcc
+      - g++
+  register: toolchains_gcc_major
+  changed_when: false
+  check_mode: false
+
+- name: Install native build tools and newest GCC/G++ major
+  ansible.builtin.apt:
+    name: >-
+      {{
+        apt_toolchain_base_packages
+        + ['gcc-' ~ (toolchains_gcc_major.stdout | trim), 'g++-' ~ (toolchains_gcc_major.stdout | trim)]
+      }}
+    state: present
+    install_recommends: false
+  become: true
+
+- name: Synchronize native GCC/G++ symlinks in ~/.local/bin
+  ansible.builtin.command:
+    argv: >-
+      {{
+        [
+          'python3',
+          repo_root ~ '/scripts/toolchain_links.py',
+          'sync-links',
+          '--major', toolchains_gcc_major.stdout | trim,
+          '--bin-dir', '/usr/bin',
+          '--dest-dir', workstation_local_bin,
+        ]
+        + (['--check'] if ansible_check_mode else [])
+        + gcc_managed_commands
+      }}
+  register: toolchains_gcc_links
+  check_mode: false
+  changed_when: toolchains_gcc_links.stdout | trim == 'changed'
+  when: not ansible_check_mode

@@ -6,15 +6,32 @@ permissions:
   contents: read
 jobs:
   check:
-    strategy:
-      matrix:
-        os: [ubuntu-22.04, ubuntu-24.04]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Install test dependencies
-        run: sudo apt-get update && sudo apt-get install -y shellcheck desktop-file-utils python3 python3-pil fish zsh bash-completion
+        run: >-
+          sudo apt-get update &&
+          sudo apt-get install -y shellcheck desktop-file-utils python3 python3-pil python3-yaml pipx fish zsh bash-completion
+      - name: Install Ansible lint and collections
+        run: |
+          pipx install --include-deps ansible-lint
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Install Ansible Galaxy collections
+        run: ansible-galaxy collection install -r ansible/requirements.yml
       - name: Check scripts and run regressions
         run: bash scripts/check.sh
+
+  ansible-integration:
+    needs: check
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify Ansible convergence and idempotency in Ubuntu 24.04 container
+        run: >-
+          docker run --rm -v "$PWD:/workspace:ro" ubuntu:24.04
+          bash /workspace/scripts/ci_container_test.sh /workspace

@@ -1,0 +1,90 @@
+---
+- name: Check subordinate UID and GID ranges for workstation user
+  ansible.builtin.command:
+    argv:
+      - grep
+      - -q
+      - "^{{ workstation_user }}:"
+      - "{{ item }}"
+  loop:
+    - /etc/subuid
+    - /etc/subgid
+  register: containers_subid_checks
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+- name: Assert subordinate ID ranges are configured for rootless Podman
+  ansible.builtin.assert:
+    that:
+      - containers_subid_checks.results[0].rc == 0
+      - containers_subid_checks.results[1].rc == 0
+    fail_msg: >-
+      Rootless Podman needs subordinate IDs for {{ workstation_user }} in
+      /etc/subuid and /etc/subgid. Run:
+      sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 {{ workstation_user }}
+
+- name: Install rootless Podman packages
+  ansible.builtin.apt:
+    name: "{{ apt_podman_packages }}"
+    state: present
+  become: true
+
+- name: Ensure Podman registries configuration directory exists
+  ansible.builtin.file:
+    path: /etc/containers/registries.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Configure unqualified Podman search registry
+  ansible.builtin.template:
+    src: 50-pop-workstation-search.conf.j2
+    dest: /etc/containers/registries.conf.d/50-pop-workstation-search.conf
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+
+- name: Verify Podman CLI version
+  ansible.builtin.command:
+    argv:
+      - podman
+      - --version
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Verify rootless Podman user namespace configuration
+  ansible.builtin.command:
+    argv:
+      - podman
+      - info
+  changed_when: false
+  when: not ansible_check_mode
+  tags:
+    - systemd_live
+
+- name: Ensure Fish completions directory exists
+  ansible.builtin.file:
+    path: "{{ workstation_home }}/.config/fish/completions"
+    state: directory
+    mode: "u+rwx,g+rx,o+rx"
+
+- name: Generate Podman Fish completions
+  ansible.builtin.command:
+    argv:
+      - podman
+      - completion
+      - fish
+  register: containers_podman_fish_completion
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Install Podman Fish completions
+  ansible.builtin.copy:
+    content: "{{ containers_podman_fish_completion.stdout }}"
+    dest: "{{ workstation_home }}/.config/fish/completions/podman.fish"
+    mode: "0644"
+  when: not ansible_check_mode

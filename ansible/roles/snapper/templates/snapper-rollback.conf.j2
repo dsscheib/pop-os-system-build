@@ -1,0 +1,5 @@
+[root]
+dev = /dev/disk/by-uuid/{{ snapper_root_uuid }}
+subvol_main = @
+subvol_snapshots = @snapshots
+mountpoint = /btrfsroot

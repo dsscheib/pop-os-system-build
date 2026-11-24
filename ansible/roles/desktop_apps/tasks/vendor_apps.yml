@@ -1,0 +1,387 @@
+---
+- name: Install Arduino IDE 2
+  tags:
+    - arduino
+  block:
+    - name: Set Arduino IDE path facts
+      ansible.builtin.set_fact:
+        desktop_apps_arduino_versions_dir: "{{ workstation_home }}/Applications/.arduino-ide.versions"
+        desktop_apps_arduino_install_dir: "{{ workstation_home }}/Applications/.arduino-ide.versions/{{ arduino_ide_version }}"
+        desktop_apps_arduino_link: "{{ workstation_home }}/Applications/arduino-ide"
+        desktop_apps_arduino_app_dir: >-
+          {{ workstation_home ~ '/Applications/.arduino-ide.versions/' ~ arduino_ide_version
+             ~ '/arduino-ide_' ~ arduino_ide_version ~ '_Linux_64bit' }}
+
+    - name: Ensure Arduino IDE versions directory exists
+      ansible.builtin.file:
+        path: "{{ desktop_apps_arduino_versions_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Check whether pinned Arduino IDE version is installed
+      ansible.builtin.stat:
+        path: "{{ desktop_apps_arduino_app_dir }}/arduino-ide"
+      register: desktop_apps_arduino_stat
+
+    - name: Download and extract pinned Arduino IDE archive
+      when:
+        - not desktop_apps_arduino_stat.stat.exists
+        - not ansible_check_mode
+      block:
+        - name: Create temporary workspace for Arduino IDE download
+          ansible.builtin.tempfile:
+            state: directory
+            prefix: pop-arduino-
+          register: desktop_apps_arduino_tmpdir
+
+        - name: Download verified Arduino IDE zip
+          ansible.builtin.get_url:
+            url: "{{ pinned_downloads.arduino_ide.url }}"
+            dest: "{{ desktop_apps_arduino_tmpdir.path }}/arduino-ide.zip"
+            checksum: "sha256:{{ pinned_downloads.arduino_ide.sha256 }}"
+            mode: "0644"
+
+        - name: Extract Arduino IDE zip safely
+          ansible.builtin.command:
+            argv:
+              - python3
+              - "{{ repo_root }}/scripts/st_assets.py"
+              - zip
+              - "{{ desktop_apps_arduino_tmpdir.path }}/arduino-ide.zip"
+              - "{{ desktop_apps_arduino_install_dir }}"
+          changed_when: true
+
+        - name: Remove temporary Arduino IDE workspace
+          ansible.builtin.file:
+            path: "{{ desktop_apps_arduino_tmpdir.path }}"
+            state: absent
+
+    - name: Link active Arduino IDE directory
+      ansible.builtin.file:
+        src: "{{ desktop_apps_arduino_install_dir }}"
+        dest: "{{ desktop_apps_arduino_link }}"
+        state: link
+        force: true
+        mode: "0755"
+      when: not ansible_check_mode
+
+    - name: Install Arduino IDE wrapper script
+      ansible.builtin.copy:
+        content: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          export PATH="{{ desktop_apps_arduino_app_dir }}:$PATH"
+          cd -- "{{ desktop_apps_arduino_app_dir }}"
+          exec "{{ desktop_apps_arduino_app_dir }}/arduino-ide" "$@"
+        dest: "{{ workstation_local_bin }}/arduino-ide"
+        mode: "0755"
+
+    - name: Install Arduino IDE desktop entry
+      ansible.builtin.copy:
+        content: |
+          [Desktop Entry]
+          Version=1.0
+          Type=Application
+          Name=Arduino IDE 2
+          Exec="{{ workstation_local_bin }}/arduino-ide" %F
+          Path={{ desktop_apps_arduino_app_dir }}
+          Icon={{ desktop_apps_arduino_app_dir }}/resources/app/resources/icons/512x512.png
+          Terminal=false
+          Categories=Development;IDE;
+          StartupWMClass=arduino-ide
+        dest: "{{ workstation_home }}/.local/share/applications/arduino-ide.desktop"
+        mode: "0644"
+      notify: Refresh desktop applications database
+
+    - name: Validate Arduino IDE desktop entry
+      ansible.builtin.command:
+        argv:
+          - desktop-file-validate
+          - "{{ workstation_home }}/.local/share/applications/arduino-ide.desktop"
+      changed_when: false
+      when: not ansible_check_mode
+
+- name: Install Saleae Logic 2 AppImage and XWayland launcher
+  tags:
+    - saleae
+  block:
+    - name: Set Saleae Logic path facts
+      ansible.builtin.set_fact:
+        desktop_apps_saleae_appimage: "{{ workstation_home }}/Applications/Logic-{{ pinned_downloads.saleae.version }}-linux-x64.AppImage"
+        desktop_apps_saleae_icon: "{{ workstation_home }}/.local/share/icons/hicolor/512x512/apps/saleae-logic.png"
+
+    - name: Download verified Saleae Logic 2 AppImage
+      ansible.builtin.get_url:
+        url: "{{ pinned_downloads.saleae.url }}"
+        dest: "{{ desktop_apps_saleae_appimage }}"
+        checksum: "sha256:{{ pinned_downloads.saleae.sha256 }}"
+        mode: "0755"
+
+    - name: Ensure Saleae Logic icon directory exists
+      ansible.builtin.file:
+        path: "{{ desktop_apps_saleae_icon | dirname }}"
+        state: directory
+        mode: "0755"
+
+    - name: Install Saleae Logic icon
+      ansible.builtin.copy:
+        src: "{{ repo_root }}/resources/icons/saleae-logic.png"
+        dest: "{{ desktop_apps_saleae_icon }}"
+        mode: "0644"
+
+    - name: Install Saleae Logic udev rules
+      ansible.builtin.copy:
+        src: "{{ repo_root }}/resources/udev/99-SaleaeLogic.rules"
+        dest: /etc/udev/rules.d/99-SaleaeLogic.rules
+        owner: root
+        group: root
+        mode: "0644"
+      become: true
+      notify: Reload desktop udev rules
+
+    - name: Install Saleae Logic XWayland wrapper script
+      ansible.builtin.copy:
+        content: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          export QT_QPA_PLATFORM=xcb
+          export APPIMAGELAUNCHER_DISABLE=1
+          export PATH="{{ workstation_home }}/Applications:$PATH"
+          cd -- "{{ workstation_home }}/Applications"
+          exec "{{ desktop_apps_saleae_appimage }}" "$@"
+        dest: "{{ workstation_local_bin }}/saleae-logic"
+        mode: "0755"
+
+    - name: Install Saleae Logic desktop entry
+      ansible.builtin.copy:
+        content: |
+          [Desktop Entry]
+          Version=1.0
+          Type=Application
+          Name=Saleae Logic
+          Exec="{{ workstation_local_bin }}/saleae-logic" %F
+          Path={{ workstation_home }}/Applications
+          Icon={{ desktop_apps_saleae_icon }}
+          Terminal=false
+          Categories=Development;IDE;
+          StartupWMClass=Logic
+        dest: "{{ workstation_home }}/.local/share/applications/saleae-logic.desktop"
+        mode: "0644"
+      notify: Refresh desktop applications database
+
+    - name: Validate Saleae Logic desktop entry
+      ansible.builtin.command:
+        argv:
+          - desktop-file-validate
+          - "{{ workstation_home }}/.local/share/applications/saleae-logic.desktop"
+      changed_when: false
+      when: not ansible_check_mode
+
+- name: Install Synology Drive client
+  tags:
+    - synology
+  block:
+    - name: Check whether synology-drive package is installed
+      ansible.builtin.command:
+        argv:
+          - dpkg-query
+          - -W
+          - -f=${Status}
+          - synology-drive
+      register: desktop_apps_synology_dpkg
+      changed_when: false
+      failed_when: false
+
+    - name: Download and install Synology Drive Debian package
+      when:
+        - "'install ok installed' not in desktop_apps_synology_dpkg.stdout"
+        - not ansible_check_mode
+      become: true
+      block:
+        - name: Create temporary workspace for Synology Drive deb
+          ansible.builtin.tempfile:
+            state: directory
+            prefix: pop-synology-
+          register: desktop_apps_synology_tmpdir
+
+        - name: Ensure APT can traverse Synology Drive staging directory
+          ansible.builtin.file:
+            path: "{{ desktop_apps_synology_tmpdir.path }}"
+            state: directory
+            owner: root
+            group: root
+            mode: "0755"
+
+        - name: Download verified Synology Drive deb
+          ansible.builtin.get_url:
+            url: "{{ pinned_downloads.synology.url }}"
+            dest: "{{ desktop_apps_synology_tmpdir.path }}/synology-drive.deb"
+            checksum: "sha256:{{ pinned_downloads.synology.sha256 }}"
+            mode: "0644"
+
+        - name: Install Synology Drive deb package
+          ansible.builtin.apt:
+            deb: "{{ desktop_apps_synology_tmpdir.path }}/synology-drive.deb"
+
+        - name: Remove temporary Synology Drive staging directory
+          ansible.builtin.file:
+            path: "{{ desktop_apps_synology_tmpdir.path }}"
+            state: absent
+
+- name: Install Synology Hyper Backup Explorer
+  tags:
+    - hyper_backup
+  block:
+    - name: Install Hyper Backup Explorer runtime dependencies
+      ansible.builtin.apt:
+        name: "{{ apt_hyper_backup_deps }}"
+        state: present
+      become: true
+
+    - name: Set Hyper Backup Explorer path facts
+      ansible.builtin.set_fact:
+        desktop_apps_hbe_versions_dir: "{{ workstation_home }}/Applications/.HyperBackupExplorer.versions"
+        desktop_apps_hbe_install_dir: "{{ workstation_home }}/Applications/.HyperBackupExplorer.versions/{{ pinned_downloads.hyper_backup_explorer.version }}"
+        desktop_apps_hbe_link: "{{ workstation_home }}/Applications/HyperBackupExplorer"
+
+    - name: Ensure Hyper Backup Explorer versions directory exists
+      ansible.builtin.file:
+        path: "{{ desktop_apps_hbe_versions_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Check whether pinned Hyper Backup Explorer version is installed
+      ansible.builtin.stat:
+        path: "{{ desktop_apps_hbe_install_dir }}/HyperBackupExplorer"
+      register: desktop_apps_hbe_stat
+
+    - name: Download and extract Hyper Backup Explorer archive
+      when:
+        - not desktop_apps_hbe_stat.stat.exists
+        - not ansible_check_mode
+      block:
+        - name: Create temporary workspace for Hyper Backup Explorer download
+          ansible.builtin.tempfile:
+            state: directory
+            prefix: pop-hbe-
+          register: desktop_apps_hbe_tmpdir
+
+        - name: Download verified Hyper Backup Explorer archive
+          ansible.builtin.get_url:
+            url: "{{ pinned_downloads.hyper_backup_explorer.url }}"
+            dest: "{{ desktop_apps_hbe_tmpdir.path }}/hyper-backup-explorer.tar.bz2"
+            checksum: "sha256:{{ pinned_downloads.hyper_backup_explorer.sha256 }}"
+            mode: "0644"
+
+        - name: Extract Hyper Backup Explorer archive safely
+          ansible.builtin.command:
+            argv:
+              - python3
+              - "{{ repo_root }}/scripts/st_assets.py"
+              - tar
+              - "{{ desktop_apps_hbe_tmpdir.path }}/hyper-backup-explorer.tar.bz2"
+              - "{{ desktop_apps_hbe_install_dir }}"
+          changed_when: true
+
+        - name: Remove temporary Hyper Backup Explorer workspace
+          ansible.builtin.file:
+            path: "{{ desktop_apps_hbe_tmpdir.path }}"
+            state: absent
+
+    - name: Link active Hyper Backup Explorer directory
+      ansible.builtin.file:
+        src: "{{ desktop_apps_hbe_install_dir }}"
+        dest: "{{ desktop_apps_hbe_link }}"
+        state: link
+        force: true
+        mode: "0755"
+      when: not ansible_check_mode
+
+    - name: Install Hyper Backup Explorer wrapper script
+      ansible.builtin.copy:
+        content: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          export LD_LIBRARY_PATH="{{ desktop_apps_hbe_install_dir }}/lib"
+          export QT_QPA_PLATFORM=xcb
+          export PATH="{{ desktop_apps_hbe_install_dir }}:$PATH"
+          cd -- "{{ desktop_apps_hbe_install_dir }}"
+          exec "{{ desktop_apps_hbe_install_dir }}/HyperBackupExplorer" "$@"
+        dest: "{{ workstation_local_bin }}/hyper-backup-explorer"
+        mode: "0755"
+
+    - name: Install Hyper Backup Explorer desktop entry
+      ansible.builtin.copy:
+        content: |
+          [Desktop Entry]
+          Version=1.0
+          Type=Application
+          Name=Synology Hyper Backup Explorer
+          Exec="{{ workstation_local_bin }}/hyper-backup-explorer" %F
+          Path={{ desktop_apps_hbe_install_dir }}
+          Icon=folder-open
+          Terminal=false
+          Categories=Utility;Archiving;
+        dest: "{{ workstation_home }}/.local/share/applications/synology-hyper-backup-explorer.desktop"
+        mode: "0644"
+      notify: Refresh desktop applications database
+
+    - name: Validate Hyper Backup Explorer desktop entry
+      ansible.builtin.command:
+        argv:
+          - desktop-file-validate
+          - "{{ workstation_home }}/.local/share/applications/synology-hyper-backup-explorer.desktop"
+      changed_when: false
+      when: not ansible_check_mode
+
+- name: Install optional AppImageLauncher package
+  when: install_appimagelauncher | bool
+  tags:
+    - appimagelauncher
+  block:
+    - name: Check whether appimagelauncher package is installed
+      ansible.builtin.command:
+        argv:
+          - dpkg-query
+          - -W
+          - -f=${Status}
+          - appimagelauncher
+      register: desktop_apps_ail_dpkg
+      changed_when: false
+      failed_when: false
+
+    - name: Download and install AppImageLauncher Debian package
+      when:
+        - "'install ok installed' not in desktop_apps_ail_dpkg.stdout"
+        - not ansible_check_mode
+      become: true
+      block:
+        - name: Create temporary workspace for AppImageLauncher deb
+          ansible.builtin.tempfile:
+            state: directory
+            prefix: pop-ail-
+          register: desktop_apps_ail_tmpdir
+
+        - name: Ensure APT can traverse AppImageLauncher staging directory
+          ansible.builtin.file:
+            path: "{{ desktop_apps_ail_tmpdir.path }}"
+            state: directory
+            owner: root
+            group: root
+            mode: "0755"
+
+        - name: Download verified AppImageLauncher deb
+          ansible.builtin.get_url:
+            url: "{{ pinned_downloads.appimagelauncher.url }}"
+            dest: "{{ desktop_apps_ail_tmpdir.path }}/appimagelauncher.deb"
+            checksum: "sha256:{{ pinned_downloads.appimagelauncher.sha256 }}"
+            mode: "0644"
+
+        - name: Install AppImageLauncher deb package
+          ansible.builtin.apt:
+            deb: "{{ desktop_apps_ail_tmpdir.path }}/appimagelauncher.deb"
+
+        - name: Remove temporary AppImageLauncher staging directory
+          ansible.builtin.file:
+            path: "{{ desktop_apps_ail_tmpdir.path }}"
+            state: absent

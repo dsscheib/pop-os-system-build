@@ -1,0 +1,20 @@
+---
+- name: Check ~/.tmux.conf presence
+  ansible.builtin.stat:
+    path: "{{ workstation_home }}/.tmux.conf"
+  register: workstation_tmux_conf_home
+
+- name: Check ~/.config/tmux/tmux.conf presence
+  ansible.builtin.stat:
+    path: "{{ workstation_home }}/.config/tmux/tmux.conf"
+  register: workstation_tmux_conf_xdg
+
+- name: Run TPM install_plugins
+  ansible.builtin.command:
+    argv:
+      - "{{ workstation_home }}/.local/share/tmux/plugins/tpm/bin/install_plugins"
+  environment:
+    TMUX_PLUGIN_MANAGER_PATH: "{{ workstation_home }}/.local/share/tmux/plugins"
+  changed_when: true
+  failed_when: false
+  when: workstation_tmux_conf_home.stat.exists or workstation_tmux_conf_xdg.stat.exists

@@ -1,0 +1,62 @@
+---
+# Pinned vendor/GUI downloads and APT repository signing keys managed by Ansible.
+# CLI tools and runtimes (go, node, rust, uv, neovim, starship, bottom, fastfetch,
+# rclone, herdr, etc.) are pinned via Mise lockfile in Chezmoi dotfiles.
+
+pinned_downloads:
+  font:
+    version: "v3.5.1"
+    url: "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.1/JetBrainsMono.zip"
+    sha256: "fab782a66f7d3019da64f6572db9fc5d3a4bcb19f9fa13e2d8a62e3693d6396e"
+  appimagelauncher:
+    version: "v3.0.0-beta-3"
+    url: "https://github.com/TheAssassin/AppImageLauncher/releases/download/v3.0.0-beta-3/appimagelauncher_3.0.0-beta-2-gha287.96cb937_amd64.deb"
+    sha256: "4117552105968a8011955d065b5fd55f547a2ed21dac1fe0a046ee9b60220c36"
+  saleae:
+    version: "2.4.48"
+    url: "https://downloads2.saleae.com/logic2/Logic-2.4.48-linux-x64.AppImage"
+    sha256: "dbc2ded63b48d7561d9e2e5c9f1e2bafdc7f5654ee714ad123c69df74863641b"
+  synology:
+    version: "4.0.1-17885"
+    url: "https://global.synologydownload.com/download/Utility/SynologyDriveClient/4.0.1-17885/Ubuntu/Installer/synology-drive-client-17885.x86_64.deb"
+    sha256: "0cc1ea87ca344649d64f27003526cca498f5df7fcc67cb99d7ccad0d955a28c8"
+  hyper_backup_explorer:
+    version: "3.0.1-0156"
+    url: "https://global.synologydownload.com/download/Utility/HyperBackupExplorer/3.0.1-0156/Linux/x86_64/HyperBackupExplorer-3.0.1-0156-linux.tar.bz2"
+    sha256: "5a36e4bc9ca31cb8737be63059f9506a17349c19546a4ff42fd17cc6f0a2e088"
+  antigravity_cli:
+    version: "1.3.5"
+    url: "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.3.5-6164039479459840/linux-x64/cli_linux_x64.tar.gz"
+    sha256: "007a5a44dbaf1caea464c3d9848c63b2f69945b01a8bf8852c56c477a64374cf"
+  arduino_ide:
+    version: "2.3.10"
+    url: "https://github.com/arduino/arduino-ide/releases/download/2.3.10/arduino-ide_2.3.10_Linux_64bit.zip"
+    sha256: "cc8a0b01e763d4646b670ce70c1bc8c389a0fa14ab556dcc0749c03f475a7975"
+  vscode_key:
+    version: "2026-10-13"
+    url: "https://packages.microsoft.com/keys/microsoft.asc"
+    sha256: "2fa9c05d591a1582a9aba276272478c262e95ad00acf60eaee1644d93941e3c6"
+  mozilla_key:
+    version: "2026-10-13"
+    url: "https://packages.mozilla.org/apt/repo-signing-key.gpg"
+    sha256: "3ecc63922b7795eb23fdc449ff9396f9114cb3cf186d6f5b53ad4cc3ebfbb11f"
+  githubcli_key:
+    version: "2026-10-28"
+    url: "https://cli.github.com/packages/githubcli-archive-keyring.gpg"
+    sha256: "6084d5d7bd8e288441e0e94fc6275570895da18e6751f70f057485dc2d1a811b"
+  claude_code_key:
+    version: "2026-10-14"
+    url: "https://downloads.claude.ai/keys/claude-code.asc"
+    sha256: "bd70a5e4a268002704024ceba7f8446024114e94f3f0bdd11c23a9e592be81c6"
+  kicad_key:
+    version: "2026-11-13"
+    url: "https://keyserver.ubuntu.com/pks/lookup?op=get&options=mr&search=0xFDA854F61C4D0D9572BB95E5245D5502FAD7A805"
+    sha256: "427647b82357bf86e9d7176639c6cabbb3ca6bfe23218b0436e61cc1a47ad532"
+  google_chrome_key:
+    version: "2026-10-31"
+    url: "https://dl.google.com/linux/linux_signing_key.pub"
+    sha256: "54dea5f6c2a26091578cf52a999cebc6b64df478d37ad4dce96376b711e3b27c"
+  llvm_key:
+    version: "2026-11-11"
+    url: "https://apt.llvm.org/llvm-snapshot.gpg.key"
+    sha256: "8b2a587ffd672c4687e7581dad4b2f6c1bb2ad6b480cd9771ba2ff48e0b8c75d"

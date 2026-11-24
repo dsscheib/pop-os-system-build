@@ -1,0 +1,211 @@
+---
+- name: Ensure ~/.local/bin directory exists
+  ansible.builtin.file:
+    path: "{{ workstation_local_bin }}"
+    state: directory
+    mode: "0755"
+  tags:
+    - workstation
+
+- name: Converge Chezmoi dotfiles when initialized
+  tags:
+    - workstation
+    - chezmoi
+  block:
+    - name: Check whether chezmoi is installed
+      ansible.builtin.command:
+        argv:
+          - which
+          - chezmoi
+      environment:
+        PATH: "{{ workstation_local_bin }}:{{ workstation_home }}/.local/share/mise/shims:{{ ansible_facts['env'].PATH | default('/usr/bin:/bin') }}"
+      register: workstation_chezmoi_which
+      changed_when: false
+      check_mode: false
+      failed_when: false
+
+    - name: Check whether Chezmoi source repository is initialized
+      ansible.builtin.stat:
+        path: "{{ workstation_home }}/.local/share/chezmoi/.git"
+      register: workstation_chezmoi_repo_stat
+
+    - name: Check Chezmoi pending drift
+      ansible.builtin.command:
+        argv:
+          - "{{ workstation_chezmoi_which.stdout | trim }}"
+          - status
+      register: workstation_chezmoi_status
+      changed_when: false
+      check_mode: false
+      when:
+        - workstation_chezmoi_which.rc == 0
+        - workstation_chezmoi_repo_stat.stat.exists
+
+    - name: Apply Chezmoi dotfiles
+      ansible.builtin.command:
+        argv:
+          - "{{ workstation_chezmoi_which.stdout | trim }}"
+          - apply
+          - --no-tty
+      changed_when: true
+      when:
+        - workstation_chezmoi_which.rc == 0
+        - workstation_chezmoi_repo_stat.stat.exists
+        - (workstation_chezmoi_status.stdout | default('') | trim) | length > 0
+        - not ansible_check_mode
+
+- name: Converge global Mise tools when config.toml is present
+  tags:
+    - workstation
+    - mise
+  block:
+    - name: Check whether mise is installed
+      ansible.builtin.command:
+        argv:
+          - which
+          - mise
+      environment:
+        PATH: "{{ workstation_local_bin }}:{{ ansible_facts['env'].PATH | default('/usr/bin:/bin') }}"
+      register: workstation_mise_which
+      changed_when: false
+      check_mode: false
+      failed_when: false
+
+    - name: Check whether global Mise config.toml exists
+      ansible.builtin.stat:
+        path: "{{ workstation_home }}/.config/mise/config.toml"
+      register: workstation_mise_config_stat
+
+    - name: Check missing global Mise tools
+      ansible.builtin.command:
+        argv:
+          - "{{ workstation_mise_which.stdout | trim }}"
+          - ls
+          - --missing
+      register: workstation_mise_missing
+      changed_when: false
+      check_mode: false
+      when:
+        - workstation_mise_which.rc == 0
+        - workstation_mise_config_stat.stat.exists
+
+    - name: Install missing global Mise tools
+      ansible.builtin.command:
+        argv:
+          - "{{ workstation_mise_which.stdout | trim }}"
+          - install
+          - --yes
+      changed_when: true
+      when:
+        - workstation_mise_which.rc == 0
+        - workstation_mise_config_stat.stat.exists
+        - (workstation_mise_missing.stdout | default('') | trim) | length > 0
+        - not ansible_check_mode
+
+- name: Configure Neovim Python provider and AstroNvim repository
+  tags:
+    - workstation
+    - neovim
+  block:
+    - name: Check whether uv is available for Neovim Python provider
+      ansible.builtin.command:
+        argv:
+          - which
+          - uv
+      environment:
+        PATH: "{{ workstation_local_bin }}:{{ workstation_home }}/.local/share/mise/shims:{{ ansible_facts['env'].PATH | default('/usr/bin:/bin') }}"
+      register: workstation_uv_which
+      changed_when: false
+      check_mode: false
+      failed_when: false
+
+    - name: Set up Neovim pynvim virtual environment
+      when:
+        - workstation_uv_which.rc == 0
+        - not ansible_check_mode
+      block:
+        - name: Check Neovim Python provider venv
+          ansible.builtin.stat:
+            path: "{{ workstation_home }}/.local/share/nvim-python/bin/python"
+          register: workstation_nvim_venv_stat
+
+        - name: Create Neovim Python provider venv
+          ansible.builtin.command:
+            argv:
+              - "{{ workstation_uv_which.stdout | trim }}"
+              - venv
+              - "{{ workstation_home }}/.local/share/nvim-python"
+          changed_when: true
+          when: not workstation_nvim_venv_stat.stat.exists
+
+        - name: Check installed pynvim version
+          ansible.builtin.command:
+            argv:
+              - "{{ workstation_uv_which.stdout | trim }}"
+              - pip
+              - show
+              - --python
+              - "{{ workstation_home }}/.local/share/nvim-python/bin/python"
+              - pynvim
+          register: workstation_pynvim_show
+          changed_when: false
+          failed_when: false
+
+        - name: Install pinned pynvim into Neovim provider venv
+          ansible.builtin.command:
+            argv:
+              - "{{ workstation_uv_which.stdout | trim }}"
+              - pip
+              - install
+              - --python
+              - "{{ workstation_home }}/.local/share/nvim-python/bin/python"
+              - "pynvim=={{ pynvim_version }}"
+          changed_when: true
+          when: >-
+            workstation_pynvim_show.rc != 0
+            or ('Version: ' ~ pynvim_version) not in workstation_pynvim_show.stdout
+
+    - name: Sync Neovim configuration repository with lazy-lock merge
+      when: nvim_config_repo | length > 0
+      block:
+        - name: Run merge_lazy_lock.py sync-repo
+          ansible.builtin.command:
+            argv: >-
+              {{
+                [
+                  'python3',
+                  repo_root ~ '/scripts/merge_lazy_lock.py',
+                  'sync-repo',
+                  '--repo', nvim_config_repo,
+                  '--dest', workstation_home ~ '/.config/nvim',
+                ]
+                + (['--ref', nvim_config_ref] if (nvim_config_ref | length > 0) else [])
+                + (['--check'] if ansible_check_mode else [])
+              }}
+          register: workstation_nvim_sync_cmd
+          check_mode: false
+          changed_when: (workstation_nvim_sync_cmd.stdout | from_json).changed | bool
+          notify: Initialize or restore Neovim configuration after sync
+
+        - name: Parse Neovim sync metadata
+          ansible.builtin.set_fact:
+            workstation_nvim_sync_result: "{{ workstation_nvim_sync_cmd.stdout | from_json }}"
+
+- name: Configure Tmux Plugin Manager (TPM)
+  tags:
+    - workstation
+    - tmux
+  block:
+    - name: Ensure TPM plugins directory exists
+      ansible.builtin.file:
+        path: "{{ workstation_home }}/.local/share/tmux/plugins"
+        state: directory
+        mode: "0755"
+
+    - name: Clone pinned Tmux Plugin Manager repository
+      ansible.builtin.git:
+        repo: https://github.com/tmux-plugins/tpm
+        dest: "{{ workstation_home }}/.local/share/tmux/plugins/tpm"
+        version: "{{ tpm_commit }}"
+        force: false
+      notify: Install tmux plugins via TPM

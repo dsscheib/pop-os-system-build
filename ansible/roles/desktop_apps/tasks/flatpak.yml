@@ -1,0 +1,14 @@
+---
+- name: Configure user Flathub remote
+  community.general.flatpak_remote:
+    name: flathub
+    flatpakrepo_url: https://flathub.org/repo/flathub.flatpakrepo
+    method: user
+    state: present
+
+- name: Install Flathub desktop applications
+  community.general.flatpak:
+    name: "{{ flatpak_apps }}"
+    remote: flathub
+    method: user
+    state: present

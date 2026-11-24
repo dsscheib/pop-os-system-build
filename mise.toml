@@ -1,0 +1,61 @@
+[tasks.bootstrap]
+description = "Bootstrap uv, mise, ansible-core, and required Galaxy collections"
+run = "bash ./bootstrap.sh"
+
+[tasks.apply]
+description = "Converge workstation state with Ansible (pass extra flags after --)"
+run = """
+ANSIBLE_CONFIG="$PWD/ansible/ansible.cfg" ansible-playbook \
+  -i ansible/inventory/hosts.yml \
+  ansible/playbook.yml \
+  --ask-become-pass "$@"
+"""
+
+[tasks.plan]
+description = "Dry-run Ansible playbook with --check --diff"
+run = """
+ANSIBLE_CONFIG="$PWD/ansible/ansible.cfg" ansible-playbook \
+  -i ansible/inventory/hosts.yml \
+  ansible/playbook.yml \
+  --check --diff --ask-become-pass "$@"
+"""
+
+[tasks.role]
+description = "Run specific Ansible tag(s) (usage: mise run role <tag[,tag2]>)"
+run = """
+if [ $# -eq 0 ]; then
+  echo "Usage: mise run role <tag[,tag2]>" >&2
+  exit 2
+fi
+tags="$1"
+shift
+ANSIBLE_CONFIG="$PWD/ansible/ansible.cfg" ansible-playbook \
+  -i ansible/inventory/hosts.yml \
+  ansible/playbook.yml \
+  --ask-become-pass --tags "$tags" "$@"
+"""
+
+[tasks.auth]
+description = "Run interactive sign-in flows (GitHub CLI, Chezmoi, Google Drive rclone, Herdr)"
+run = "bash ./scripts/auth.sh \"$@\""
+
+[tasks.lint]
+description = "Run Ansible syntax check and ansible-lint"
+run = """
+command -v ansible-playbook >/dev/null 2>&1 || {
+  echo "ansible-playbook not found. Run ./bootstrap.sh first." >&2
+  exit 1
+}
+ANSIBLE_CONFIG="$PWD/ansible/ansible.cfg" ansible-playbook \
+  -i ansible/inventory/hosts.yml \
+  --syntax-check ansible/playbook.yml
+if command -v ansible-lint >/dev/null 2>&1; then
+  (cd ansible && ansible-lint)
+else
+  echo "ansible-lint not installed; skipped lint check." >&2
+fi
+"""
+
+[tasks.check]
+description = "Run all repository static checks and unit tests"
+run = "bash ./scripts/check.sh"

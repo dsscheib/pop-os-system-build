@@ -1,0 +1,176 @@
+---
+- name: Ensure APT keyrings directory exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Configure and install Visual Studio Code
+  tags:
+    - vscode
+  block:
+    - name: Download VS Code APT signing key
+      ansible.builtin.get_url:
+        url: "{{ pinned_downloads.vscode_key.url }}"
+        dest: /etc/apt/keyrings/vscode.asc
+        checksum: "sha256:{{ pinned_downloads.vscode_key.sha256 }}"
+        owner: root
+        group: root
+        mode: "0644"
+      become: true
+
+    - name: Remove legacy VS Code APT source list
+      ansible.builtin.file:
+        path: /etc/apt/sources.list.d/vscode.list
+        state: absent
+      become: true
+
+    - name: Configure VS Code deb822 APT repository
+      ansible.builtin.deb822_repository:
+        name: vscode
+        types:
+          - deb
+        uris:
+          - https://packages.microsoft.com/repos/code
+        suites:
+          - stable
+        components:
+          - main
+        architectures:
+          - amd64
+        signed_by: /etc/apt/keyrings/vscode.asc
+      become: true
+      notify: Update desktop_apps APT cache
+
+    - name: Flush desktop_apps handlers before installing VS Code
+      ansible.builtin.meta: flush_handlers
+
+    - name: Install VS Code package
+      ansible.builtin.apt:
+        name: code
+        state: present
+      become: true
+
+- name: Configure and install KiCad 10 and kicad-python
+  tags:
+    - kicad
+  block:
+    - name: Download KiCad PPA signing key
+      ansible.builtin.get_url:
+        url: "{{ pinned_downloads.kicad_key.url }}"
+        dest: /etc/apt/keyrings/kicad.asc
+        checksum: "sha256:{{ pinned_downloads.kicad_key.sha256 }}"
+        owner: root
+        group: root
+        mode: "0644"
+      become: true
+
+    - name: Remove legacy KiCad APT source list
+      ansible.builtin.file:
+        path: /etc/apt/sources.list.d/kicad.list
+        state: absent
+      become: true
+
+    - name: Configure KiCad deb822 APT repository
+      ansible.builtin.deb822_repository:
+        name: kicad
+        types:
+          - deb
+        uris:
+          - "https://ppa.launchpadcontent.net/kicad/kicad-{{ kicad_release_series }}-releases/ubuntu"
+        suites:
+          - "{{ ubuntu_codename }}"
+        components:
+          - main
+        architectures:
+          - amd64
+        signed_by: /etc/apt/keyrings/kicad.asc
+      become: true
+      notify: Update desktop_apps APT cache
+
+    - name: Flush desktop_apps handlers before installing KiCad
+      ansible.builtin.meta: flush_handlers
+
+    - name: Install KiCad package
+      ansible.builtin.apt:
+        name: kicad
+        state: present
+      become: true
+
+    - name: Check whether uv is available for kicad-python venv
+      ansible.builtin.command:
+        argv:
+          - which
+          - uv
+      environment:
+        PATH: "{{ workstation_local_bin }}:{{ workstation_home }}/.local/share/mise/shims:{{ ansible_facts['env'].PATH | default('/usr/bin:/bin') }}"
+      register: desktop_apps_uv_which
+      changed_when: false
+      failed_when: false
+
+    - name: Set up kicad-python virtual environment
+      when:
+        - desktop_apps_uv_which.rc == 0
+        - not ansible_check_mode
+      block:
+        - name: Check kicad-python venv python executable
+          ansible.builtin.stat:
+            path: "{{ workstation_home }}/.local/share/kicad-python/bin/python"
+          register: desktop_apps_kicad_venv_stat
+
+        - name: Create kicad-python virtual environment
+          ansible.builtin.command:
+            argv:
+              - "{{ desktop_apps_uv_which.stdout | trim }}"
+              - venv
+              - "{{ workstation_home }}/.local/share/kicad-python"
+          changed_when: true
+          when: not desktop_apps_kicad_venv_stat.stat.exists
+
+        - name: Check installed kicad-python package version
+          ansible.builtin.command:
+            argv:
+              - "{{ desktop_apps_uv_which.stdout | trim }}"
+              - pip
+              - show
+              - --python
+              - "{{ workstation_home }}/.local/share/kicad-python/bin/python"
+              - kicad-python
+          register: desktop_apps_kicad_py_show
+          changed_when: false
+          failed_when: false
+
+        - name: Install pinned kicad-python package
+          ansible.builtin.command:
+            argv:
+              - "{{ desktop_apps_uv_which.stdout | trim }}"
+              - pip
+              - install
+              - --python
+              - "{{ workstation_home }}/.local/share/kicad-python/bin/python"
+              - "kicad-python=={{ kicad_python_version }}"
+          changed_when: true
+          when: >-
+            desktop_apps_kicad_py_show.rc != 0
+            or ('Version: ' ~ kicad_python_version) not in desktop_apps_kicad_py_show.stdout
+
+- name: Install desktop utility and CAD APT packages
+  ansible.builtin.apt:
+    name: "{{ apt_desktop_packages }}"
+    state: present
+  become: true
+  tags:
+    - desktop_packages
+
+- name: Install nautilus-dropbox when enabled
+  ansible.builtin.apt:
+    name: nautilus-dropbox
+    state: present
+  become: true
+  failed_when: false
+  when: install_dropbox | bool
+  tags:
+    - desktop_packages

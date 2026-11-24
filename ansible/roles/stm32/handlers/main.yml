@@ -1,0 +1,10 @@
+---
+- name: Reload stm32 udev rules
+  ansible.builtin.command:
+    argv:
+      - udevadm
+      - control
+      - --reload-rules
+  changed_when: true
+  become: true
+  when: ansible_facts['service_mgr'] == 'systemd'

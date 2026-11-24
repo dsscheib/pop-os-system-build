@@ -1,0 +1,26 @@
+---
+- name: Install ARM bare-metal and AArch64 cross-compilers
+  ansible.builtin.apt:
+    name: "{{ apt_arm_packages }}"
+    state: present
+  become: true
+  tags:
+    - arm
+    - arm-avr
+
+- name: Install AVR cross-compilers and flashing tools
+  ansible.builtin.apt:
+    name: "{{ apt_avr_packages }}"
+    state: present
+  become: true
+  tags:
+    - avr
+    - arm-avr
+
+- name: Install RISC-V cross-compilers and QEMU
+  ansible.builtin.apt:
+    name: "{{ apt_riscv_packages }}"
+    state: present
+  become: true
+  tags:
+    - riscv

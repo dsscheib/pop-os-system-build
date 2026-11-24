@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 import unittest
 
-SCRIPT = Path(__file__).resolve().parents[1] / "setup_btrfs_live_install.sh"
+SCRIPT = Path(__file__).resolve().parents[1] / "preboot/setup_btrfs_live_install.sh"
 
 
 class LiveInstallTests(unittest.TestCase):

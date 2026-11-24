@@ -1,0 +1,366 @@
+---
+- name: Check root filesystem type
+  ansible.builtin.command:
+    argv:
+      - findmnt
+      - -n
+      - -o
+      - FSTYPE
+      - --mountpoint
+      - /
+  register: snapper_root_fstype
+  changed_when: false
+  check_mode: false
+
+- name: Check root subvolume mount
+  ansible.builtin.command:
+    argv:
+      - findmnt
+      - -n
+      - -o
+      - FSROOT
+      - --mountpoint
+      - /
+  register: snapper_root_fsroot
+  changed_when: false
+  check_mode: false
+
+- name: Check snapshot mount filesystem type
+  ansible.builtin.command:
+    argv:
+      - findmnt
+      - -n
+      - -o
+      - FSTYPE
+      - --mountpoint
+      - /.snapshots
+  register: snapper_snapshots_fstype
+  changed_when: false
+  check_mode: false
+
+- name: Check snapshot subvolume mount
+  ansible.builtin.command:
+    argv:
+      - findmnt
+      - -n
+      - -o
+      - FSROOT
+      - --mountpoint
+      - /.snapshots
+  register: snapper_snapshots_fsroot
+  changed_when: false
+  check_mode: false
+
+- name: Check root filesystem UUID
+  ansible.builtin.command:
+    argv:
+      - findmnt
+      - -n
+      - -o
+      - UUID
+      - --mountpoint
+      - /
+  register: snapper_root_uuid_cmd
+  changed_when: false
+  check_mode: false
+
+- name: Check snapshot filesystem UUID
+  ansible.builtin.command:
+    argv:
+      - findmnt
+      - -n
+      - -o
+      - UUID
+      - --mountpoint
+      - /.snapshots
+  register: snapper_snapshots_uuid_cmd
+  changed_when: false
+  check_mode: false
+
+- name: Verify @ and @snapshots Btrfs mount layout
+  ansible.builtin.assert:
+    that:
+      - snapper_root_fstype.stdout | trim == 'btrfs'
+      - snapper_root_fsroot.stdout | trim == '/@'
+      - snapper_snapshots_fstype.stdout | trim == 'btrfs'
+      - snapper_snapshots_fsroot.stdout | trim == '/@snapshots'
+      - snapper_root_uuid_cmd.stdout | trim != ''
+      - snapper_root_uuid_cmd.stdout | trim == snapper_snapshots_uuid_cmd.stdout | trim
+    fail_msg: >-
+      Root must mount /@ and /.snapshots must mount /@snapshots from the same
+      Btrfs filesystem before configuring Snapper.
+
+- name: Record root Btrfs filesystem UUID
+  ansible.builtin.set_fact:
+    snapper_root_uuid: "{{ snapper_root_uuid_cmd.stdout | trim }}"
+
+- name: Run hibernation prerequisites check
+  ansible.builtin.command:
+    argv:
+      - python3
+      - "{{ repo_root }}/scripts/configure_hibernation.py"
+      - --check
+  changed_when: false
+  check_mode: false
+  become: true
+  when: enable_hibernation | bool
+
+- name: Inspect legacy 80snapper APT hook
+  ansible.builtin.stat:
+    path: /etc/apt/apt.conf.d/80snapper
+  register: snapper_legacy_hook_stat
+  become: true
+
+- name: Check whether legacy 80snapper hook came from this repository
+  ansible.builtin.command:
+    argv:
+      - grep
+      - -q
+      - "^// Hardened Automatic Snapper snapshots"
+      - /etc/apt/apt.conf.d/80snapper
+  register: snapper_legacy_hook_match
+  changed_when: false
+  check_mode: false
+  failed_when: false
+  become: true
+  when: snapper_legacy_hook_stat.stat.exists
+
+- name: Archive and remove recognized legacy 80snapper hook
+  when:
+    - snapper_legacy_hook_stat.stat.exists
+    - snapper_legacy_hook_match.rc == 0
+  become: true
+  block:
+    - name: Ensure legacy APT hook backup directory exists
+      ansible.builtin.file:
+        path: /etc/apt/pop-btrfs-backups
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Copy legacy 80snapper hook to backup directory
+      ansible.builtin.copy:
+        src: /etc/apt/apt.conf.d/80snapper
+        dest: /etc/apt/pop-btrfs-backups/80snapper.pre-v2
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Remove legacy 80snapper APT hook
+      ansible.builtin.file:
+        path: /etc/apt/apt.conf.d/80snapper
+        state: absent
+
+- name: Install Snapper and Btrfs rollback packages
+  ansible.builtin.apt:
+    name:
+      - btrfs-progs
+      - python3-btrfsutil
+      - snapper
+      - snapper-gui
+      - libpam-snapper
+      - git
+      - acl
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  become: true
+
+- name: Clone pinned snapper-rollback repository
+  ansible.builtin.git:
+    repo: https://github.com/jrabinow/snapper-rollback.git
+    dest: /usr/local/src/snapper-rollback
+    version: "{{ snapper_rollback_commit }}"
+    force: false
+  become: true
+
+- name: Check whether snapper-rollback source script exists
+  ansible.builtin.stat:
+    path: /usr/local/src/snapper-rollback/snapper-rollback.py
+  register: snapper_rollback_src_stat
+  become: true
+
+- name: Install snapper-rollback executable
+  ansible.builtin.copy:
+    src: /usr/local/src/snapper-rollback/snapper-rollback.py
+    dest: /usr/local/bin/snapper-rollback
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+  when: not ansible_check_mode or snapper_rollback_src_stat.stat.exists
+
+- name: Render snapper-rollback configuration
+  ansible.builtin.template:
+    src: snapper-rollback.conf.j2
+    dest: /etc/snapper-rollback.conf
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+  become: true
+
+- name: Configure Btrfs hibernation swap and resume parameters
+  ansible.builtin.command:
+    argv:
+      - python3
+      - "{{ repo_root }}/scripts/configure_hibernation.py"
+  register: snapper_hibernation_result
+  changed_when: "'Hibernation configured:' in snapper_hibernation_result.stdout"
+  become: true
+  when: enable_hibernation | bool
+
+- name: Ensure /etc/snapper/configs directory exists
+  ansible.builtin.file:
+    path: /etc/snapper/configs
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Check existing Snapper root config
+  ansible.builtin.stat:
+    path: /etc/snapper/configs/root
+    checksum_algorithm: sha256
+  register: snapper_root_cfg_before
+  become: true
+
+- name: Locate Snapper default configuration template
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /etc/snapper/config-templates/default
+    - /usr/share/snapper/config-templates/default
+  register: snapper_template_stats
+  become: true
+  when: not snapper_root_cfg_before.stat.exists
+
+- name: Initialize Snapper root configuration from default template
+  ansible.builtin.copy:
+    src: "{{ (snapper_template_stats.results | selectattr('stat.exists') | first).stat.path }}"
+    dest: /etc/snapper/configs/root
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0640"
+  become: true
+  when:
+    - not snapper_root_cfg_before.stat.exists
+    - (snapper_template_stats.results | selectattr('stat.exists') | list) | length > 0
+
+- name: Check Snapper default defaults file before update
+  ansible.builtin.stat:
+    path: /etc/default/snapper
+    checksum_algorithm: sha256
+  register: snapper_defaults_before
+  become: true
+
+- name: Apply Snapper root configuration settings
+  ansible.builtin.command:
+    argv: "{{ ['python3', repo_root ~ '/scripts/configure_snapper.py'] + (['--initialize'] if not snapper_root_cfg_before.stat.exists else []) }}"
+  register: snapper_configure_cmd
+  changed_when: false
+  become: true
+
+- name: Check Snapper config checksums after update
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    checksum_algorithm: sha256
+  loop:
+    - /etc/snapper/configs/root
+    - /etc/default/snapper
+  register: snapper_cfg_after
+  become: true
+
+- name: Restart snapperd when Snapper configuration changed
+  ansible.builtin.systemd_service:
+    name: snapperd.service
+    state: restarted
+  become: true
+  when: >-
+    (snapper_root_cfg_before.stat.checksum | default('')) != (snapper_cfg_after.results[0].stat.checksum | default(''))
+    or (snapper_defaults_before.stat.checksum | default('')) != (snapper_cfg_after.results[1].stat.checksum | default(''))
+
+- name: Enable Snapper ACL synchronization
+  ansible.builtin.command:
+    argv:
+      - snapper
+      - -c
+      - root
+      - set-config
+      - SYNC_ACL=yes
+  changed_when: false
+  become: true
+
+- name: Set /.snapshots permissions to 0750
+  ansible.builtin.file:
+    path: /.snapshots
+    state: directory
+    mode: "0750"
+  become: true
+
+- name: Validate 80pop-snapper APT configuration in isolation
+  ansible.builtin.shell:
+    executable: /bin/bash
+    cmd: |
+      set -euo pipefail
+      tmp_dir=$(mktemp -d)
+      trap 'rm -rf -- "$tmp_dir"' EXIT
+      mkdir -p "$tmp_dir/parts"
+      cp "{{ repo_root }}/resources/80pop-snapper" "$tmp_dir/parts/80pop-snapper"
+      printf 'Dir::Etc::parts "%s";\nDir::Etc::main "/dev/null";\n' "$tmp_dir/parts" > "$tmp_dir/apt.conf"
+      APT_CONFIG="$tmp_dir/apt.conf" apt-config dump >/dev/null
+  changed_when: false
+  check_mode: false
+  become: true
+
+- name: Install Snapper APT hook helper
+  ansible.builtin.copy:
+    src: "{{ repo_root }}/scripts/snapper-apt-hook.sh"
+    dest: /usr/local/libexec/pop-snapper-apt-hook
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Install 80pop-snapper APT configuration
+  ansible.builtin.copy:
+    src: "{{ repo_root }}/resources/80pop-snapper"
+    dest: /etc/apt/apt.conf.d/80pop-snapper
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+
+- name: Enable and start snapper-cleanup.timer
+  ansible.builtin.systemd_service:
+    name: snapper-cleanup.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  become: true
+
+- name: Check whether snapper-boot.timer unit exists
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - list-unit-files
+      - snapper-boot.timer
+      - --no-legend
+  register: snapper_boot_timer_check
+  changed_when: false
+  check_mode: false
+  failed_when: false
+  become: true
+
+- name: Enable and start snapper-boot.timer when available
+  ansible.builtin.systemd_service:
+    name: snapper-boot.timer
+    enabled: true
+    state: started
+  become: true
+  when: "'snapper-boot.timer' in snapper_boot_timer_check.stdout"

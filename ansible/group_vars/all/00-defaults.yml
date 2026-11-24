@@ -1,0 +1,229 @@
+---
+# Non-secret defaults for Ansible-managed workstation components (Pop!_OS / Ubuntu 24.04+ x86_64).
+# Override per-machine values in ansible/group_vars/all/local.yml (gitignored).
+
+workstation_user: "{{ ansible_facts['user_id'] }}"
+workstation_home: "{{ ansible_facts['user_dir'] }}"
+workstation_local_bin: "{{ workstation_home }}/.local/bin"
+repo_root: "{{ playbook_dir | dirname }}"
+ubuntu_codename: "{{ ansible_facts['distribution_release'] }}"
+
+# System role behavior
+system_apt_upgrade: true
+snapper_rollback_commit: "04488f2350e8ec214277fe7de608492a9ee665a7"
+install_samsung_970_evo_nvme_rule: false
+
+# Toolchain / application versions not managed by Mise
+llvm_version: 23
+kicad_release_series: "10.0"
+kicad_python_version: "0.8.0"
+pynvim_version: "0.6.0"
+tpm_commit: "e261deb1b47614eed3400089ce7197dc68acc4eb"
+arduino_ide_version: "2.3.10"
+
+# Managed compiler wrapper links in ~/.local/bin
+gcc_managed_commands:
+  - gcc
+  - g++
+  - cc=gcc
+  - c++=g++
+  - gcc-ar
+  - gcc-nm
+  - gcc-ranlib
+  - gcov
+  - gcov-dump
+  - gcov-tool
+
+llvm_packages:
+  - clang
+  - clangd
+  - clang-format
+  - clang-tidy
+  - lld
+  - lldb
+  - llvm
+
+llvm_managed_commands:
+  - clang
+  - clang++
+  - clang-cpp
+  - clangd
+  - clang-format
+  - git-clang-format
+  - clang-tidy
+  - run-clang-tidy
+  - lld
+  - ld.lld
+  - lldb
+  - lldb-dap
+  - llvm-ar
+  - llvm-nm
+  - llvm-ranlib
+  - llvm-objdump
+  - llvm-objcopy
+  - llvm-strip
+  - llvm-symbolizer
+  - llvm-cov
+  - llvm-profdata
+  - llvm-config
+
+# Repository settings (typically overridden in local.yml)
+dotfiles_repo: ""
+nvim_config_repo: ""
+nvim_config_ref: ""
+
+# Desktop application toggles
+install_dropbox: true
+install_appimagelauncher: false
+
+# STM32 opt-in installers (run via: mise run role stm32)
+stm32_tools:
+  - cubeide
+  - cubemx
+  - cubeprog
+  - sw4stm32
+
+# Herdr agent skill and integration targets
+herdr_skill_dirs:
+  - "{{ workstation_home }}/.agents/skills"
+  - "{{ workstation_home }}/.claude/skills"
+  - "{{ workstation_home }}/.gemini/config/skills"
+
+herdr_agent_integrations:
+  - cli: claude
+    target: claude
+  - cli: codex
+    target: codex
+  - cli: copilot
+    target: copilot
+  - cli: agy
+    target: antigravity-cli
+
+# Snapper runs by default (requires @ / @snapshots Btrfs layout); hibernation is opt-in (laptops)
+enable_snapper: true
+enable_hibernation: false
+
+# Rootless Podman search registry
+podman_search_registries:
+  - docker.io
+
+# Flathub user applications
+flatpak_apps:
+  - org.freecad.FreeCAD
+  - com.orcaslicer.OrcaSlicer
+
+# APT package sets (developer CLI tools like fzf, zoxide, ripgrep, bat, fd, gdu, eza,
+# fastfetch, bottom, starship, rclone, and uv are managed by Mise in Chezmoi dotfiles).
+apt_base_packages:
+  - ca-certificates
+  - curl
+  - git
+  - gnupg
+  - jq
+  - unzip
+  - tar
+  - xz-utils
+  - fontconfig
+  - python3
+  - python3-venv
+  - python3-pil
+  - python3-yaml
+  - python3-debian
+  - ufw
+  - bash-completion
+  - desktop-file-utils
+  - age
+
+apt_system_packages:
+  - systemd-oomd
+
+apt_dependency_packages:
+  - zsh
+  - zsh-autosuggestions
+  - zsh-syntax-highlighting
+  - fish
+  - tmux
+  - flatpak
+  - nasm
+  - cmake
+  - ninja-build
+  - gettext
+  - xclip
+  - wl-clipboard
+  - python3-pip
+  - luarocks
+  - pkg-config
+  - libssl-dev
+  - shellcheck
+  - cppcheck
+  - bind9-dnsutils
+  - netcat-openbsd
+  - network-manager-openvpn-gnome
+  - rsync
+  - wget
+  - kitty
+  - libsecret-tools
+
+apt_toolchain_base_packages:
+  - build-essential
+  - binutils
+  - gdb
+  - make
+  - dpkg-dev
+  - libc6-dev
+
+apt_arm_packages:
+  - gcc-arm-none-eabi
+  - binutils-arm-none-eabi
+  - gcc-aarch64-linux-gnu
+  - binutils-aarch64-linux-gnu
+  - gdb-multiarch
+  - openocd
+  - stlink-tools
+  - libusb-1.0-0-dev
+  - libftdi1-2
+  - picocom
+
+apt_avr_packages:
+  - gcc-avr
+  - binutils-avr
+  - avr-libc
+  - avrdude
+  - gdb-avr
+  - libusb-1.0-0-dev
+  - libftdi1-2
+  - picocom
+
+apt_riscv_packages:
+  - gcc-riscv64-unknown-elf
+  - binutils-riscv64-unknown-elf
+  - picolibc-riscv64-unknown-elf
+  - qemu-system-misc
+
+apt_podman_packages:
+  - podman
+  - buildah
+  - skopeo
+  - uidmap
+  - slirp4netns
+  - podman-compose
+
+apt_desktop_packages:
+  - avra
+  - avrdude-doc
+  - litecli
+  - pgcli
+  - mycli
+  - openscad
+  - libreoffice
+  - evince
+
+apt_hyper_backup_deps:
+  - bzip2
+  - libnss3
+  - libxss1
+  - libxml2
+  - libxslt1.1
+  - libgl1
+  - libxkbcommon-x11-0
+  - libxcb-xinerama0

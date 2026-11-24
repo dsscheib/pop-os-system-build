@@ -1,0 +1,22 @@
+---
+- name: Update system APT cache
+  ansible.builtin.apt:
+    update_cache: true
+  become: true
+
+- name: Restart systemd-journald
+  ansible.builtin.systemd_service:
+    name: systemd-journald.service
+    state: restarted
+  become: true
+  when: ansible_facts['service_mgr'] == 'systemd'
+
+- name: Reload udev rules
+  ansible.builtin.command:
+    argv:
+      - udevadm
+      - control
+      - --reload-rules
+  changed_when: true
+  become: true
+  when: ansible_facts['service_mgr'] == 'systemd'

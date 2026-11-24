@@ -1,0 +1,79 @@
+---
+- name: Download LLVM APT signing key
+  ansible.builtin.get_url:
+    url: "{{ pinned_downloads.llvm_key.url }}"
+    dest: /etc/apt/keyrings/llvm.asc
+    checksum: "sha256:{{ pinned_downloads.llvm_key.sha256 }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+
+- name: Remove legacy LLVM APT source list
+  ansible.builtin.file:
+    path: /etc/apt/sources.list.d/llvm.list
+    state: absent
+  become: true
+
+- name: Configure LLVM deb822 APT repository
+  ansible.builtin.deb822_repository:
+    name: llvm
+    types:
+      - deb
+    uris:
+      - "https://apt.llvm.org/{{ ubuntu_codename }}/"
+    suites:
+      - "llvm-toolchain-{{ ubuntu_codename }}-{{ llvm_version }}"
+    components:
+      - main
+    architectures:
+      - amd64
+    signed_by: /etc/apt/keyrings/llvm.asc
+  become: true
+  notify: Update toolchains APT cache
+
+- name: Flush toolchains handlers before querying LLVM candidates
+  ansible.builtin.meta: flush_handlers
+
+- name: Determine newest complete LLVM major
+  ansible.builtin.command:
+    argv: "{{ ['python3', repo_root ~ '/scripts/toolchain_links.py', 'latest-major'] + llvm_packages }}"
+  register: toolchains_llvm_major
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: Install versioned LLVM toolchain packages
+  ansible.builtin.apt:
+    name: "{{ llvm_packages | map('regex_replace', '$', '-' ~ (toolchains_llvm_major.stdout | trim)) | list }}"
+    state: present
+  become: true
+  when: not ansible_check_mode
+
+- name: Synchronize LLVM symlinks in ~/.local/bin
+  ansible.builtin.command:
+    argv: >-
+      {{
+        [
+          'python3',
+          repo_root ~ '/scripts/toolchain_links.py',
+          'sync-links',
+          '--major', toolchains_llvm_major.stdout | trim,
+          '--bin-dir', '/usr/bin',
+          '--dest-dir', workstation_local_bin,
+        ]
+        + (['--check'] if ansible_check_mode else [])
+        + llvm_managed_commands
+      }}
+  register: toolchains_llvm_links
+  check_mode: false
+  changed_when: toolchains_llvm_links.stdout | trim == 'changed'
+  when: not ansible_check_mode
+
+- name: Verify Clang executable version
+  ansible.builtin.command:
+    argv:
+      - "{{ workstation_local_bin }}/clang"
+      - --version
+  changed_when: false
+  when: not ansible_check_mode
