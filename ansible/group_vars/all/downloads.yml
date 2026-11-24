@@ -14,14 +14,14 @@ pinned_downloads:
     url: "https://github.com/TheAssassin/AppImageLauncher/releases/download/v3.0.0-beta-3/appimagelauncher_3.0.0-beta-2-gha287.96cb937_amd64.deb"
     sha256: "4117552105968a8011955d065b5fd55f547a2ed21dac1fe0a046ee9b60220c36"
   saleae:
-    version: "2.4.48"
-    url: "https://downloads2.saleae.com/logic2/Logic-2.4.48-linux-x64.AppImage"
-    sha256: "dbc2ded63b48d7561d9e2e5c9f1e2bafdc7f5654ee714ad123c69df74863641b"
+    version: "2.4.50"
+    url: "https://downloads2.saleae.com/logic2/Logic-2.4.50-linux-x64.AppImage"
+    sha256: "10d0ac09e2f245b1190072d922bb90dce6732824859970ab459ac99cc5dffbb6"
   synology:
-    version: "4.0.1-17885"
-    deb_version: "8.0.1-17885"
-    url: "https://global.synologydownload.com/download/Utility/SynologyDriveClient/4.0.1-17885/Ubuntu/Installer/synology-drive-client-17885.x86_64.deb"
-    sha256: "0cc1ea87ca344649d64f27003526cca498f5df7fcc67cb99d7ccad0d955a28c8"
+    version: "4.2.1-20062"
+    deb_version: "8.2.1-20062"
+    url: "https://global.synologydownload.com/download/Utility/SynologyDriveClient/4.2.1-20062/Ubuntu/Installer/synology-drive-client-20062.x86_64.deb"
+    sha256: "e0b53bd8e2e666fbf080739ba2f6b93586ac7087f5de4b91bc013e8a2dfc40f5"
   hyper_backup_explorer:
     version: "3.0.1-0156"
     url: "https://global.synologydownload.com/download/Utility/HyperBackupExplorer/3.0.1-0156/Linux/x86_64/HyperBackupExplorer-3.0.1-0156-linux.tar.bz2"
@@ -31,9 +31,9 @@ pinned_downloads:
     url: "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.16-5250855658717184/linux-x64/cli_linux_x64.tar.gz"
     sha256: "9bdab234d06bad1a61be2321072652eb06be78baff1acbfae47331da5a090abc"
   arduino_ide:
-    version: "2.3.10"
-    url: "https://github.com/arduino/arduino-ide/releases/download/2.3.10/arduino-ide_2.3.10_Linux_64bit.zip"
-    sha256: "cc8a0b01e763d4646b670ce70c1bc8c389a0fa14ab556dcc0749c03f475a7975"
+    version: "2.3.11"
+    url: "https://github.com/arduino/arduino-ide/releases/download/2.3.11/arduino-ide_2.3.11_Linux_64bit.zip"
+    sha256: "1e009f3c720092e6fae4e71809e0b755058e8c5d59eac7548b288d4f42b5e9b1"
   vscode_key:
     version: "2026-10-13"
     url: "https://packages.microsoft.com/keys/microsoft.asc"

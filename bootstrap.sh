@@ -4,13 +4,13 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
-MISE_VERSION="v2026.10.9"
-MISE_URL="https://github.com/jdx/mise/releases/download/v2026.10.9/mise-v2026.10.9-linux-x64"
-MISE_SHA256="6ab6646b52b83f6bbd51c9d0d3ae54264ffa90efd1ac6d7c0ec5a86bbc6a0030"
+MISE_VERSION="v2026.11.14"
+MISE_URL="https://github.com/jdx/mise/releases/download/v2026.11.14/mise-v2026.11.14-linux-x64"
+MISE_SHA256="6fa596291e9758106f761fea4f8e7fac6c3e7ff4714d5c0b9a76e16068db14f6"
 
-UV_VERSION="0.13.0"
-UV_URL="https://github.com/astral-sh/uv/releases/download/0.13.0/uv-x86_64-unknown-linux-gnu.tar.gz"
-UV_SHA256="1468ebd5a5541121837c5a2817b9972ba6090fa6caa3d142620850a47fb75154"
+UV_VERSION="0.13.9"
+UV_URL="https://github.com/astral-sh/uv/releases/download/0.13.9/uv-x86_64-unknown-linux-gnu.tar.gz"
+UV_SHA256="a7fbaff2b9a271d85c1bdb540941090fd1ce011797b4abeb48e4dcd39c2471d5"
 
 ANSIBLE_CORE_VERSION="2.22.0"
 ANSIBLE_LINT_VERSION="26.11.0"
