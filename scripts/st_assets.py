@@ -11,6 +11,7 @@ import shlex
 import shutil
 import stat
 import subprocess
+import sys
 import tarfile
 import tempfile
 import xml.etree.ElementTree as ET
@@ -27,9 +28,43 @@ def contained(root, name):
     return target
 
 
+def _check_zip_link(resolved_root, target, link, name):
+    if PurePosixPath(link).is_absolute():
+        raise ValueError(f'Unsafe archive symlink: {name}')
+    resolved_parent = target.parent.resolve()
+    if not resolved_parent.is_relative_to(resolved_root):
+        raise ValueError(f'Unsafe archive path: {name}')
+    if not (resolved_parent / link).resolve().is_relative_to(resolved_root):
+        raise ValueError(f'Unsafe archive symlink: {name}')
+
+
+def _remove_escaping_symlinks(root, resolved_root):
+    unsafe = []
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        for name in dirnames + filenames:
+            candidate = Path(dirpath) / name
+            if not candidate.is_symlink():
+                continue
+            try:
+                raw_link = os.readlink(candidate)
+                if PurePosixPath(raw_link).is_absolute():
+                    unsafe.append(candidate)
+                    continue
+                resolved = candidate.resolve()
+                if not resolved.is_relative_to(resolved_root):
+                    unsafe.append(candidate)
+            except (OSError, RuntimeError):
+                unsafe.append(candidate)
+    for link_path in unsafe:
+        link_path.unlink(missing_ok=True)
+    if unsafe:
+        raise ValueError(f'Unsafe archive symlink: {unsafe[0].relative_to(root)}')
+
+
 def extract_zip(source, destination):
     root = Path(destination)
     root.mkdir(parents=True, exist_ok=True)
+    resolved_root = root.resolve()
     with zipfile.ZipFile(source) as archive:
         # Check all link destinations before extracting anything.
         for member in archive.infolist():
@@ -37,21 +72,34 @@ def extract_zip(source, destination):
             mode = member.external_attr >> 16
             if stat.S_ISLNK(mode):
                 link = archive.read(member).decode()
-                if not (target.parent / link).resolve().is_relative_to(root.resolve()):
-                    raise ValueError(f'Unsafe archive symlink: {member.filename}')
+                _check_zip_link(resolved_root, target, link, member.filename)
         for member in archive.infolist():
             target = contained(root, member.filename)
+            resolved_parent = target.parent.resolve()
+            if not resolved_parent.is_relative_to(resolved_root):
+                raise ValueError(f'Archive path escapes extraction directory: {member.filename}')
             mode = member.external_attr >> 16
             if member.is_dir():
+                if target.is_symlink():
+                    target.unlink()
                 target.mkdir(parents=True, exist_ok=True)
             else:
                 target.parent.mkdir(parents=True, exist_ok=True)
+                if not target.parent.resolve().is_relative_to(resolved_root):
+                    raise ValueError(f'Archive path escapes extraction directory: {member.filename}')
+                if target.is_symlink():
+                    target.unlink()
                 if stat.S_ISLNK(mode):
-                    target.symlink_to(archive.read(member).decode())
+                    link = archive.read(member).decode()
+                    _check_zip_link(resolved_root, target, link, member.filename)
+                    target.symlink_to(link)
                 else:
+                    if not target.resolve().is_relative_to(resolved_root):
+                        raise ValueError(f'Archive path escapes extraction directory: {member.filename}')
                     with archive.open(member) as src, target.open('wb') as dst:
                         shutil.copyfileobj(src, dst)
                     target.chmod(stat.S_IMODE(mode) & 0o777 if mode else 0o644)
+    _remove_escaping_symlinks(root, resolved_root)
 
 
 def extract_tar(archive, destination):
@@ -67,7 +115,10 @@ def extract_tar(archive, destination):
                 raise ValueError(f'Unsafe archive link: {member.name}')
         # No ownership restoration or setuid/setgid bits.
         member.mode &= 0o777
-        archive.extract(member, root, set_attrs=True, numeric_owner=False)
+        if sys.version_info >= (3, 12):
+            archive.extract(member, root, set_attrs=True, numeric_owner=False, filter='data')
+        else:
+            archive.extract(member, root, set_attrs=True, numeric_owner=False)
 
 
 def makeself(source, destination):

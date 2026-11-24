@@ -7,6 +7,9 @@
     group: root
     mode: "0755"
   become: true
+  tags:
+    - vscode
+    - kicad
 
 - name: Configure and install Visual Studio Code
   tags:
@@ -130,6 +133,14 @@
       become: true
       when: desktop_apps_kicad_key_verify.rc == 0
 
+    - name: Report KiCad PPA signing key drift in check mode
+      ansible.builtin.debug:
+        msg: "Would download and install KiCad PPA signing key ({{ pinned_downloads.kicad_key.fingerprint }})"
+      changed_when: true
+      when:
+        - ansible_check_mode
+        - desktop_apps_kicad_key_verify.rc != 0
+
     - name: Remove legacy KiCad APT source list
       ansible.builtin.file:
         path: /etc/apt/sources.list.d/kicad.list
@@ -180,16 +191,51 @@
       check_mode: false
       failed_when: false
 
+    - name: Warn when uv is unavailable for kicad-python venv
+      ansible.builtin.debug:
+        msg: "WARNING: uv is unavailable; skipping kicad-python virtual environment setup."
+      when: desktop_apps_uv_which.rc != 0
+
+    - name: Check kicad-python venv python executable
+      ansible.builtin.stat:
+        path: "{{ workstation_home }}/.local/share/kicad-python/bin/python"
+      register: desktop_apps_kicad_venv_stat
+      when: desktop_apps_uv_which.rc == 0
+
+    - name: Check installed kicad-python package version
+      ansible.builtin.command:
+        argv:
+          - "{{ desktop_apps_uv_which.stdout | trim }}"
+          - pip
+          - show
+          - --python
+          - "{{ workstation_home }}/.local/share/kicad-python/bin/python"
+          - kicad-python
+      register: desktop_apps_kicad_py_show
+      changed_when: false
+      check_mode: false
+      failed_when: false
+      when:
+        - desktop_apps_uv_which.rc == 0
+        - desktop_apps_kicad_venv_stat.stat.exists
+
+    - name: Report kicad-python venv drift in check mode
+      ansible.builtin.debug:
+        msg: "Would create or update kicad-python venv to {{ kicad_python_version }}"
+      changed_when: true
+      when:
+        - ansible_check_mode
+        - desktop_apps_uv_which.rc == 0
+        - >-
+          not desktop_apps_kicad_venv_stat.stat.exists
+          or (desktop_apps_kicad_py_show.rc | default(1)) != 0
+          or ('Version: ' ~ kicad_python_version) not in (desktop_apps_kicad_py_show.stdout_lines | default([]))
+
     - name: Set up kicad-python virtual environment
       when:
         - desktop_apps_uv_which.rc == 0
         - not ansible_check_mode
       block:
-        - name: Check kicad-python venv python executable
-          ansible.builtin.stat:
-            path: "{{ workstation_home }}/.local/share/kicad-python/bin/python"
-          register: desktop_apps_kicad_venv_stat
-
         - name: Create kicad-python virtual environment
           ansible.builtin.command:
             argv:
@@ -198,19 +244,6 @@
               - "{{ workstation_home }}/.local/share/kicad-python"
           changed_when: true
           when: not desktop_apps_kicad_venv_stat.stat.exists
-
-        - name: Check installed kicad-python package version
-          ansible.builtin.command:
-            argv:
-              - "{{ desktop_apps_uv_which.stdout | trim }}"
-              - pip
-              - show
-              - --python
-              - "{{ workstation_home }}/.local/share/kicad-python/bin/python"
-              - kicad-python
-          register: desktop_apps_kicad_py_show
-          changed_when: false
-          failed_when: false
 
         - name: Install pinned kicad-python package
           ansible.builtin.command:
@@ -223,13 +256,16 @@
               - "kicad-python=={{ kicad_python_version }}"
           changed_when: true
           when: >-
-            desktop_apps_kicad_py_show.rc != 0
-            or ('Version: ' ~ kicad_python_version) not in desktop_apps_kicad_py_show.stdout
+            not desktop_apps_kicad_venv_stat.stat.exists
+            or (desktop_apps_kicad_py_show.rc | default(1)) != 0
+            or ('Version: ' ~ kicad_python_version) not in (desktop_apps_kicad_py_show.stdout_lines | default([]))
 
 - name: Install desktop utility and CAD APT packages
   ansible.builtin.apt:
     name: "{{ apt_desktop_packages }}"
     state: present
+    update_cache: true
+    cache_valid_time: 3600
   become: true
   tags:
     - desktop_packages
@@ -243,6 +279,8 @@
       ansible.builtin.apt:
         name: nautilus-dropbox
         state: present
+        update_cache: true
+        cache_valid_time: 3600
       register: desktop_apps_dropbox_apt
       become: true
   rescue:

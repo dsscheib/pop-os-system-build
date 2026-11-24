@@ -1,4 +1,13 @@
 ---
+- name: Ensure APT keyrings directory exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
 - name: Download LLVM APT signing key
   ansible.builtin.get_url:
     url: "{{ pinned_downloads.llvm_key.url }}"

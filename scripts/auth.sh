@@ -88,15 +88,39 @@ auth_chezmoi() {
 }
 
 load_gdrive_oauth_env() {
-  local env_file="${GDRIVE_OAUTH_ENV:-$HOME/.config/rclone/gdrive-oauth.env}" mode
+  local env_file="${GDRIVE_OAUTH_ENV:-$HOME/.config/rclone/gdrive-oauth.env}" mode key value pid
   if [[ -f $env_file ]]; then
     mode=$(stat -c %a -- "$env_file")
     (( (8#$mode & 8#077) == 0 )) || {
       log_error "$env_file holds OAuth secrets but is readable by others (mode $mode); run: chmod 600 $env_file"
       return 1
     }
-    # shellcheck source=/dev/null
-    source "$env_file"
+    while IFS= read -r -d '' key && IFS= read -r -d '' value; do
+      printf -v "$key" '%s' "$value"
+    done < <(python3 - "$env_file" <<'PY'
+import re
+import sys
+
+path = sys.argv[1]
+with open(path, encoding='utf-8') as handle:
+    for lineno, raw in enumerate(handle, 1):
+        line = raw.strip()
+        if not line or line.startswith('#'):
+            continue
+        if line.startswith('export '):
+            line = line[7:].lstrip()
+        key, sep, value = line.partition('=')
+        key = key.strip()
+        value = value.strip()
+        if not sep or not re.fullmatch(r'GDRIVE_[A-Z0-9_]+', key):
+            raise SystemExit(f'{path}:{lineno}: invalid OAuth env assignment (expected GDRIVE_*=VALUE)')
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+            value = value[1:-1]
+        sys.stdout.buffer.write(key.encode('utf-8') + b'\0' + value.encode('utf-8') + b'\0')
+PY
+    )
+    pid=$!
+    wait "$pid" || return
   fi
 }
 
@@ -128,6 +152,63 @@ gdrive_bisync_args() {
   [[ -z $filters ]] || printf '%s\n' --filters-file "$filters"
 }
 
+rclone_config_path() {
+  local out first_line path
+  if command -v rclone >/dev/null 2>&1; then
+    if out=$(rclone config file </dev/null 2>/dev/null); then
+      first_line=${out%%$'\n'*}
+      path=$(printf '%s\n' "$out" | awk 'NF { line = $0 } END { print line }')
+      if [[ $first_line == "Configuration file "* && -n $path && $path != "$first_line" ]]; then
+        printf '%s\n' "$path"
+        return 0
+      fi
+    fi
+  fi
+  printf '%s\n' "${RCLONE_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/rclone/rclone.conf}"
+}
+
+write_gdrive_rclone_config() {
+  local conf_path
+  conf_path=$(rclone_config_path) || return
+  GDRIVE_CLIENT_ID="$GDRIVE_CLIENT_ID" \
+    GDRIVE_CLIENT_SECRET="$GDRIVE_CLIENT_SECRET" \
+    GDRIVE_REMOTE="$GDRIVE_REMOTE" \
+    RCLONE_CONF_PATH="$conf_path" \
+    PYTHONPATH="$REPO_ROOT/scripts${PYTHONPATH:+:$PYTHONPATH}" \
+    python3 - <<'PY'
+import configparser
+import io
+import os
+from pathlib import Path
+from st_assets import atomic_text
+
+path = Path(os.environ['RCLONE_CONF_PATH'])
+if path.is_symlink():
+    raise SystemExit(f'Refusing to write symlinked rclone config: {path}')
+if path.exists() and not path.is_file():
+    raise SystemExit(f'Refusing to write non-regular rclone config: {path}')
+remote = os.environ['GDRIVE_REMOTE']
+cfg = configparser.RawConfigParser()
+cfg.optionxform = str
+if path.exists():
+    try:
+        with path.open('r', encoding='utf-8') as handle:
+            cfg.read_file(handle)
+    except (OSError, UnicodeDecodeError, configparser.Error) as exc:
+        raise SystemExit(f'Refusing to overwrite unreadable or unparseable rclone config {path}: {exc}') from exc
+if not cfg.has_section(remote):
+    cfg.add_section(remote)
+cfg.set(remote, 'type', 'drive')
+cfg.set(remote, 'scope', 'drive')
+cfg.set(remote, 'client_id', os.environ['GDRIVE_CLIENT_ID'])
+cfg.set(remote, 'client_secret', os.environ['GDRIVE_CLIENT_SECRET'])
+cfg.remove_option(remote, 'token')
+buf = io.StringIO()
+cfg.write(buf)
+atomic_text(path, buf.getvalue(), 0o600)
+PY
+}
+
 switch_or_create_gdrive_remote() {
   local current
   if rclone listremotes | grep -Fxq "$GDRIVE_REMOTE:"; then
@@ -139,7 +220,7 @@ switch_or_create_gdrive_remote() {
     fi
     systemctl --user disable --now rclone-gdrive-bisync.timer >/dev/null 2>&1 || true
     log_info "Updating $GDRIVE_REMOTE OAuth client; complete sign-in in the browser."
-    rclone config update "$GDRIVE_REMOTE" "client_id=$GDRIVE_CLIENT_ID" "client_secret=$GDRIVE_CLIENT_SECRET" || return
+    write_gdrive_rclone_config || return
     rclone config reconnect "$GDRIVE_REMOTE:"
     return
   fi
@@ -149,8 +230,8 @@ switch_or_create_gdrive_remote() {
     return 1
   fi
   log_info "Complete Google Drive sign-in in the browser."
-  rclone config create "$GDRIVE_REMOTE" drive scope=drive \
-    "client_id=$GDRIVE_CLIENT_ID" "client_secret=$GDRIVE_CLIENT_SECRET" || return
+  write_gdrive_rclone_config || return
+  rclone config reconnect "$GDRIVE_REMOTE:" || return
   rclone listremotes | grep -Fxq "$GDRIVE_REMOTE:" || {
     log_error "rclone did not save the $GDRIVE_REMOTE remote."
     return 1
@@ -171,7 +252,7 @@ auth_gdrive() {
   local local_dir="${GDRIVE_LOCAL_DIR:-$HOME/GoogleDrive}"
   local state="${XDG_STATE_HOME:-$HOME/.local/state}/pop-workstation"
   local marker="$state/gdrive-bisync-initialized"
-  local baseline filters answer
+  local baseline filters answer unit_files
 
   mkdir -p "$local_dir" || return
   switch_or_create_gdrive_remote || return
@@ -195,8 +276,10 @@ auth_gdrive() {
     printf '%s\n' "$baseline" > "$marker" || return
   fi
 
-  if systemctl --user list-unit-files rclone-gdrive-bisync.timer --no-legend >/dev/null 2>&1; then
-    systemctl --user enable --now rclone-gdrive-bisync.timer || true
+  unit_files=$(systemctl --user list-unit-files rclone-gdrive-bisync.timer --no-legend 2>/dev/null || true)
+  if grep -Eq '^rclone-gdrive-bisync\.timer([[:space:]]|$)' <<<"$unit_files"; then
+    systemctl --user enable --now rclone-gdrive-bisync.timer \
+      || log_warn "Could not enable rclone-gdrive-bisync.timer."
   fi
   log_info "Google Drive remote is configured for $local_dir."
 }

@@ -10,6 +10,15 @@
     mode: "0644"
   become: true
 
+- name: Ensure APT keyrings directory exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
 - name: Download Google Chrome APT signing key
   ansible.builtin.get_url:
     url: "{{ pinned_downloads.google_chrome_key.url }}"

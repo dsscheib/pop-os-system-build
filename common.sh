@@ -108,7 +108,19 @@ verify_sha256() {
 verify_installer() {
   local archive=$1 expected
   expected=${ST_INSTALLER_SHA256:-$(awk -v name="${archive##*/}" '$2 == name {print $1}' "$SCRIPT_DIR/resources/st-installers.sha256")}
-  verify_sha256 "$archive" "$expected"
+  verify_sha256 "$archive" "$expected" || return
+  VERIFIED_ARCHIVE_SHA256=${expected,,}
+}
+
+install_is_current() {
+  local target=$1 stamp_file="$1/.source.sha256" path
+  shift
+  [[ ${ST_FORCE_REINSTALL:-0} != 1 ]] || return 1
+  [[ -n ${VERIFIED_ARCHIVE_SHA256:-} && -f "$stamp_file" ]] || return 1
+  [[ $(<"$stamp_file") == "$VERIFIED_ARCHIVE_SHA256" ]] || return 1
+  for path in "$@"; do
+    [[ -e "$path" ]] || return 1
+  done
 }
 
 # IzPack embeds install paths in launchers. Keep each version at its original path
@@ -124,6 +136,9 @@ begin_install() {
 }
 publish_install() {
   local link backup=""
+  if [[ -n ${VERIFIED_ARCHIVE_SHA256:-} && -d ${INSTALL_DIR:-} ]]; then
+    printf '%s\n' "$VERIFIED_ARCHIVE_SHA256" > "$INSTALL_DIR/.source.sha256" || return
+  fi
   link=$(mktemp "${INSTALL_TARGET}.link.XXXXXX") || return
   rm -f -- "$link" || return
   ln -s -- "$INSTALL_DIR" "$link" || return

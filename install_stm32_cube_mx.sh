@@ -20,13 +20,20 @@ main() {
   [[ $# -le 1 ]] || die "Usage: $0 [archive.zip]"
   st_preflight
   local archive installer icon=applications-development
+  local target="$HOME/STMicroelectronics/STM32Cube/STM32CubeMX"
+  local wrapper="$HOME/.local/bin/stm32cubemx"
+  local desktop="$HOME/.local/share/applications/st-com-stm32cubemx.desktop"
   archive=$(find_archive "${1:-}" 'SetupSTM32CubeMX-*.zip' 'en.stm32cubemx-*.zip')
   verify_installer "$archive"
+  if install_is_current "$target" "$wrapper" "$desktop"; then
+    log_info "STM32CubeMX is already installed from this archive at $target (unchanged)."
+    return 0
+  fi
   start_workspace cubemx
   python3 "$SCRIPT_DIR/scripts/st_assets.py" zip "$archive" "$WORK_DIR/archive"
   installer=$(unique_file "$WORK_DIR/archive" 'SetupSTM32CubeMX-*')
   check_executable "$WORK_DIR/archive/jre/bin/java"
-  begin_install "$HOME/STMicroelectronics/STM32Cube/STM32CubeMX"
+  begin_install "$target"
   python3 "$SCRIPT_DIR/scripts/st_assets.py" response "$SCRIPT_DIR/resources/izpack/cubemx.xml" "$INSTALL_DIR" "$WORK_DIR/response.xml" "$installer"
   # ST's post-install script copies ./jre into the installation. Run from
   # the extracted archive, and avoid requiring a display for unattended setup.
@@ -45,7 +52,7 @@ main() {
   fi
   # ST's working launcher has no StartupWMClass. Let the desktop track the
   # started window through the launcher instead of guessing the Java window class.
-  st_finish STM32CubeMX "$HOME/.local/bin/stm32cubemx" "$INSTALL_DIR/STM32CubeMX" "$INSTALL_DIR" "$icon" "" "$HOME/.local/share/applications/st-com-stm32cubemx.desktop"
+  st_finish STM32CubeMX "$wrapper" "$INSTALL_DIR/STM32CubeMX" "$INSTALL_DIR" "$icon" "" "$desktop"
   remove_vendor_launcher
   log_info "STM32CubeMX installed at $INSTALL_TARGET; previous versions are retained."
 }

@@ -126,11 +126,15 @@ step_tmux() {
 
 step_mise() {
   command -v mise >/dev/null || return 3
-  local outdated
+  local outdated rc=0
   # Plain `mise outdated` only looks inside each pinned version, so exact pins
   # never show. --bump lists every newer release. Run from $HOME so only the
   # global (dotfiles) config is considered, not a project's mise.toml.
-  outdated=$(cd "$HOME" && mise outdated --bump 2>/dev/null) || return 1
+  outdated=$(cd "$HOME" && mise outdated --bump 2>&1) || rc=$?
+  if (( rc != 0 )); then
+    [[ -z $outdated ]] || printf '%s\n' "$outdated" >&2
+    return 1
+  fi
   if [[ -z $outdated ]]; then
     log_info "All Mise tools are at their latest versions."
   else

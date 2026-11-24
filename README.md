@@ -98,7 +98,7 @@ This walks through each interactive sign-in and skips any step that doesn't appl
 3. **Google Drive**: if your dotfiles provide the OAuth client, signs in to rclone and asks before the first full two-way sync.
 4. **Herdr**: hooks Herdr into whichever agent CLIs are installed.
 
-To redo a single step later: `mise run auth --step gdrive` (or `github`, `chezmoi`, `herdr`).
+To redo a single step later: `mise run auth -- --step gdrive` (or `github`, `chezmoi`, `herdr`).
 
 ### 6. Apply again
 
@@ -123,10 +123,10 @@ Now that your dotfiles and Mise tools are in place, this second run sets up ever
 | Run just one area | `mise run role browsers` (several at once: `mise run role gcc,llvm`) |
 | Update installed software (APT, Flatpak, Neovim and tmux plugins; reports firmware and Mise updates) | `mise run update` |
 | Pull dotfile changes (also installs updated Mise tools) | `chezmoi update` |
-| Upgrade runtimes and CLIs pinned in your dotfiles | `mise run update --only mise --bump-mise`, then review and commit your dotfiles |
-| Check this repo's pinned downloads for new releases | `mise run pins` (update one with `mise run pins --bump NAME`) |
+| Upgrade runtimes and CLIs pinned in your dotfiles | `mise run update -- --only mise --bump-mise`, then review and commit your dotfiles |
+| Check this repo's pinned downloads for new releases | `mise run pins` (update one with `mise run pins -- --bump NAME`) |
 
-Extra Ansible options go after the task name, for example `mise run apply --diff` or `mise run plan --tags system`. See [docs/updating.md](docs/updating.md) for what each update covers and how to roll back.
+Extra Ansible options go after `--`, for example `mise run apply -- --diff` or `mise run plan -- --tags system`. See [docs/updating.md](docs/updating.md) for what each update covers and how to roll back.
 
 ### Roles and tags
 
@@ -191,7 +191,7 @@ This does the same job as the `snapper` role, for a machine where you don't want
 | The containers role asks for subordinate IDs | Run the `sudo usermod --add-subuids … --add-subgids …` command it prints, then `mise run role containers` |
 | Chezmoi can't decrypt files during `mise run auth` | Your age key isn't at `~/.config/chezmoi/key.txt` (see step 3) |
 | "Permission denied" on a serial port or debug probe | Log out and back in to pick up the new groups, then reconnect the device |
-| GitHub CLI suddenly signed out after restoring a backup | Don't restore an old `~/.local/share/keyrings/` over a new install, because it replaces the GitHub CLI token. Sign in again with `mise run auth --step github`. |
+| GitHub CLI suddenly signed out after restoring a backup | Don't restore an old `~/.local/share/keyrings/` over a new install, because it replaces the GitHub CLI token. Sign in again with `mise run auth -- --step github`. |
 
 ## How the repo is organized
 
@@ -220,7 +220,7 @@ This runs `shellcheck`, Bash syntax checks, Python and YAML parsing, `ansible-pl
 To run the full greenfield end-to-end test locally in a disposable `ubuntu:24.04` container (requires Podman and network access; exercises `bootstrap.sh`, `desktop_apps`, `auth.sh` with ephemeral fixtures, Day-2 convergence, `lazy-lock.json` merge, `stm32`, and `mise run role`):
 
 ```bash
-podman run --rm -v "$PWD:/workspace:ro" docker.io/library/ubuntu:24.04 \
+podman run --rm -v "$PWD:/workspace:ro,Z" docker.io/library/ubuntu:24.04 \
   bash /workspace/scripts/e2e_container_test.sh /workspace
 ```
 

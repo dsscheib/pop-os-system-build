@@ -115,11 +115,46 @@ install_ansible
         self.assertIn('uv tool install --force --with-executables-from ansible-core ansible-core==', logged)
         self.assertIn('uv tool install --force ansible-lint==', logged)
 
+    def test_bootstrap_install_mise_upgrades_outdated_local_mise(self):
+        home = self.root / 'home'
+        local_bin = home / '.local/bin'
+        local_bin.mkdir(parents=True)
+        mise_path = local_bin / 'mise'
+        mise_path.write_text('#!/bin/sh\nprintf "2026.1.0 linux-x64 (2026-01-01)\\n"\n')
+        mise_path.chmod(0o755)
+        new_payload = b'#!/bin/sh\nprintf "upgraded-mise\\n"\n'
+        import hashlib
+        new_sha = hashlib.sha256(new_payload).hexdigest()
+        payload_file = self.root / 'new-mise'
+        payload_file.write_bytes(new_payload)
+        res = self.bash('''
+HOME="$1"
+WORK_DIR="$2"
+MISE_SHA256="$3"
+PAYLOAD="$4"
+PATH="$HOME/.local/bin:$PATH"
+curl() { cp "$PAYLOAD" "${@: -1}"; }
+install_mise
+''', home, self.root / 'work', new_sha, payload_file)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(mise_path.read_bytes(), new_payload)
+
+        skip_res = self.bash('''
+HOME="$1"
+WORK_DIR="$2"
+PATH="$HOME/.local/bin:$PATH"
+mise() { printf "%s linux-x64\\n" "${MISE_VERSION#v}"; }
+curl() { printf 'should not download\n' >&2; return 99; }
+install_mise
+''', home, self.root / 'work')
+        self.assertEqual(skip_res.returncode, 0, skip_res.stderr)
+
     def test_tpm_missing_plugin_probe_ignores_comments_and_strips_branch_refs(self):
         tasks = yaml.safe_load((ANSIBLE_DIR / 'roles/workstation/tasks/main.yml').read_text(encoding='utf-8'))
         tmux_block = next(entry['block'] for entry in tasks if 'tmux' in entry.get('tags', []))
         probe_task = next(t for t in tmux_block if t['name'] == 'Check declared tmux plugins missing from plugin directory')
-        py_script = probe_task['ansible.builtin.command']['argv'][2]
+        argv = probe_task['ansible.builtin.command']['argv']
+        self.assertEqual(argv[:2], ['python3', '{{ repo_root }}/scripts/tmux_missing_plugins.py'])
 
         home = self.root / 'home'
         pdir = home / '.local/share/tmux/plugins'
@@ -132,12 +167,15 @@ install_ansible
             "set -g @plugin 'https://github.com/user/git-plugin.git'\n"
             "set-option -g @plugin \"user/installed-plugin#v2\" # inline comment\n"
         )
-        res = subprocess.run(['python3', '-c', py_script, str(home)], capture_output=True, text=True, check=True)
+        res = subprocess.run(
+            ['python3', str(REPO / 'scripts/tmux_missing_plugins.py'), str(home)],
+            capture_output=True, text=True, check=True,
+        )
         self.assertEqual(res.stdout.splitlines(), ['tpm', 'branch-plugin', 'git-plugin'])
 
     def test_desktop_apps_and_systemd_check_mode_guards(self):
         apt_apps = yaml.safe_load((ANSIBLE_DIR / 'roles/desktop_apps/tasks/apt_apps.yml').read_text(encoding='utf-8'))
-        kicad_block = next(entry['block'] for entry in apt_apps if 'kicad' in entry.get('tags', []))
+        kicad_block = next(entry['block'] for entry in apt_apps if 'block' in entry and 'kicad' in entry.get('tags', []))
         uv_probe = next(t for t in kicad_block if t['name'] == 'Check whether uv is available for kicad-python venv')
         self.assertIs(uv_probe['check_mode'], False)
         kicad_key_verify = next(t for t in kicad_block if t['name'] == 'Verify installed KiCad PPA signing key fingerprint')
@@ -466,3 +504,54 @@ install_ansible
                 text=True,
             )
             self.assertEqual(sc.returncode, 0, sc.stdout + sc.stderr)
+
+    def test_standalone_subtag_prerequisites_and_apt_cache_updates(self):
+        desktop_main = yaml.safe_load((ANSIBLE_DIR / 'roles/desktop_apps/tasks/main.yml').read_text())
+        dirs_task = next(t for t in desktop_main if t['name'] == 'Ensure workstation user directories exist')
+        for tag in ('fonts', 'vscode', 'kicad', 'flatpak', 'arduino', 'saleae',
+                    'synology', 'hyper_backup', 'appimagelauncher'):
+            self.assertIn(tag, dirs_task['tags'])
+
+        apt_apps = yaml.safe_load((ANSIBLE_DIR / 'roles/desktop_apps/tasks/apt_apps.yml').read_text())
+        keyrings_task = next(t for t in apt_apps if t['name'] == 'Ensure APT keyrings directory exists')
+        self.assertEqual(set(keyrings_task['tags']), {'vscode', 'kicad'})
+
+        ai_agents = yaml.safe_load((ANSIBLE_DIR / 'roles/ai_agents/tasks/main.yml').read_text())
+        bin_task = next(t for t in ai_agents if t['name'] == 'Ensure ~/.local/bin directory exists')
+        self.assertIn('antigravity', bin_task['tags'])
+
+        for rel_path in ('roles/toolchains/tasks/llvm.yml', 'roles/browsers/tasks/chrome.yml'):
+            tasks = yaml.safe_load((ANSIBLE_DIR / rel_path).read_text())
+            self.assertTrue(
+                any(
+                    t.get('ansible.builtin.file', {}).get('path') == '/etc/apt/keyrings'
+                    and t['ansible.builtin.file'].get('state') == 'directory'
+                    for t in tasks
+                ),
+                f'{rel_path} must ensure /etc/apt/keyrings exists',
+            )
+
+        apt_targets = [
+            ('roles/toolchains/tasks/gcc.yml', 'Install native build tools and newest GCC/G++ major'),
+            ('roles/toolchains/tasks/embedded.yml', 'Install ARM bare-metal and AArch64 cross-compilers'),
+            ('roles/toolchains/tasks/embedded.yml', 'Install AVR cross-compilers and flashing tools'),
+            ('roles/toolchains/tasks/embedded.yml', 'Install RISC-V cross-compilers and QEMU'),
+            ('roles/containers/tasks/main.yml', 'Install rootless Podman packages'),
+            ('roles/desktop_apps/tasks/apt_apps.yml', 'Install desktop utility and CAD APT packages'),
+        ]
+        for rel_path, task_name in apt_targets:
+            tasks = yaml.safe_load((ANSIBLE_DIR / rel_path).read_text())
+            task = next(t for t in tasks if t['name'] == task_name)
+            self.assertIs(task['ansible.builtin.apt']['update_cache'], True, task_name)
+            self.assertEqual(task['ansible.builtin.apt']['cache_valid_time'], 3600, task_name)
+
+        dropbox_block = next(t for t in apt_apps if t['name'] == 'Install optional nautilus-dropbox integration when enabled')['block']
+        dropbox_apt = next(t for t in dropbox_block if t['name'] == 'Install nautilus-dropbox when enabled')['ansible.builtin.apt']
+        self.assertIs(dropbox_apt['update_cache'], True)
+        self.assertEqual(dropbox_apt['cache_valid_time'], 3600)
+
+        vendor_apps = yaml.safe_load((ANSIBLE_DIR / 'roles/desktop_apps/tasks/vendor_apps.yml').read_text())
+        hbe_block = next(t for t in vendor_apps if t['name'] == 'Install Synology Hyper Backup Explorer')['block']
+        hbe_apt = next(t for t in hbe_block if t['name'] == 'Install Hyper Backup Explorer runtime dependencies')['ansible.builtin.apt']
+        self.assertIs(hbe_apt['update_cache'], True)
+        self.assertEqual(hbe_apt['cache_valid_time'], 3600)

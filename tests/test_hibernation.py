@@ -1,5 +1,7 @@
 """Hibernation regressions: fixture files and fake commands, never real disk I/O."""
+import contextlib
 import importlib
+import io
 import json
 import shutil
 from pathlib import Path
@@ -83,7 +85,10 @@ class Fixture(hibernation.Hibernation):
 
     def ensure_subvolume(self):
         self.calls.append(('ensure-subvolume',))
-        self.path('/swap').mkdir(exist_ok=True)
+        swap_dir = self.path('/swap')
+        existed = swap_dir.exists()
+        swap_dir.mkdir(exist_ok=True)
+        return not existed
 
 
 class HibernationTests(unittest.TestCase):
@@ -141,7 +146,7 @@ class HibernationTests(unittest.TestCase):
         lid = self.setup.path('/etc/systemd/logind.conf.d/90-lid-close.conf')
         lid.parent.mkdir(parents=True)
         lid.write_text('[Login]\nHandleLidSwitch=suspend\n')
-        self.setup.configure()
+        self.assertTrue(self.setup.configure())
         swap = self.setup.path(hibernation.SWAP)
         self.assertEqual(swap.stat().st_size, 20 * GIB)
         self.assertEqual(swap.stat().st_mode & 0o777, 0o600)
@@ -157,17 +162,42 @@ class HibernationTests(unittest.TestCase):
         options = json.loads(self.setup.read('/etc/kernelstub/configuration'))['user']['kernel_options']
         self.assertEqual(options, ['quiet', 'rootflags=subvol=@', 'resume=UUID=aaaa-bbbb', 'resume_offset=123456'])
         commands = [call[0] for call in self.setup.calls]
+        self.assertIn('update-initramfs', commands)
+        self.assertIn('kernelstub', commands)
+        self.assertIn(('systemctl', 'daemon-reload'), self.setup.calls)
         self.assertLess(commands.index('update-initramfs'), commands.index('kernelstub'))
         self.assertNotIn('swapoff', commands)
         original_backup = self.setup.read('/etc/fstab.pre-hibernation')
-        self.setup.configure()
+        self.setup.calls.clear()
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            second_changed = self.setup.configure()
+        self.assertFalse(second_changed)
+        self.assertIn('Hibernation already configured:', buf.getvalue())
         self.assertEqual(self.setup.read('/etc/fstab'), fstab)
         self.assertEqual(self.setup.read('/etc/fstab.pre-hibernation'), original_backup)
         self.assertEqual(lid_backup.read_text(), '[Login]\nHandleLidSwitch=suspend\n')
+        second_commands = [call[0] for call in self.setup.calls]
+        self.assertNotIn('update-initramfs', second_commands)
+        self.assertNotIn('kernelstub', second_commands)
+        self.assertNotIn(('systemctl', 'daemon-reload'), self.setup.calls)
         self.assertEqual(sum(call[:3] == ('btrfs', 'filesystem', 'mkswapfile')
-                             for call in self.setup.calls), 1)
+                             for call in self.setup.calls), 0)
         self.assertEqual(sum(call[0] == 'swapon' and '--priority' in call
-                             for call in self.setup.calls), 1)
+                             for call in self.setup.calls), 0)
+
+    def test_drifted_efi_entry_triggers_boot_refresh(self):
+        self.assertTrue(self.setup.configure())
+        self.setup.calls.clear()
+        entry = self.setup.path('/boot/efi/loader/entries/Pop_OS-current.conf')
+        entry.write_text('linux /EFI/Pop_OS-test/vmlinuz.efi\n'
+                         'initrd /EFI/Pop_OS-test/initrd.img\n'
+                         'options root=UUID=aaaa-bbbb quiet resume=UUID=aaaa-bbbb\n')
+        self.assertTrue(self.setup.configure())
+        commands = [call[0] for call in self.setup.calls]
+        self.assertIn('update-initramfs', commands)
+        self.assertIn('kernelstub', commands)
+        self.assertLess(commands.index('update-initramfs'), commands.index('kernelstub'))
 
     @unittest.skipUnless(shutil.which('swapon') and Path('/proc/swaps').exists(),
                          'Requires util-linux swapon and /proc/swaps')

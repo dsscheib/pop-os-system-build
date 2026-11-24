@@ -118,6 +118,13 @@ class UpdateScriptTests(unittest.TestCase):
         self.assertIn('node 24 26', result.stdout)
         self.assertNotIn('mise upgrade --bump', self.calls())
 
+    def test_mise_outdated_failure_surfaces_stderr(self):
+        self.stub('mise', 'printf "mise rate limit error\\n" >&2; exit 1')
+        result = self.run_update('--only', 'mise')
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('mise: FAILED', result.stdout)
+        self.assertIn('mise rate limit error', result.stderr)
+
 
 if __name__ == '__main__':
     unittest.main()

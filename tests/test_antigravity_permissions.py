@@ -77,6 +77,35 @@ class AntigravityPermissionsTest(unittest.TestCase):
         self.assertIn('Antigravity guardrails not applied', result.stderr)
         self.assertNotIn('Traceback', result.stderr)
 
+    def test_check_mode_reports_without_creating_or_modifying_file(self):
+        missing_res = subprocess.run(
+            [sys.executable, '-B', str(SCRIPTS / 'antigravity_permissions.py'), '--check', str(self.path)],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(missing_res.returncode, 0, missing_res.stderr)
+        self.assertIn('Would add 5 Antigravity ask rule(s)', missing_res.stdout)
+        self.assertFalse(self.path.exists())
+
+        partial = {'permissions': {'ask': [RULES[0]]}}
+        self.write(partial)
+        before = self.path.read_bytes()
+        partial_res = subprocess.run(
+            [sys.executable, '-B', str(SCRIPTS / 'antigravity_permissions.py'), '--check', str(self.path)],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(partial_res.returncode, 0, partial_res.stderr)
+        self.assertIn('Would add 4 Antigravity ask rule(s)', partial_res.stdout)
+        self.assertEqual(self.path.read_bytes(), before)
+
+        permissions.apply(self.path)
+        clean_res = subprocess.run(
+            [sys.executable, '-B', str(SCRIPTS / 'antigravity_permissions.py'), '--check', str(self.path)],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(clean_res.returncode, 0, clean_res.stderr)
+        self.assertIn('already present', clean_res.stdout)
+        self.assertNotIn('Would add', clean_res.stdout)
+
 
 if __name__ == '__main__':
     unittest.main()

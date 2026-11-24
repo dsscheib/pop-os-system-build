@@ -13,6 +13,7 @@ UDEV_RULE_NAME="99-samsung-970-evo-nvme.rules"
 MOUNT_DATA="/mnt/data"
 MOUNT_SNAPSHOTS="/mnt/data/.snapshots"
 BTRFS_OPTS_BASE="defaults,noatime,compress=zstd:1,ssd,discard=async,space_cache=v2,nofail"
+SECONDARY_TOP_MNT=""
 
 usage() {
   die "Usage: sudo $0 [--format] [DISK]"
@@ -139,21 +140,58 @@ locate_existing_btrfs_partition() {
   printf '%s\n' "$parts"
 }
 
+cleanup_secondary_workspace() {
+  local status=$?
+  trap - EXIT
+  if [[ -n ${SECONDARY_TOP_MNT:-} ]]; then
+    if findmnt -n --mountpoint "$SECONDARY_TOP_MNT" >/dev/null 2>&1; then
+      if umount "$SECONDARY_TOP_MNT"; then
+        if [[ -d "$SECONDARY_TOP_MNT" ]]; then
+          rmdir -- "$SECONDARY_TOP_MNT" || true
+        fi
+      else
+        log_warn "Unmount failed for $SECONDARY_TOP_MNT; leaving mountpoint intact."
+        status=1
+      fi
+    elif [[ -d "$SECONDARY_TOP_MNT" ]]; then
+      rmdir -- "$SECONDARY_TOP_MNT" || true
+    fi
+    SECONDARY_TOP_MNT=""
+  fi
+  if [[ -n ${WORK_DIR:-} ]]; then
+    rm -rf -- "$WORK_DIR" || status=1
+  fi
+  exit "$status"
+}
+
 ensure_subvolumes() {
-  local part=$1 top_mnt="$WORK_DIR/top"
-  mkdir -p "$top_mnt"
-  mount -t btrfs -o subvolid=5 "$part" "$top_mnt"
-  trap 'umount "$top_mnt" 2>/dev/null || true' RETURN
-  if ! btrfs subvolume show "$top_mnt/@data" >/dev/null 2>&1; then
-    btrfs subvolume create "$top_mnt/@data" >/dev/null
+  local part=$1 mount_root="/run" resolved_root resolved_work=""
+  # Keep mounted subvolid=5 outside WORK_DIR so rm -rf in workspace cleanup can never touch pool data.
+  if [[ $EUID -ne 0 && -n ${SECONDARY_MOUNT_ROOT:-} ]]; then
+    mount_root=$SECONDARY_MOUNT_ROOT
+  fi
+  [[ -d "$mount_root" && ! -L "$mount_root" ]] || die "Invalid secondary mount root: $mount_root"
+  resolved_root=$(readlink -f -- "$mount_root")
+  if [[ -n ${WORK_DIR:-} ]]; then
+    resolved_work=$(readlink -f -- "$WORK_DIR")
+    if [[ "$resolved_root" == "$resolved_work" || "$resolved_root" == "$resolved_work/"* ]]; then
+      die "Secondary mount root must stay outside WORK_DIR: $mount_root"
+    fi
+  fi
+  SECONDARY_TOP_MNT=$(mktemp -d "$resolved_root/pop-secondary-btrfs.XXXXXX")
+  chmod 0700 "$SECONDARY_TOP_MNT"
+  mount -t btrfs -o subvolid=5 "$part" "$SECONDARY_TOP_MNT"
+  if ! btrfs subvolume show "$SECONDARY_TOP_MNT/@data" >/dev/null 2>&1; then
+    btrfs subvolume create "$SECONDARY_TOP_MNT/@data" >/dev/null
     log_info "Created Btrfs subvolume @data."
   fi
-  if ! btrfs subvolume show "$top_mnt/@snapshots" >/dev/null 2>&1; then
-    btrfs subvolume create "$top_mnt/@snapshots" >/dev/null
+  if ! btrfs subvolume show "$SECONDARY_TOP_MNT/@snapshots" >/dev/null 2>&1; then
+    btrfs subvolume create "$SECONDARY_TOP_MNT/@snapshots" >/dev/null
     log_info "Created Btrfs subvolume @snapshots."
   fi
-  umount "$top_mnt"
-  trap - RETURN
+  umount "$SECONDARY_TOP_MNT"
+  rmdir -- "$SECONDARY_TOP_MNT"
+  SECONDARY_TOP_MNT=""
 }
 
 render_secondary_fstab() {
@@ -188,8 +226,19 @@ configure_user_links() {
   chmod 0755 "$data_downloads"
 
   if [[ -d "$user_downloads" && ! -L "$user_downloads" ]]; then
-    cp -a -- "$user_downloads/." "$data_downloads/"
-    rm -rf -- "$user_downloads"
+    local real_downloads mount_targets mount_target
+    real_downloads=$(readlink -f -- "$user_downloads")
+    mount_targets=$(findmnt -rn -o TARGET) || die "Failed to inspect mount points before migrating $user_downloads."
+    while IFS= read -r mount_target; do
+      [[ -n "$mount_target" ]] || continue
+      if [[ "$mount_target" == "$real_downloads" || "$mount_target" == "$real_downloads/"* ]]; then
+        die "Refusing to migrate $user_downloads across mounted filesystem $mount_target."
+      fi
+    done <<< "$mount_targets"
+    cp -a --one-file-system --backup=numbered -- "$user_downloads/." "$data_downloads/"
+    chown "$uid:$gid" "$data_downloads"
+    chmod 0755 "$data_downloads"
+    rm -rf --one-file-system -- "$user_downloads"
   fi
   if [[ -L "$user_downloads" || ! -e "$user_downloads" ]]; then
     ln -sfn "$data_downloads" "$user_downloads"
@@ -267,7 +316,9 @@ main() {
   fi
 
   require_commands awk blkid btrfs cmp findmnt getent id install ln lsblk mkfs.btrfs mount parted partprobe readlink systemctl udevadm umount
+  SECONDARY_MOUNT_ROOT="/run"
   start_workspace secondary-btrfs
+  trap cleanup_secondary_workspace EXIT
 
   install_nvme_udev_rules
   verify_nvme_power_settings

@@ -263,7 +263,7 @@
   ansible.builtin.command:
     argv: "{{ ['python3', repo_root ~ '/scripts/configure_snapper.py'] + (['--initialize'] if not snapper_root_cfg_before.stat.exists else []) }}"
   register: snapper_configure_cmd
-  changed_when: false
+  changed_when: "'Snapper configuration updated.' in snapper_configure_cmd.stdout"
   become: true
 
 - name: Check Snapper config checksums after update
@@ -316,12 +316,13 @@
       tmp_dir=$(mktemp -d)
       trap 'rm -rf -- "$tmp_dir"' EXIT
       mkdir -p "$tmp_dir/parts"
-      cp "{{ repo_root }}/resources/80pop-snapper" "$tmp_dir/parts/80pop-snapper"
+      cp -- "$POP_SNAPPER_CONF" "$tmp_dir/parts/80pop-snapper"
       printf 'Dir::Etc::parts "%s";\nDir::Etc::main "/dev/null";\n' "$tmp_dir/parts" > "$tmp_dir/apt.conf"
       APT_CONFIG="$tmp_dir/apt.conf" apt-config dump >/dev/null
+  environment:
+    POP_SNAPPER_CONF: "{{ repo_root }}/resources/80pop-snapper"
   changed_when: false
   check_mode: false
-  become: true
 
 - name: Install Snapper APT hook helper
   ansible.builtin.copy:

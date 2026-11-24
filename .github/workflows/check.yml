@@ -18,6 +18,7 @@ jobs:
       - name: Install Ansible lint and collections
         run: |
           pipx install --include-deps ansible-lint==26.11.0
+          pipx inject --include-apps ansible-lint ansible-core==2.22.0
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Install Ansible Galaxy collections
         run: ansible-galaxy collection install -r ansible/requirements.yml

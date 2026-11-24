@@ -13,8 +13,10 @@ import tarfile
 import tempfile
 import unittest
 from unittest import mock
+import warnings
 import xml.etree.ElementTree as ET
 import zipfile
+import yaml
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / 'scripts'))
@@ -164,6 +166,81 @@ publish_install
             archive.addfile(info)
         with tarfile.open(path) as archive, self.assertRaises(ValueError):
             assets.extract_tar(archive, self.root / 'extracted')
+
+    def test_zip_rejects_chained_symlink_escape_and_absolute_symlink(self):
+        chained = self.root / 'chained.zip'
+        with zipfile.ZipFile(chained, 'w') as archive:
+            m1 = zipfile.ZipInfo('sub/dir')
+            m1.external_attr = (stat.S_IFLNK | 0o777) << 16
+            archive.writestr(m1, '..')
+            m2 = zipfile.ZipInfo('sub/dir/escape')
+            m2.external_attr = (stat.S_IFLNK | 0o777) << 16
+            archive.writestr(m2, '..')
+        with self.assertRaises(ValueError):
+            assets.extract_zip(chained, self.root / 'extracted-chained')
+        self.assertFalse((self.root / 'extracted-chained/escape').exists())
+
+        abs_link = self.root / 'abs.zip'
+        with zipfile.ZipFile(abs_link, 'w') as archive:
+            m = zipfile.ZipInfo('abs')
+            m.external_attr = (stat.S_IFLNK | 0o777) << 16
+            archive.writestr(m, '/etc/passwd')
+        with self.assertRaises(ValueError):
+            assets.extract_zip(abs_link, self.root / 'extracted-abs')
+
+    def test_zip_duplicate_symlink_member_does_not_write_outside_root(self):
+        dup = self.root / 'dup.zip'
+        outside = self.root / 'outside.txt'
+        outside.write_text('untouched')
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', UserWarning)
+            with zipfile.ZipFile(dup, 'w') as archive:
+                m1 = zipfile.ZipInfo('item')
+                m1.external_attr = (stat.S_IFLNK | 0o777) << 16
+                archive.writestr(m1, 'safe-target')
+                m2 = zipfile.ZipInfo('item')
+                m2.external_attr = (stat.S_IFREG | 0o644) << 16
+                archive.writestr(m2, 'replacement')
+        extracted = self.root / 'extracted-dup'
+        assets.extract_zip(dup, extracted)
+        self.assertFalse((extracted / 'item').is_symlink())
+        self.assertEqual((extracted / 'item').read_text(), 'replacement')
+        self.assertEqual(outside.read_text(), 'untouched')
+
+    def test_zip_final_pass_removes_deferred_escaping_symlink(self):
+        crafted = self.root / 'deferred-escape.zip'
+        with zipfile.ZipFile(crafted, 'w') as archive:
+            # First link looks inside root because `a/b/d` does not exist yet;
+            # the second symlink makes `d -> .`, turning `d/../../..` into parent of root.
+            escape_link = zipfile.ZipInfo('a/b/link')
+            escape_link.external_attr = (stat.S_IFLNK | 0o777) << 16
+            archive.writestr(escape_link, 'd/../../..')
+            pivot_link = zipfile.ZipInfo('a/b/d')
+            pivot_link.external_attr = (stat.S_IFLNK | 0o777) << 16
+            archive.writestr(pivot_link, '.')
+        extracted = self.root / 'extracted-deferred'
+        with self.assertRaisesRegex(ValueError, 'Unsafe archive symlink'):
+            assets.extract_zip(crafted, extracted)
+        self.assertFalse((extracted / 'a/b/link').is_symlink())
+        self.assertFalse((extracted / 'a/b/link').exists())
+
+    def test_tar_extracts_valid_internal_relative_symlink(self):
+        tar_path = self.root / 'valid.tar'
+        with tarfile.open(tar_path, 'w') as archive:
+            file_info = tarfile.TarInfo('lib/libfoo.so.1')
+            payload = b'elf'
+            file_info.size = len(payload)
+            file_info.mode = 0o755
+            archive.addfile(file_info, io.BytesIO(payload))
+            link_info = tarfile.TarInfo('lib/libfoo.so')
+            link_info.type = tarfile.SYMTYPE
+            link_info.linkname = 'libfoo.so.1'
+            archive.addfile(link_info)
+        extracted = self.root / 'extracted-tar'
+        with tarfile.open(tar_path) as archive:
+            assets.extract_tar(archive, extracted)
+        self.assertTrue((extracted / 'lib/libfoo.so').is_symlink())
+        self.assertEqual((extracted / 'lib/libfoo.so').read_bytes(), b'elf')
 
     def test_zip_restores_executable_permissions(self):
         path = self.root / 'installer.zip'
@@ -589,6 +666,127 @@ configure_user_links "$1" "$(id -u)" "$(id -g)"
         self.assertEqual((home / 'Downloads').resolve(), (mnt_data / 'Downloads').resolve())
         self.assertEqual((mnt_data / 'Downloads/file.txt').read_text(), 'saved-download')
 
+    def test_secondary_btrfs_failed_subvolume_or_umount_preserves_mounted_data(self):
+        mount_root = self.root / 'mounts'
+        mount_root.mkdir()
+        for scenario in ('btrfs-create-fail', 'busy-umount-fail'):
+            with self.subTest(scenario=scenario):
+                case_root = mount_root / scenario
+                case_root.mkdir()
+                umount_log = self.root / f'{scenario}-umount.log'
+                res = self.bash('''
+export SECONDARY_MOUNT_ROOT="$1"
+export SCENARIO="$2"
+export UMOUNT_LOG="$3"
+start_workspace secondary-btrfs
+trap cleanup_secondary_workspace EXIT
+mount() {
+  local mnt=${@: -1}
+  [[ $mnt != "$WORK_DIR"* ]] || { printf 'mountpoint inside WORK_DIR: %s\n' "$mnt" >&2; return 99; }
+  printf 'live-pool-data' > "$mnt/sentinel.txt"
+}
+btrfs() {
+  if [[ $2 == show ]]; then return 1; fi
+  if [[ $2 == create && $SCENARIO == btrfs-create-fail ]]; then return 42; fi
+  return 0
+}
+findmnt() {
+  local mnt=${@: -1}
+  [[ -e "$mnt/sentinel.txt" ]]
+}
+umount() {
+  local mnt=${@: -1}
+  printf '%s\n' "$mnt" >> "$UMOUNT_LOG"
+  if [[ $SCENARIO == busy-umount-fail ]]; then return 16; fi
+  rm -f "$mnt/sentinel.txt"
+}
+ensure_subvolumes /dev/nvme9n1p1
+''', case_root, scenario, umount_log, script='preboot/setup_secondary_btrfs_drive.sh')
+                self.assertNotEqual(res.returncode, 0)
+                self.assertTrue(umount_log.is_file())
+                if scenario == 'btrfs-create-fail':
+                    self.assertEqual(res.returncode, 42, res.stderr)
+                    self.assertEqual(list(case_root.iterdir()), [])
+                else:
+                    self.assertEqual(res.returncode, 1, res.stderr)
+                    self.assertIn('Unmount failed', res.stderr)
+                    dirs = list(case_root.iterdir())
+                    self.assertEqual(len(dirs), 1)
+                    self.assertEqual((dirs[0] / 'sentinel.txt').read_text(), 'live-pool-data')
+
+    def test_secondary_btrfs_downloads_collision_preserves_existing_file(self):
+        home = self.root / 'home'
+        mnt_data = self.root / 'mnt_data'
+        (home / 'Downloads').mkdir(parents=True)
+        (mnt_data / 'Downloads').mkdir(parents=True)
+        (home / 'Downloads/file.txt').write_text('new-local-data')
+        (mnt_data / 'Downloads/file.txt').write_text('existing-pool-data')
+        result = self.bash('''
+MOUNT_DATA="$2"
+configure_user_links "$1" "$(id -u)" "$(id -g)"
+''', home, mnt_data, script='preboot/setup_secondary_btrfs_drive.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((home / 'Downloads').is_symlink())
+        self.assertEqual((mnt_data / 'Downloads/file.txt').read_text(), 'new-local-data')
+        backups = list((mnt_data / 'Downloads').glob('file.txt.~*~'))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(backups[0].read_text(), 'existing-pool-data')
+
+    def test_secondary_btrfs_refuses_mount_root_inside_work_dir_or_symlink(self):
+        real_dir = self.root / 'real-dir'
+        real_dir.mkdir()
+        symlink_root = self.root / 'symlink-mount-root'
+        symlink_root.symlink_to(real_dir)
+
+        symlink_res = self.bash('''
+export SECONDARY_MOUNT_ROOT="$1"
+start_workspace secondary-btrfs
+trap cleanup_secondary_workspace EXIT
+ensure_subvolumes /dev/nvme9n1p1
+''', symlink_root, script='preboot/setup_secondary_btrfs_drive.sh')
+        self.assertNotEqual(symlink_res.returncode, 0)
+        self.assertIn('Invalid secondary mount root', symlink_res.stderr)
+
+        inside_res = self.bash('''
+start_workspace secondary-btrfs
+trap cleanup_secondary_workspace EXIT
+mkdir -p "$WORK_DIR/sub"
+export SECONDARY_MOUNT_ROOT="$WORK_DIR/sub"
+ensure_subvolumes /dev/nvme9n1p1
+''', script='preboot/setup_secondary_btrfs_drive.sh')
+        self.assertNotEqual(inside_res.returncode, 0)
+        self.assertIn('must stay outside WORK_DIR', inside_res.stderr)
+
+    def test_secondary_btrfs_downloads_migration_refuses_mounted_disk(self):
+        home = self.root / 'home'
+        mnt_data = self.root / 'mnt_data'
+        usb_mount = home / 'Downloads/usb'
+        usb_mount.mkdir(parents=True)
+        mnt_data.mkdir(parents=True)
+        (home / 'Downloads/local.txt').write_text('local-file')
+        (usb_mount / 'keep.txt').write_text('external-disk-file')
+
+        for mount_point in (usb_mount.resolve(), (home / 'Downloads').resolve()):
+            with self.subTest(mount_point=mount_point):
+                res = self.bash('''
+MOUNT_DATA="$2"
+FAKE_MOUNT="$3"
+findmnt() {
+  if [[ "$*" == *"-rn -o TARGET"* ]]; then
+    printf '/\\n%s\\n' "$FAKE_MOUNT"
+    return 0
+  fi
+  command findmnt "$@"
+}
+configure_user_links "$1" "$(id -u)" "$(id -g)"
+''', home, mnt_data, mount_point, script='preboot/setup_secondary_btrfs_drive.sh')
+                self.assertNotEqual(res.returncode, 0)
+                self.assertIn('Refusing to migrate', res.stderr)
+                self.assertTrue((home / 'Downloads').is_dir())
+                self.assertFalse((home / 'Downloads').is_symlink())
+                self.assertEqual((usb_mount / 'keep.txt').read_text(), 'external-disk-file')
+                self.assertEqual((home / 'Downloads/local.txt').read_text(), 'local-file')
+
     def test_preboot_non_root_sudo_reexec_points_to_existing_script(self):
         bin_dir = self.root / 'bin'
         bin_dir.mkdir()
@@ -621,10 +819,10 @@ configure_user_links "$1" "$(id -u)" "$(id -g)"
         root.write_text('SUBVOLUME="/"\nALLOW_GROUPS=""\nNUMBER_LIMIT="10"\n')
         defaults = self.root / 'snapper-defaults'
         defaults.write_text('SNAPPER_CONFIGS=""\n')
-        snapper_config.configure(root, defaults)
+        self.assertTrue(snapper_config.configure(root, defaults))
         root_stat_1 = root.stat()
         defaults_stat_1 = defaults.stat()
-        snapper_config.configure(root, defaults)
+        self.assertFalse(snapper_config.configure(root, defaults))
         root_stat_2 = root.stat()
         defaults_stat_2 = defaults.stat()
         self.assertEqual((root_stat_1.st_ino, root_stat_1.st_mtime_ns),
@@ -672,6 +870,111 @@ configure_user_links "$1" "$(id -u)" "$(id -g)"
                 with mock.patch.object(assets.subprocess, 'run', return_value=proc):
                     with self.assertRaises(ValueError):
                         assets.verify_pgp(key, fpr)
+
+    def test_stm32_install_is_current_and_publish_records_sha256(self):
+        target = self.root / 'app'
+        wrapper = self.root / 'bin/app'
+        desktop = self.root / 'apps/app.desktop'
+        wrapper.parent.mkdir(parents=True)
+        desktop.parent.mkdir(parents=True)
+        wrapper.write_text('wrapper')
+        desktop.write_text('desktop')
+        digest = 'a' * 64
+        result = self.bash('''
+VERIFIED_ARCHIVE_SHA256="$1"
+begin_install "$2"
+printf installed > "$INSTALL_DIR/marker"
+publish_install
+install_is_current "$2" "$3" "$4"
+''', digest, target, wrapper, desktop)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((target / '.source.sha256').read_text().strip(), digest)
+
+        mismatch = self.bash(
+            'VERIFIED_ARCHIVE_SHA256="$1"; install_is_current "$2" "$3" "$4"',
+            'b' * 64, target, wrapper, desktop,
+        )
+        self.assertNotEqual(mismatch.returncode, 0)
+
+        forced = self.bash(
+            'VERIFIED_ARCHIVE_SHA256="$1"; install_is_current "$2" "$3" "$4"',
+            digest, target, wrapper, desktop,
+            env={'ST_FORCE_REINSTALL': '1'},
+        )
+        self.assertNotEqual(forced.returncode, 0)
+
+        wrapper.unlink()
+        missing_artifact = self.bash(
+            'VERIFIED_ARCHIVE_SHA256="$1"; install_is_current "$2" "$3" "$4"',
+            digest, target, wrapper, desktop,
+        )
+        self.assertNotEqual(missing_artifact.returncode, 0)
+
+    def test_stm32_cubemx_rerun_reports_unchanged_without_extra_version_dir(self):
+        jar = self.root / 'SetupSTM32CubeMX-test'
+        self.jar_fixture(jar, REPO / 'resources/izpack/cubemx.xml')
+        archive = self.root / 'mx.zip'
+        fake_java = '''#!/usr/bin/env bash
+python3 - "$4" <<'PY'
+from pathlib import Path
+import shutil, sys, xml.etree.ElementTree as ET
+directory = Path(ET.parse(sys.argv[1]).find('.//installpath').text)
+binary = directory / 'STM32CubeMX'
+binary.write_text('#!/bin/sh\\nexit 0\\n')
+binary.chmod(0o755)
+shutil.copytree('jre', directory / 'jre')
+PY
+'''
+        with zipfile.ZipFile(archive, 'w') as zip_file:
+            zip_file.write(jar, jar.name)
+            info = zipfile.ZipInfo('jre/bin/java')
+            info.external_attr = (stat.S_IFREG | 0o755) << 16
+            zip_file.writestr(info, fake_java)
+
+        home = self.root / 'home'
+        home.mkdir()
+        env = {
+            'HOME': str(home),
+            'ST_SKIP_UDEV': '1',
+            'ST_INSTALLER_SHA256': hashlib.sha256(archive.read_bytes()).hexdigest(),
+        }
+        code = '''
+st_preflight() { require_commands python3 sha256sum realpath find mktemp desktop-file-validate; }
+check_elf_dependencies() { return 0; }
+refresh_desktop_environment() { return 0; }
+main "$1"
+'''
+        first = self.bash(code, archive, script='install_stm32_cube_mx.sh', env=env)
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        versions_dir = home / 'STMicroelectronics/STM32Cube/.STM32CubeMX.versions'
+        self.assertEqual(len(list(versions_dir.iterdir())), 1)
+
+        second = self.bash(code, archive, script='install_stm32_cube_mx.sh', env=env)
+        self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
+        self.assertIn('(unchanged)', second.stdout)
+        self.assertEqual(len(list(versions_dir.iterdir())), 1)
+
+    def test_stm32_role_uses_repo_root_and_idempotent_changed_when(self):
+        tasks = yaml.safe_load((REPO / 'ansible/roles/stm32/tasks/main.yml').read_text(encoding='utf-8'))
+        probe = next(t for t in tasks if t['name'] == 'Check local availability of requested STMicroelectronics archives')
+        self.assertEqual(probe['ansible.builtin.command']['chdir'], '{{ repo_root }}')
+        run = next(t for t in tasks if t['name'] == 'Run requested STMicroelectronics user-space installers')
+        self.assertIn('(unchanged)', run['changed_when'])
+
+    def test_desktop_udev_handler_reloads_and_triggers_usb_rules(self):
+        handlers = yaml.safe_load((REPO / 'ansible/roles/desktop_apps/handlers/main.yml').read_text(encoding='utf-8'))
+        reload_handler = next(h for h in handlers if h['name'] == 'Reload desktop udev rules')
+        self.assertEqual(
+            reload_handler['ansible.builtin.command']['argv'],
+            ['udevadm', 'control', '--reload-rules'],
+        )
+        trigger_handler = next(h for h in handlers if h.get('listen') == 'Reload desktop udev rules')
+        self.assertEqual(
+            trigger_handler['ansible.builtin.command']['argv'],
+            ['udevadm', 'trigger', '--subsystem-match=usb'],
+        )
+        self.assertTrue(trigger_handler['become'])
+        self.assertEqual(trigger_handler['when'], "ansible_facts['service_mgr'] == 'systemd'")
 
 
 if __name__ == '__main__':
