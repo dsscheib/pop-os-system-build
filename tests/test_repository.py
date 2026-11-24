@@ -166,6 +166,62 @@ publish_install
         with tarfile.open(path) as archive, self.assertRaises(ValueError):
             assets.extract_tar(archive, self.root / 'extracted')
 
+    def test_zip_rejects_chained_symlink_escape_and_absolute_symlink(self):
+        chained = self.root / 'chained.zip'
+        with zipfile.ZipFile(chained, 'w') as archive:
+            m1 = zipfile.ZipInfo('sub/dir')
+            m1.external_attr = (stat.S_IFLNK | 0o777) << 16
+            archive.writestr(m1, '..')
+            m2 = zipfile.ZipInfo('sub/dir/escape')
+            m2.external_attr = (stat.S_IFLNK | 0o777) << 16
+            archive.writestr(m2, '..')
+        with self.assertRaises(ValueError):
+            assets.extract_zip(chained, self.root / 'extracted-chained')
+        self.assertFalse((self.root / 'extracted-chained/escape').exists())
+
+        abs_link = self.root / 'abs.zip'
+        with zipfile.ZipFile(abs_link, 'w') as archive:
+            m = zipfile.ZipInfo('abs')
+            m.external_attr = (stat.S_IFLNK | 0o777) << 16
+            archive.writestr(m, '/etc/passwd')
+        with self.assertRaises(ValueError):
+            assets.extract_zip(abs_link, self.root / 'extracted-abs')
+
+    def test_zip_duplicate_symlink_member_does_not_write_outside_root(self):
+        dup = self.root / 'dup.zip'
+        outside = self.root / 'outside.txt'
+        outside.write_text('untouched')
+        with zipfile.ZipFile(dup, 'w') as archive:
+            m1 = zipfile.ZipInfo('item')
+            m1.external_attr = (stat.S_IFLNK | 0o777) << 16
+            archive.writestr(m1, 'safe-target')
+            m2 = zipfile.ZipInfo('item')
+            m2.external_attr = (stat.S_IFREG | 0o644) << 16
+            archive.writestr(m2, 'replacement')
+        extracted = self.root / 'extracted-dup'
+        assets.extract_zip(dup, extracted)
+        self.assertFalse((extracted / 'item').is_symlink())
+        self.assertEqual((extracted / 'item').read_text(), 'replacement')
+        self.assertEqual(outside.read_text(), 'untouched')
+
+    def test_tar_extracts_valid_internal_relative_symlink(self):
+        tar_path = self.root / 'valid.tar'
+        with tarfile.open(tar_path, 'w') as archive:
+            file_info = tarfile.TarInfo('lib/libfoo.so.1')
+            payload = b'elf'
+            file_info.size = len(payload)
+            file_info.mode = 0o755
+            archive.addfile(file_info, io.BytesIO(payload))
+            link_info = tarfile.TarInfo('lib/libfoo.so')
+            link_info.type = tarfile.SYMTYPE
+            link_info.linkname = 'libfoo.so.1'
+            archive.addfile(link_info)
+        extracted = self.root / 'extracted-tar'
+        with tarfile.open(tar_path) as archive:
+            assets.extract_tar(archive, extracted)
+        self.assertTrue((extracted / 'lib/libfoo.so').is_symlink())
+        self.assertEqual((extracted / 'lib/libfoo.so').read_bytes(), b'elf')
+
     def test_zip_restores_executable_permissions(self):
         path = self.root / 'installer.zip'
         with zipfile.ZipFile(path, 'w') as archive:
