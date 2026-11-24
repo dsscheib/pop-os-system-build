@@ -83,6 +83,16 @@
         state: absent
       when: desktop_apps_font_tmpdir.path is defined
 
+- name: Report JetBrainsMono Nerd Font drift in check mode
+  ansible.builtin.debug:
+    msg: "Would download and install JetBrainsMono Nerd Font {{ pinned_downloads.font.version }}"
+  changed_when: true
+  when:
+    - ansible_check_mode
+    - >-
+      not desktop_apps_font_stat.stat.exists
+      or (desktop_apps_font_existing_ttfs.matched | default(0)) == 0
+
 - name: Link active JetBrainsMono font directory
   ansible.builtin.file:
     src: "{{ desktop_apps_font_version_dir }}"
@@ -90,7 +100,7 @@
     state: link
     force: true
     mode: "0755"
-  when: not ansible_check_mode
+  when: not ansible_check_mode or desktop_apps_font_stat.stat.exists
   notify: Refresh user font cache
 
 - name: Prune superseded JetBrainsMono font versions

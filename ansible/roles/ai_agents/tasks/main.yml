@@ -159,6 +159,14 @@
             state: absent
           when: ai_agents_agy_tmpdir.path is defined
 
+    - name: Report Antigravity CLI download drift in check mode
+      ansible.builtin.debug:
+        msg: "Would download and install Antigravity CLI {{ pinned_downloads.antigravity_cli.version }}"
+      changed_when: true
+      when:
+        - ansible_check_mode
+        - not ai_agents_agy_stat.stat.exists
+
     - name: Link active Antigravity CLI directory
       ansible.builtin.file:
         src: "{{ ai_agents_agy_version_dir }}"
@@ -166,7 +174,7 @@
         state: link
         force: true
         mode: "0755"
-      when: not ansible_check_mode
+      when: not ansible_check_mode or ai_agents_agy_stat.stat.exists
 
     - name: Prune superseded Antigravity CLI versions
       ansible.builtin.import_role:
@@ -194,10 +202,15 @@
 
     - name: Apply Antigravity destructive-git ask guardrails
       ansible.builtin.command:
-        argv:
-          - python3
-          - -B
-          - "{{ repo_root }}/scripts/antigravity_permissions.py"
+        argv: >-
+          {{
+            [
+              'python3',
+              '-B',
+              repo_root ~ '/scripts/antigravity_permissions.py',
+            ]
+            + (['--check'] if ansible_check_mode else [])
+          }}
       register: ai_agents_agy_guardrails
-      changed_when: "'Added ' in ai_agents_agy_guardrails.stdout"
-      when: not ansible_check_mode
+      check_mode: false
+      changed_when: "'Added ' in ai_agents_agy_guardrails.stdout or 'Would add ' in ai_agents_agy_guardrails.stdout"

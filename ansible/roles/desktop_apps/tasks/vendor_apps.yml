@@ -80,6 +80,14 @@
             state: absent
           when: desktop_apps_arduino_tmpdir.path is defined
 
+    - name: Report Arduino IDE drift in check mode
+      ansible.builtin.debug:
+        msg: "Would download and install Arduino IDE {{ pinned_downloads.arduino_ide.version }}"
+      changed_when: true
+      when:
+        - ansible_check_mode
+        - not desktop_apps_arduino_stat.stat.exists
+
     - name: Link active Arduino IDE directory
       ansible.builtin.file:
         src: "{{ desktop_apps_arduino_install_dir }}"
@@ -87,7 +95,7 @@
         state: link
         force: true
         mode: "0755"
-      when: not ansible_check_mode
+      when: not ansible_check_mode or desktop_apps_arduino_stat.stat.exists
 
     - name: Prune superseded Arduino IDE versions
       ansible.builtin.import_role:
@@ -276,6 +284,14 @@
             state: absent
           when: desktop_apps_synology_tmpdir.path is defined
 
+    - name: Report Synology Drive drift in check mode
+      ansible.builtin.debug:
+        msg: "Would install Synology Drive {{ pinned_downloads.synology.deb_version }}"
+      changed_when: true
+      when:
+        - ansible_check_mode
+        - (desktop_apps_synology_dpkg.stdout | trim) != ('install ok installed|' ~ pinned_downloads.synology.deb_version)
+
 - name: Install Synology Hyper Backup Explorer
   tags:
     - hyper_backup
@@ -360,6 +376,14 @@
             state: absent
           when: desktop_apps_hbe_tmpdir.path is defined
 
+    - name: Report Hyper Backup Explorer drift in check mode
+      ansible.builtin.debug:
+        msg: "Would download and install Hyper Backup Explorer {{ pinned_downloads.hyper_backup_explorer.version }}"
+      changed_when: true
+      when:
+        - ansible_check_mode
+        - not desktop_apps_hbe_stat.stat.exists
+
     - name: Link active Hyper Backup Explorer directory
       ansible.builtin.file:
         src: "{{ desktop_apps_hbe_install_dir }}"
@@ -367,7 +391,7 @@
         state: link
         force: true
         mode: "0755"
-      when: not ansible_check_mode
+      when: not ansible_check_mode or desktop_apps_hbe_stat.stat.exists
 
     - name: Prune superseded Hyper Backup Explorer versions
       ansible.builtin.import_role:
@@ -466,3 +490,11 @@
             path: "{{ desktop_apps_ail_tmpdir.path }}"
             state: absent
           when: desktop_apps_ail_tmpdir.path is defined
+
+    - name: Report AppImageLauncher drift in check mode
+      ansible.builtin.debug:
+        msg: "Would install AppImageLauncher {{ pinned_downloads.appimagelauncher.deb_version }}"
+      changed_when: true
+      when:
+        - ansible_check_mode
+        - (desktop_apps_ail_dpkg.stdout | trim) != ('install ok installed|' ~ pinned_downloads.appimagelauncher.deb_version)

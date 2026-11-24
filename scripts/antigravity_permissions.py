@@ -42,7 +42,7 @@ def merge(settings):
     return settings, added
 
 
-def apply(path):
+def apply(path, check=False):
     path = Path(path)
     if path.exists():
         try:
@@ -56,7 +56,7 @@ def apply(path):
         settings, added = merge(settings)
     except SettingsError as error:
         raise SettingsError(f'{path}: {error}; fix it or add the rules with /permissions')
-    if added:
+    if added and not check:
         atomic_text(path, json.dumps(settings, indent=2) + '\n', mode)
     return added
 
@@ -65,13 +65,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('settings', nargs='?',
                         default=os.path.expanduser('~/.gemini/antigravity-cli/settings.json'))
+    parser.add_argument('--check', action='store_true',
+                        help='Report missing ask rules without editing the file')
     args = parser.parse_args()
     try:
-        added = apply(args.settings)
+        added = apply(args.settings, check=args.check)
     except SettingsError as error:
         raise SystemExit(f'Antigravity guardrails not applied: {error}')
     if added:
-        print(f'Added {len(added)} Antigravity ask rule(s) to {args.settings}: ' + ', '.join(added))
+        prefix = 'Would add' if args.check else 'Added'
+        print(f'{prefix} {len(added)} Antigravity ask rule(s) to {args.settings}: ' + ', '.join(added))
     else:
         print(f'Antigravity ask rules already present in {args.settings}')
 
