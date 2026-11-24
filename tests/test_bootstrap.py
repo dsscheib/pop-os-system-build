@@ -1,5 +1,4 @@
-"""Tests for v2 Phase 1 bootstrap, Ansible foundation, and pinned download metadata."""
-import json
+"""Tests for v2 bootstrap, Ansible foundation, and pinned download metadata."""
 import os
 from pathlib import Path
 import re
@@ -81,8 +80,7 @@ class BootstrapAndV2FoundationTests(unittest.TestCase):
         mismatch = self.bash('verify_sha256 "$1" "' + ('0' * 64) + '"', sample)
         self.assertNotEqual(mismatch.returncode, 0)
 
-    def test_bootstrap_pins_match_downloads_json(self):
-        downloads = json.loads((REPO / 'resources/downloads.json').read_text())
+    def test_bootstrap_pins_are_valid_https_and_sha256(self):
         result = self.bash(
             'printf "%s\\n%s\\n%s\\n%s\\n%s\\n%s\\n" '
             '"$MISE_VERSION" "$MISE_URL" "$MISE_SHA256" '
@@ -90,10 +88,11 @@ class BootstrapAndV2FoundationTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         mise_ver, mise_url, mise_sha, uv_ver, uv_url, uv_sha = result.stdout.splitlines()
-        self.assertEqual((mise_ver, mise_url, mise_sha),
-                         (downloads['mise']['version'], downloads['mise']['url'], downloads['mise']['sha256']))
-        self.assertEqual((uv_ver, uv_url, uv_sha),
-                         (downloads['uv']['version'], downloads['uv']['url'], downloads['uv']['sha256']))
+        for ver, url, sha in ((mise_ver, mise_url, mise_sha), (uv_ver, uv_url, uv_sha)):
+            self.assertTrue(ver)
+            self.assertTrue(url.startswith('https://'))
+            self.assertNotIn('/latest/', url)
+            self.assertRegex(sha, re.compile(r'^[0-9a-f]{64}$'))
 
     def test_ansible_yaml_files_parse_cleanly(self):
         yaml_files = sorted(ANSIBLE_DIR.rglob('*.yml'))
@@ -173,32 +172,28 @@ class BootstrapAndV2FoundationTests(unittest.TestCase):
                         f'{task_file.relative_to(REPO)} notifies unknown handler {notified!r}',
                     )
 
-    def test_ansible_downloads_match_downloads_json(self):
-        legacy = json.loads((REPO / 'resources/downloads.json').read_text())
+    def test_ansible_downloads_are_complete_and_valid(self):
         v2_downloads = yaml.safe_load((ANSIBLE_DIR / 'group_vars/all/downloads.yml').read_text())['pinned_downloads']
-
-        mapping = {
-            'font': 'font',
-            'appimagelauncher': 'appimagelauncher',
-            'saleae': 'saleae',
-            'synology': 'synology',
-            'hyper_backup_explorer': 'hyper-backup-explorer',
-            'antigravity_cli': 'antigravity-cli',
-            'arduino_ide': 'arduino-ide',
-            'vscode_key': 'vscode-key',
-            'mozilla_key': 'mozilla-key',
-            'githubcli_key': 'githubcli-key',
-            'claude_code_key': 'claude-code-key',
-            'kicad_key': 'kicad-key',
-            'google_chrome_key': 'google-chrome-key',
-            'llvm_key': 'llvm-key',
+        expected_keys = {
+            'font',
+            'appimagelauncher',
+            'saleae',
+            'synology',
+            'hyper_backup_explorer',
+            'antigravity_cli',
+            'arduino_ide',
+            'vscode_key',
+            'mozilla_key',
+            'githubcli_key',
+            'claude_code_key',
+            'kicad_key',
+            'google_chrome_key',
+            'llvm_key',
         }
-        self.assertEqual(set(v2_downloads.keys()), set(mapping.keys()))
-        for v2_key, legacy_key in mapping.items():
-            with self.subTest(key=v2_key):
-                entry = v2_downloads[v2_key]
+        self.assertEqual(set(v2_downloads.keys()), expected_keys)
+        for key, entry in v2_downloads.items():
+            with self.subTest(key=key):
+                self.assertTrue(entry['version'])
                 self.assertTrue(entry['url'].startswith('https://'))
+                self.assertNotIn('/latest/', entry['url'])
                 self.assertRegex(entry['sha256'], re.compile(r'^[0-9a-f]{64}$'))
-                self.assertEqual(entry['version'], legacy[legacy_key]['version'])
-                self.assertEqual(entry['url'], legacy[legacy_key]['url'])
-                self.assertEqual(entry['sha256'], legacy[legacy_key]['sha256'])

@@ -3,7 +3,8 @@
 # power-management udev rules and mount or format its @data/@snapshots Btrfs pool.
 set -euo pipefail
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+PREBOOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+SCRIPT_DIR=$(cd "$PREBOOT_DIR/.." && pwd)
 # shellcheck source=common.sh
 source "$SCRIPT_DIR/common.sh"
 

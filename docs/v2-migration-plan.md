@@ -131,13 +131,13 @@ pop-os-system-build/
 - **Verify**: Container CI passes for non-GUI roles; unit tests cover `merge_lazy_lock.py`, `auth.sh`, `st_assets.py`, `configure_hibernation.py`, and pre-boot scripts.
 
 ### Phase 4: Chezmoi + Global Mise Migration (in private `dotfiles` repo)
-- [ ] Initialize Chezmoi with `age` encryption in the private `dotfiles` repository; fold in `dotfiles-private` content.
-- [ ] Add `dot_config/mise/config.toml` + `mise.lock` and `run_onchange_after_mise-install.sh.tmpl`.
-- [ ] Migrate `agent-scope`, shell startup files, completions, `.gitconfig.tmpl`, `rclone-gdrive-bisync.{service,timer}.tmpl`, `modify_` scripts for agent JSON/TOML files, and `age`-encrypted `gdrive-oauth.env` + `gdrive-filters.txt`.
+- [x] Initialize Chezmoi with `age` encryption support in the private `dotfiles` repository (`v2-chezmoi` branch); fold in `dotfiles-private` content.
+- [x] Add `dot_config/mise/config.toml` and `run_onchange_after_mise-install.sh.tmpl` (run `mise lock` on live cutover).
+- [x] Migrate `agent-scope`, shell startup files, completions, `.gitconfig.tmpl`, `rclone-gdrive-bisync.{service,timer}.tmpl`, and `modify_` scripts for agent JSON/TOML files (encrypt `gdrive-oauth.env` with `age` on live cutover).
 - **Verify**: `chezmoi diff`, `chezmoi apply`, `mise doctor`, and `herdr config check` succeed cleanly.
 
 ### Phase 5: End-to-End VM Validation & v1 Retirement
-- [ ] Test full workflow in a disposable Pop!_OS 24.04 VM: `setup_btrfs_live_install.sh` → reboot → `./bootstrap.sh` → `mise run apply` (twice for idempotency) → `mise run auth` → smoke tests.
-- [ ] Move live-install / secondary-drive scripts under `preboot/` and remove retired v1 files (`pop_os_config.sh`, `resources/downloads.json`, `resources/tool-versions.env`, `scripts/shell_integration.py`, `scripts/antigravity_permissions.py`, and Chezmoi-migrated shell/completion resources).
-- [ ] Update `README.md` for v2.
-- **Verify**: Full VM run and `mise run check` pass cleanly.
+- [ ] Test full workflow in a disposable Pop!_OS 24.04 VM: `preboot/setup_btrfs_live_install.sh` → reboot → `./bootstrap.sh` → `mise run apply` (twice for idempotency) → `mise run auth` → smoke tests.
+- [x] Move live-install / secondary-drive scripts under `preboot/` and remove retired v1 files (`pop_os_config.sh`, `resources/downloads.json`, `resources/tool-versions.env`, `scripts/shell_integration.py`, `scripts/neovim_wrapper.py`, `scripts/user_launcher.py`, and Chezmoi-migrated shell/completion resources).
+- [x] Update `README.md` for v2.
+- **Verify**: `mise run check` and CI pass cleanly; complete live VM smoke test before merging to `main`.

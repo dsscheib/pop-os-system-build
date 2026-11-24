@@ -18,13 +18,18 @@ require_user() {
 }
 
 require_supported_system() {
-  local os_id version
+  local os_id version major
   os_id=$(awk -F= '$1 == "ID" {gsub(/"/, "", $2); print $2}' /etc/os-release) || return
   version=$(awk -F= '$1 == "VERSION_ID" {gsub(/"/, "", $2); print $2}' /etc/os-release) || return
-  case "$os_id:$version" in
-    pop:22.04|pop:24.04|ubuntu:22.04|ubuntu:24.04) ;;
-    *) log_error "Supported systems: Pop!_OS/Ubuntu 22.04 or 24.04; detected $os_id $version."; return 1 ;;
+  case "$os_id" in
+    pop|ubuntu) ;;
+    *) log_error "Supported systems: Pop!_OS or Ubuntu 24.04+; detected $os_id $version."; return 1 ;;
   esac
+  major=${version%%.*}
+  if [[ ! $major =~ ^[0-9]+$ ]] || (( 10#$major < 24 )); then
+    log_error "Supported systems: Pop!_OS or Ubuntu 24.04+; detected $os_id $version."
+    return 1
+  fi
   [[ $(uname -m) == x86_64 ]] || { log_error "These workstation/STM32 installers require x86_64."; return 1; }
 }
 
@@ -248,13 +253,6 @@ st_finish() {
   write_wrapper "$wrapper" "$working_dir" "$executable" GDK_BACKEND=x11 _JAVA_AWT_WM_NONREPARENTING=1 || return
   write_desktop "$desktop_file" "$name" "$wrapper" "$working_dir" "$icon" "$wmclass" || return
   refresh_desktop_environment "$(dirname "$desktop_file")"
-}
-
-fetch_locked() {
-  local name=$1 destination=$2 url digest
-  url=$(jq -er --arg name "$name" '.[$name].url' "$SCRIPT_DIR/resources/downloads.json") || return
-  digest=$(jq -er --arg name "$name" '.[$name].sha256' "$SCRIPT_DIR/resources/downloads.json") || return
-  download_verified "$url" "$destination" "$digest"
 }
 
 install_system_file() {

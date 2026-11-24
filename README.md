@@ -1,596 +1,85 @@
-# Pop!_OS Installation and Workstation Setup
+# Pop!_OS Workstation Setup (v2)
 
-Scripts for a UEFI Btrfs installation, Snapper snapshots, workstation tools, and
-user-space STMicroelectronics applications. Workstation and STM32 setup support
-**Pop!_OS/Ubuntu 22.04 and 24.04 on x86_64**. Snapper setup also supports Debian
-with the required packages and the exact subvolume layout described below
-(use `--skip-hibernation` for Snapper on Ubuntu/Debian).
+Declarative workstation automation for **Pop!_OS / Ubuntu 24.04+ on `x86_64`** using **Ansible**, **Mise**, and **Chezmoi**, plus standalone pre-boot Btrfs and STMicroelectronics installers.
 
-## 1. Install Pop!_OS
+> The legacy Bash workstation setup (`pop_os_config.sh`) is preserved at git tag `v1`. See [docs/v2-migration-plan.md](docs/v2-migration-plan.md) and [docs/phase4-chezmoi-guide.md](docs/phase4-chezmoi-guide.md) for the v2 architecture.
 
-Use Advanced (Custom) partitioning on a GPT disk. Example layout:
+## 1. Pre-Boot Btrfs Setup (Live USB)
 
-| Device | Size | Filesystem | Mount point | Label |
-| :--- | :--- | :--- | :--- | :--- |
-| `/dev/nvme0n1p1` | 2 GiB | FAT32, EFI System Partition | `/boot/efi` | `EFI` |
-| `/dev/nvme0n1p2` | 4 GiB | FAT32 | `/recovery` | `RECOVERY` |
-| `/dev/nvme0n1p3` | Remaining space | Btrfs | `/` | `ROOT` |
-
-After the installer finishes, **stay in the live environment before the first
-reboot**. Unmount the installer's target root and EFI mounts, and run:
+After installing Pop!_OS onto a GPT disk (`EFI`, `RECOVERY`, `ROOT` Btrfs) and **before the first reboot**, unmount the installer's target mounts and convert the root filesystem into `@`, `@home`, and `@snapshots` subvolumes:
 
 ```bash
-sudo ./setup_btrfs_live_install.sh /dev/nvme0n1p3
+sudo ./preboot/setup_btrfs_live_install.sh /dev/nvme0n1p3
+# Or specify EFI explicitly (including mapped/encrypted roots):
+sudo ./preboot/setup_btrfs_live_install.sh /dev/nvme0n1p3 /dev/nvme0n1p1
+# Repair fstab/kernelstub/initramfs on an existing @/@home/@snapshots layout:
+sudo ./preboot/setup_btrfs_live_install.sh --repair-boot /dev/nvme0n1p3 /dev/nvme0n1p1
 ```
 
-The script accepts a fresh installation directly in Btrfs subvolume ID 5. It
-rejects existing subvolumes, separate `/home` or `/boot` filesystems, and existing
-snapshot data. It resolves `os-release` inside the target, validates kernel and
-initramfs pairs, and conservatively requires enough free space for an additional
-installation-sized copy plus 256 MiB of metadata headroom.
+### Optional: Secondary NVMe Btrfs Data Drive
 
-EFI is resolved from the installed `fstab`, or from a unique ESP on the root
-partition's disk. To specify it explicitly, including mapped/encrypted roots:
+To install the Samsung 970 EVO PCIe ASPM/APST udev rule and mount/create `@data` + `@snapshots` at `/mnt/data` (with `~/data` and `~/Downloads` symlinks):
 
 ```bash
-sudo ./setup_btrfs_live_install.sh /dev/nvme0n1p3 /dev/nvme0n1p1
+sudo ./preboot/setup_secondary_btrfs_drive.sh           # Reattach existing pool
+sudo ./preboot/setup_secondary_btrfs_drive.sh --format  # Partition & format from scratch
 ```
 
-The conversion creates `@`, `@home`, and `@snapshots`, preserves directory
-permissions/ACLs/xattrs, backs up the old configuration, and validates the updated
-boot files. It selects `Pop_OS-current.conf` in the target ESP's `loader.conf`.
-It does not require the live USB to have booted through systemd-boot. Configuration
-backups are stored under `/etc/fstab.pre-btrfs.*` and
-`/etc/kernelstub/*.pre-btrfs.*` in the installed root.
+## 2. Optional: Standalone Post-Boot Snapper & Hibernation
 
-Both conversion and boot repair ensure the installed system has `btrfs` and
-`fsck.btrfs` before rebuilding initramfs. If either utility is missing, the script
-updates APT indexes and installs (or reinstalls) `btrfs-progs` inside the target
-system. This requires working networking and package repositories in the chroot;
-package failures stop the script. If both utilities already exist, APT is skipped.
-
-Reboot only after success. If conversion fails after moving data, stay in the live
-environment, mount the filesystem with `subvolid=5`, and inspect/repair the partial
-layout and boot configuration before rerunning or rebooting. Existing layouts are
-never automatically merged. No destructive automatic rollback is attempted.
-
-If the conversion finished but boot configuration failed (including the former
-`Not booted with a supported boot loader.` error), update this repository and run
-boot repair from the UEFI live environment, using the same devices as before:
+To configure Snapper root snapshots, `snapper-rollback`, `80pop-snapper` APT hooks, and a `/swap/hibernate.swap` Btrfs swapfile outside Ansible (or set `enable_snapper: true` in `ansible/group_vars/all/local.yml`):
 
 ```bash
-sudo ./setup_btrfs_live_install.sh --repair-boot /dev/nvme0n1p3 /dev/nvme0n1p1
+sudo ./preboot/setup_btrfs_snapper.sh
+# Snapper without hibernation/swap (e.g. non-systemd-boot Debian/Ubuntu):
+sudo ./preboot/setup_btrfs_snapper.sh --skip-hibernation
 ```
 
-Use your actual root and EFI devices. This mode requires existing `@`, `@home`,
-and `@snapshots` subvolumes with no leftover top-level data. It backs up and
-repairs fstab and boot configuration, rebuilds initramfs, and verifies the boot
-files without moving data or recreating subvolumes. It rejects partial layouts
-requiring manual inspection. Reboot only after it reports success. A previously
-saved systemd-boot EFI default can override `loader.conf`; if needed, choose
-`Pop_OS-current` in the boot menu and make it the default from the installed OS.
+Reboot after hibernation setup and test with `systemctl hibernate`.
 
-## 2. Configure Snapper and hibernation after boot
+## 3. Bootstrap and Converge the Workstation
+
+Run as your **desktop user** (never with `sudo`):
 
 ```bash
-sudo ./setup_btrfs_snapper.sh
+./bootstrap.sh
+cp ansible/group_vars/all/local.yml.example ansible/group_vars/all/local.yml
+# Edit local.yml with your private dotfiles_repo / nvim_config_repo if desired.
+
+mise run plan    # Dry-run with --check --diff
+mise run apply   # Converge OS, toolchains, containers, browsers, apps, AI CLIs, workstation
+mise run auth    # Interactive gh login, Chezmoi init/apply, Google Drive rclone OAuth, Herdr hooks
 ```
 
-On Pop!_OS with kernelstub/systemd-boot, this also configures hibernation. It
-creates a top-level `@swap` subvolume mounted at `/swap`, outside root snapshots,
-and `/swap/hibernate.swap` sized to RAM plus the larger of 25% of RAM or 2 GiB,
-rounded up to a whole GiB. For example, 16 GiB RAM gets 20 GiB swap. Another
-2 GiB of filesystem free space is required as headroom. Allocation may still fail
-if Btrfs cannot provide suitable extents; configuration stops on failure.
+Run a single role/tag with `mise run role <tag>`:
 
-The setup requires a single-device Btrfs filesystem, **btrfs-progs 6.1 or newer**,
-kernel hibernation support without lockdown, and the EFI partition mounted at
-`/boot/efi`. Older distributions may need newer Btrfs tools first. The preflight
-runs before Snapper package/configuration changes. Existing swap areas remain
-enabled. An existing hibernation file is reused if valid and large enough; a
-smaller file is reported rather than automatically deactivated or resized.
-
-The script uses `btrfs inspect-internal map-swapfile -r` for the physical resume
-offset, sets `resume=UUID=…` and `resume_offset=…` in kernelstub, configures
-initramfs resume and systemd `AllowHibernation=yes`, rebuilds initramfs for all
-installed kernels, and refreshes the current EFI boot entry. Conflicting old
-resume arguments are replaced; unrelated boot arguments are retained. Existing
-configuration files receive `.pre-hibernation` backups on their first edit.
-
-After validating the resume setup, it also installs
-`/etc/systemd/logind.conf.d/90-lid-close.conf`: closing the lid hibernates on
-battery, suspends on AC power, and does nothing when docked or using an external
-monitor. COSMIC may take over lid handling with external displays, preserving
-their use with the laptop closed. The lid policy takes effect after reboot;
-setup does not restart logind during your desktop session.
-
-To configure hibernation independently of Snapper, or check prerequisites:
-
-```bash
-sudo python3 scripts/configure_hibernation.py --check
-sudo python3 scripts/configure_hibernation.py
-```
-
-**Reboot after successful setup** to load the resume parameters. Save your work,
-then test a complete power-off/resume cycle using `systemctl hibernate`.
-Configuration checks cannot establish that firmware and device drivers resume
-correctly. The setup never initiates hibernation itself. It does not bypass kernel
-lockdown or unmask administrator-disabled sleep units. Hibernate menu visibility
-depends on the desktop environment.
-
-If the swap file is recreated or moved, rerun hibernation setup before using it:
-its physical resume offset can change. Snapper rollback to a snapshot from before
-this configuration may also require rerunning setup. Btrfs balance/scrub have
-restrictions around active swap extents; see the
-[Btrfs swap-file documentation](https://btrfs.readthedocs.io/en/latest/ch-swapfile.html).
-
-For Snapper without swap/hibernation setup, including Ubuntu/Debian or a different
-bootloader, run `sudo ./setup_btrfs_snapper.sh --skip-hibernation`.
-
-This requires `/` to mount `/@` and `/.snapshots` to mount `/@snapshots` from the
-same Btrfs filesystem, before any packages or configuration are changed. Setup
-preserves other registered Snapper configs and existing retention settings,
-configures ACL access for administrators, and creates/deletes a validation
-snapshot. New root configs retain 10 ordinary and 5 important numbered snapshots
-with a minimum age of 1800 seconds; timeline creation is disabled.
-
-The rollback utility is installed from a fixed Git commit. The rollback device
-uses `/dev/disk/by-uuid/…` so device renumbering does not change its target.
-
-APT invokes `/usr/local/libexec/pop-snapper-apt-hook` using the validated
-`80pop-snapper` configuration. Distribution-provided snapshot hooks are disabled
-through `DISABLE_APT_SNAPSHOT=yes` to avoid duplicate snapshots. An invalid hook
-written by older versions of this repository is recognized and archived under
-`/etc/apt/pop-btrfs-backups` before APT is used. Snapshot failures are printed to
-stderr but allow package installation to continue. Interrupted package operations
-may leave an unpaired pre-snapshot; numbered cleanup handles retention.
-
-The cleanup timer is required. A missing distribution boot-snapshot timer is
-reported explicitly. Test an actual rollback and reboot in a disposable VM before
-relying on rollback for recovery; root snapshots do not include the FAT EFI files
-or `/home`.
-
-### Secondary NVMe Btrfs data drive (Samsung 970 EVO)
-
-To install the PCIe ASPM `L1.2` / NVMe APST (`PS3` cap) power-management udev rule
-([resources/udev/99-samsung-970-evo-nvme.rules](resources/udev/99-samsung-970-evo-nvme.rules))
-and configure the secondary Samsung SSD 970 EVO 500GB drive at `/mnt/data` (with
-`/mnt/data/.snapshots`, `~/data` symlink, and `~/Downloads` migrated/symlinked to
-`/mnt/data/Downloads`):
-
-```bash
-# Reattach an existing @data/@snapshots Btrfs pool after an OS reinstall (preserves data):
-sudo ./setup_secondary_btrfs_drive.sh
-
-# Repartition (GPT) and format the secondary drive from scratch:
-sudo ./setup_secondary_btrfs_drive.sh --format
-```
-
-You can also pass an explicit disk path (for example,
-`sudo ./setup_secondary_btrfs_drive.sh /dev/nvme1n1`). The script refuses to
-operate on the disk backing `/`, `/boot/efi`, `/recovery`, `/home`, or `/swap`.
-
-## 3. Configure the workstation as your desktop user
-
-```bash
-cp config.env.example config.env
-# Edit identity and repository settings before running the corresponding stages.
-./pop_os_config.sh
-```
-
-Do not use `sudo` for this script. It installs user files in your account and uses
-`sudo` only for individual system operations. `config.env` is trusted Bash code;
-keep it private and do not store passphrases in it.
-
-List or select stages:
-
-```bash
-./pop_os_config.sh --list-stages
-./pop_os_config.sh --stages dependencies,languages,neovim
-./pop_os_config.sh --stages llvm
-./pop_os_config.sh --stages system,arm,avr,riscv
-./pop_os_config.sh --stages antigravity,claudecode,codex,copilot
-./pop_os_config.sh --stages dotfiles,herdr
-```
-
-The `arm` stage includes ARM32 bare-metal tools (`arm-none-eabi-gcc`),
-the AArch64 Linux cross-compiler (`aarch64-linux-gnu-gcc`) and binutils,
-`gdb-multiarch`, OpenOCD, and ST-LINK tools. This supports the corresponding
-GAS assembly task targets in the AstroNvim configuration. The separate `avr`
-stage installs AVR GCC/binutils, avr-libc, avrdude, and `gdb-avr`. The default setup selects
-both stages. Existing `--stages arm-avr` commands still run both as a compatibility
-option.
-
-The `system` stage upgrades packages, enables UFW, and adds you to the `dialout`
-and `plugdev` groups. It also installs and enables `systemd-oomd`: under sustained
-memory pressure it kills the busiest app in your session (for example a terminal
-and everything started from it) instead of letting swap thrashing freeze the
-desktop. It installs `/etc/systemd/journald.conf.d/zz-pop-workstation.conf`,
-which raises the journal limit from Pop's 1000M to 4G and rate-limits each unit
-to 200 messages per 30 seconds (scaled up by journald with free disk space), so a
-flooding desktop component cannot rotate earlier crash history away.
-
-All selections install the small prerequisite package set first. The `git` stage
-requires your own name, email, and GitHub username. The `dotfiles` and `neovim`
-stages require the respective repository URLs. Set `DOTFILES_REF` and
-`NVIM_CONFIG_REF` to commits for reproducible personal configurations; otherwise
-clean checkouts update with `--ff-only`. Foreign origins and local changes are
-reported as errors rather than silently ignored.
-
-The one exception is a Neovim config whose only change is `lazy-lock.json`, as
-`:Lazy update` leaves it. Setup updates the config and keeps those plugin
-revisions, merging per plugin when the update also changes the lockfile; where
-both moved the same plugin, the committed revision wins. Installed plugins are
-then restored to the merged lockfile. A fresh install that records newer
-plugins than the committed lockfile is restored to the committed revisions.
-
-The `dependencies` stage includes NASM for x86-64 assembly tasks, ShellCheck,
-Cppcheck, DNS/Netcat tools, the NetworkManager OpenVPN GUI plugin, rsync, wget,
-Kitty, and libsecret tools. It installs Fastfetch from APT when a candidate exists;
-otherwise it installs the pinned upstream Debian package after checking its
-SHA-256. An existing Fastfetch command is kept. Bash integration loads the
-installed `bash-completion` package for APT tab completion; linked `.bashrc`
-files must load completion themselves or source the managed integration file.
-
-Native build tools use the latest candidates from the configured APT repositories.
-Setup selects the highest available GCC major with an installable matching G++
-package, then installs/upgrades that pair, `build-essential`, binutils, Make,
-dpkg-dev, and libc development headers. It does not add a toolchain PPA or build
-upstream releases from source. Repository availability and APT pinning determine
-the versions; Ubuntu's default `gcc` package can select an older major than the
-newest packaged compiler.
-
-Managed commands under `~/.local/bin` select the chosen compiler for `gcc`, `g++`,
-`cc`, `c++`, and the matching GCC archive/coverage tools. Keep that directory first
-on `PATH`; custom compiler wrappers there require manual review. System compiler
-links and existing compiler packages are preserved. Older versions may be pulled
-in by `build-essential` or other package dependencies. Cross-compilers in the
-ARM/AVR/RISC-V stages also use their current APT candidates and keep their target
-prefixes.
-
-The `llvm` stage adds LLVM's signed APT repository (`apt.llvm.org`) for the
-release branch named by `LLVM_VERSION` in `resources/tool-versions.env`, using the
-system's Ubuntu codename. The development snapshot suite is not added. Like the
-GCC selection, the stage then installs the highest major for which Clang, clangd,
-clang-format, clang-tidy, LLD, LLDB, and the LLVM tools are all installable from
-any configured repository, so a newer distribution package still wins. Managed
-links in `~/.local/bin` select that major for `clang`, `clang++`, `clangd`,
-`clang-format`, `clang-tidy`, `ld.lld`, `lldb`, `llvm-symbolizer` and the other
-common LLVM tools; `cc` and `c++` stay with GCC. Raise `LLVM_VERSION` when LLVM
-publishes a new release branch.
-
-The default setup includes four independent AI CLI stages:
-
-| Stage | Command | Installation |
-| :--- | :--- | :--- |
-| `antigravity` | `agy` | Verified, pinned official Antigravity CLI release |
-| `claudecode` | `claude` | Anthropic's signed APT repository, latest channel |
-| `codex` | `codex` | Pinned official `@openai/codex` npm package |
-| `copilot` | `copilot` | Pinned official `@github/copilot` npm package |
-
-The `antigravity`, `claudecode`, and `codex` stages also install Bash, Zsh, and
-Fish completions, including when the CLI is already installed. Codex completions
-come from `codex completion`; Claude Code and Antigravity use bundled top-level
-command and option lists with filename fallback for arguments. Rerun the stage to
-refresh completions. Completion failures are reported as optional failures.
-
-The `antigravity` stage also adds ask rules to
-`~/.gemini/antigravity-cli/settings.json` so the CLI asks before
-`git reset --hard`, `git clean`, `git branch -D`, `git rebase` and
-`git checkout --`, matching the agent-guidance command guardrails. Existing
-settings and rules are kept, and ask rules take precedence over broader allow
-rules. A settings file that is not valid JSON is left untouched and the stage
-fails; fix it or add the rules with `/permissions` in `agy`. The Antigravity
-desktop app keeps its own permissions; set them in its Settings.
-
-These stages install CLIs only. Antigravity's desktop app and standalone IDE are
-separate products and are not installed. Each stage checks `--version` and stops
-on a missing or broken CLI. An existing CLI on `PATH` is verified and preserved.
-No sign-in runs during setup; launch `agy`, `claude`, `codex`, or `copilot` afterward
-to authenticate with your account. In Copilot CLI, follow the `/login` prompts.
-
-In interactive Bash, Zsh, and Fish shells, `agy`, `claude`, `codex`, and `copilot`
-run through `~/.config/pop-workstation/agent-scope`, which starts each session in
-its own systemd user scope (`agent-<command>-<pid>.scope`) limited to 2048 tasks,
-50% of RAM, and 8G of swap. If the agent or anything it starts hits the memory
-limit, the whole scope is killed, not the rest of the desktop; hitting the task
-limit makes further process creation fail. Agents started by an agent stay inside
-the outer scope. Set `POP_AGENT_TASKS_MAX`, `POP_AGENT_MEMORY_MAX`, or
-`POP_AGENT_SWAP_MAX` to change the limits; scripts, `command claude`, and shells
-without a user service manager run the CLIs unconfined.
-
-Antigravity, Codex, and Copilot install under `~/.local/share/pop-workstation` with
-launchers in `~/.local/bin`, preserving the project's working directory. Codex and
-Copilot install their Node runtime through Mise when a suitable Node/npm pair is
-unavailable, so the stages can run without selecting `languages`. Their launchers
-use the selected Node executable directly. Claude Code's native APT package does
-not require Node.
-Network access is required for these downloads and package repositories.
-
-Installation sources: [Antigravity CLI](https://www.antigravity.google/docs/cli/install/),
-[Claude Code](https://code.claude.com/docs/en/setup#install-with-linux-package-managers),
-[Codex CLI](https://learn.chatgpt.com/docs/codex/cli), and
-[GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli).
-Antigravity's SHA-256 pin was calculated after verifying the archive against
-Google's published SHA-512 manifest. Anthropic's signing key is checksum-pinned;
-its fingerprint is
-`31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE`. Update release pins deliberately;
-Claude Code's APT package follows its repository's latest channel.
-
-The `languages` stage explicitly installs and verifies Rust's `rust-analyzer`,
-`rustfmt`, Clippy, and `rust-src` components for its pinned toolchain before
-selecting it as the default. This also works with an existing minimal Rustup
-profile. The AstroNvim configuration includes Rustaceanvim, CodeLLDB, and Neotest;
-run its `scripts/check_rust.sh` for real Rust build/test/debug verification.
-
-The personal AstroNvim configuration enables Copilot inline suggestions separately
-from the CLI. Set `NVIM_CONFIG_REPO="https://github.com/dsscheib/astronvim_v6"` in
-`config.env`, then select `dependencies,languages,neovim,copilot` to install both.
-After opening Neovim, run `:Copilot auth` and follow GitHub's sign-in prompts.
-Accept an inline suggestion with `Alt+L`. CLI authentication and editor
-authentication are separate setup steps; neither is performed by this script.
-
-The personal `dotfiles` and `astronvim_v6` repositories have recently been fixed
-but still need their own validation. This repository's checks do not execute or
-validate their bootstrap, plugins, or language servers. To install tools while
-keeping those deployments separate, use:
-
-```bash
-./pop_os_config.sh --stages dependencies,languages,arm,avr,riscv
-```
-
-The `dotfiles` stage executes its bootstrap; the `neovim` stage deploys the selected
-configuration and runs its `scripts/setup.sh --install` when the matching
-`lua/setup_checks.lua` helper is present. That command waits for configured Mason
-tools and reports missing packages. Other configurations receive a bounded
-headless initialization only. Verify actual project-file LSP attachment and
-formatter availability using the configuration's documented checks; installation
-alone does not establish that the complete editor configuration works.
-
-When the `tmux` stage is selected, the dotfiles bootstrap delegates plugin setup
-to that stage. Both repositories use `~/.local/share/tmux/plugins` and the same
-TPM pin. A `dotfiles`-only selection lets its bootstrap install plugins normally.
-
-The `herdr` stage installs [Herdr](https://herdr.dev/tui/), a terminal workspace
-manager for coding agents, as the pinned, checksum-verified release binary in
-`~/.local/bin/herdr`, plus Bash, Zsh, and Fish completions. It also installs the
-Herdr agent skill globally, from the binary's release-matched `herdr --skill`
-output, as `herdr/SKILL.md` in each agent's global skills directory:
-`~/.agents/skills` (Codex and Copilot), `~/.claude/skills` (Claude Code), and
-`~/.gemini/config/skills` (Antigravity, which reads `.agents/skills` only inside a
-workspace). An existing binary is kept; upgrade it with `herdr update`, then
-rerun the stage to refresh the skill. Its configuration, which matches the tmux
-keybindings, is the dotfiles `herdr` package (`~/.config/herdr/config.toml`). The
-stage runs `herdr config check` when that file is deployed, so select `dotfiles`
-first or together with it.
-
-After all selected stages finish, the script also installs Herdr's agent
-integrations (`herdr integration install`) for each agent CLI present: Claude
-Code, Codex, Copilot, and Antigravity (`antigravity-cli`). It runs them whenever
-the `herdr`, an agent, or the `private-dotfiles` stage is selected. Running them
-last means a fresh install has the CLIs in place, and the hooks are put back
-after the private restore replaces `~/.claude/settings.json` and
-`~/.codex/config.toml`. A failed integration is reported as optional.
-
-Git setup installs the GitHub CLI (`gh`) from GitHub's signed APT repository
-and configures it as Git's credential helper for github.com, so Git and `gh`
-share one sign-in. When run in a terminal, it starts `gh auth login` with the
-`workflow` scope (needed to push GitHub Actions workflow changes) unless `gh` is
-already authenticated. Approve the browser or device-code request to finish; in
-noninteractive runs, use `gh auth login --scopes workflow` afterward. `gh` keeps
-its token in the desktop keyring. When both `git` and `dotfiles` are selected,
-setup reapplies the Git identity and `gh` helper after the dotfiles bootstrap so
-it cannot leave those settings replaced.
-
-If an existing `gh` sign-in lacks the `workflow` scope, or Git stops finding
-GitHub credentials, run as your desktop user:
-
-```bash
-gh auth refresh --hostname github.com --scopes workflow
-./pop_os_config.sh --stages git
-```
-
-When `~/.gitconfig` is a link into a dotfiles checkout, the Git identity and `gh`
-helper go to `~/.gitconfig.local` instead, so the checkout stays clean. Include
-it from the linked file with `[include] path = ~/.gitconfig.local`.
-
-The default setup ends with the `private-dotfiles` stage. It restores personal
-agent configuration (for example Claude Code, Codex and Antigravity CLI settings
-and memories) from a private repository, so it runs after the CLI stages. Set
-`PRIVATE_DOTFILES_REPO` (and optionally `PRIVATE_DOTFILES_REF`) in `config.env`;
-like the other repository settings, setup stops before any stage runs when it is
-unset. Without a private repository, leave the stage out with `--stages`. The stage clones or fast-forwards the
-repository into `~/.dotfiles-private` using the GitHub CLI's sign-in for that clone
-only, then runs the repository's `restore.sh`. It never backs up or pushes. If `gh`
-is not signed in, or the repository has no `restore.sh`, the stage is reported as
-an optional failure and the rest of setup completes. After signing in, rerun it with:
-
-```bash
-./pop_os_config.sh --stages private-dotfiles
-```
-
-Restoring configuration does not sign in to `agy`, `claude` or `codex`; logins are
-never stored in the private repository. Keep actual secret values such as API keys
-out of it as well.
-
-Tool versions are pinned in [resources/tool-versions.env](resources/tool-versions.env).
-Download URLs and SHA-256 values are pinned in
-[resources/downloads.json](resources/downloads.json). Update both the version and
-checksum after reviewing a new upstream release. Release asset digests were
-obtained from upstream GitHub metadata; Rustup uses its published checksum. The
-Saleae/Synology downloads and repository keys have SHA-256 baselines from their
-HTTPS upstream endpoints, recorded on 2026-10-13. A checksum detects an unexpected
-artifact; it does not independently authenticate its publisher.
-
-The default setup includes the `chrome` stage, which installs `google-chrome-stable`
-from Google's signed APT repository using a pinned copy of Google's signing key. It
-writes `/etc/default/google-chrome` so the package does not add a second, conflicting
-source for the same repository. Run it alone with `./pop_os_config.sh --stages chrome`.
-
-The default setup includes the `podman` stage for rootless containers. It installs
-`podman`, `buildah`, `skopeo`, `uidmap` and `slirp4netns` from the distribution
-repositories, plus `podman-compose` when a candidate exists (it is reported as an
-optional failure otherwise). Versions follow the release: Ubuntu 24.04 provides
-Podman 4.9 and 22.04 provides 3.4. The stage requires subordinate ID ranges for
-your account in `/etc/subuid` and `/etc/subgid`, which the installer normally
-creates; if either is missing it stops before installing and prints the
-`usermod --add-subuids … --add-subgids …` command to add them. Ubuntu configures
-no search registry, so the stage adds
-`/etc/containers/registries.conf.d/50-pop-workstation-search.conf` to resolve
-short image names such as `alpine` against Docker Hub only. A single search
-registry keeps short names unambiguous; delete the file to require fully
-qualified names. Bash and Zsh completions come from the package and Fish
-completions are generated with `podman completion fish`. The stage verifies
-`podman --version` and a rootless `podman info`. It does not install
-`podman-docker` or enable the Docker-compatible API socket. Run it alone with
-`./pop_os_config.sh --stages podman`.
-
-The default setup ends with the `google-drive` stage, after `private-dotfiles` has
-restored any filter file. The stage installs the pinned rclone
-release and keeps `~/GoogleDrive` in two-way sync with Google Drive through
-`rclone bisync` on a systemd user timer (`rclone-gdrive-bisync.timer`, every 15
-minutes by default). Sign-in opens a browser, so when setup runs without a terminal
-the stage reports an optional failure. Finish it later with
-`./pop_os_config.sh --stages google-drive`. The first run performs a `--resync`
-that downloads the whole selected folder and merges it with any local files.
-In a terminal, it shows the Drive folder, local folder and filters and asks before
-running that full sync. To choose what syncs, set `GDRIVE_FILTERS_FILE` to an
-[rclone filter file](https://rclone.org/filtering/) (see `config.env.example`) and
-rerun the stage after each edit. The stage then stops the timer and runs a new
-`--resync`, since bisync refuses to run after its filters change. Files a filter
-excludes are left alone on both sides, so you can delete their local copies without
-affecting Drive. Google Docs, Sheets and Slides are skipped because they have no
-file form that round-trips. The stage requires your own OAuth client, since
-rclone's shared one is rate-limited and being retired: set `GDRIVE_CLIENT_ID` and
-`GDRIVE_CLIENT_SECRET` in `config.secrets.env` (gitignored, loaded after `config.env`,
-kept out of any `config.env` backup). Setup stops before any stage runs when the
-file is missing, readable by other users (use `chmod 600`), or lacks either value. If
-the remote already exists with a different client, rerunning the stage in a terminal
-pauses the timer, updates the remote and repeats the browser sign-in. The sign-in token
-is stored in `~/.config/rclone/rclone.conf`; do not commit it. Logs are available
-with `journalctl --user -u rclone-gdrive-bisync`.
-
-The applications stage installs the pinned Arduino IDE 2 release from its official
-Linux archive and creates an application-menu entry with the bundled 512-pixel icon.
-It does not install the legacy IDE 1 package from Ubuntu's `arduino` package.
-Saleae Logic launches through a per-app wrapper that selects Qt's XWayland backend
-and suppresses AppImageLauncher integration prompts without changing desktop settings.
-Its desktop entry uses the Logic 2 icon linked by the
-[Linux installation instructions](https://mikrocontroller.ti.bfh.ch/faq/saleae.html).
-KiCad 10 comes from the official KiCad PPA. The pinned `kicad-python` bindings
-(`import kipy`) go into a venv at `~/.local/share/kicad-python`; run IPC scripts
-with `~/.local/share/kicad-python/bin/python`. They talk to a running PCB Editor
-only after you enable the API server in KiCad under Preferences > Plugins.
-
-The default setup also includes the `hyper-backup-explorer` stage. Run it on its own
-with `./pop_os_config.sh --stages hyper-backup-explorer`. It installs Synology Hyper
-Backup Explorer 3.0.1-0156 under `~/Applications/HyperBackupExplorer`, adds an
-application-menu entry and the `hyper-backup-explorer` command, and uses the bundled
-Qt libraries through an XWayland launcher. Its SHA-256 baseline was recorded from
-Synology's HTTPS download on 2026-10-21.
-
-Local Debian packages are copied into a temporary root-owned directory readable
-by APT's `_apt` user, then removed after installation. Download workspaces remain
-private. This avoids APT's “Download is performed unsandboxed as root” warning
-when installing a verified package such as Fastfetch from a private workspace.
-
-Neovim uses a separate Python virtual environment and a wrapper that selects that
-provider while preserving the project working directory. npm providers install
-under `~/.local`, without root. Go/Node run through Mise. Download failures cannot
-replace a working application with a partial file. Optional package/plugin failures
-are collected and listed at the end. The pinned AppImageLauncher release is an
-upstream beta and remains an optional component.
-
-Shell integration files are installed under `~/.config/pop-workstation`. Regular
-Bash/Zsh startup files receive one source statement; linked dotfiles are preserved
-and setup prints the statement to add to your own repository. Fish loads the
-integration automatically. Zsh completion files use `~/.zsh/completion` and require
-normal `compinit` initialization in your Zsh configuration. Restart the shell or
-log out and back in after changing PATH or hardware group membership.
-
-## 4. Install the supplied STMicroelectronics tools
-
-The scripts automatically search these locations in order:
-
-1. Current working directory.
-2. `${ST_DOWNLOAD_DIR:-$HOME/github/st-microelectronics}`.
-3. `~/Downloads`.
-
-An explicit path takes precedence and must exist. Multiple matching downloads in
-one directory require an explicit selection. The supplied installer hashes are
-recorded in [resources/st-installers.sha256](resources/st-installers.sha256):
-
-| Script | Supplied installer |
+| Role / Tag | Scope |
 | :--- | :--- |
-| `install_stm32_cube_ide.sh` | CubeIDE 2.2.0 Linux Debian archive |
-| `install_stm32_cube_mx.sh` | CubeMX 6.18.1 Linux archive |
-| `install_stm32_cube_prog.sh` | CubeProgrammer 2.23.0 Linux archive |
-| `install_sw4stm32.sh` | Supplied SW4STM32 `.run` file with bundled JRE |
+| `system` | APT upgrades, UFW, `dialout`/`plugdev`, `systemd-oomd`, `journald` retention, `gh` CLI, NVMe udev rule |
+| `snapper` | Opt-in (`enable_snapper: true`): Snapper, `snapper-rollback`, APT hooks, hibernation |
+| `toolchains` (`gcc`, `llvm`, `arm`, `avr`, `riscv`) | Latest complete GCC/G++ & LLVM (`apt.llvm.org`) majors linked in `~/.local/bin`, cross-compilers |
+| `containers` (`podman`) | Rootless Podman (`subuid`/`subgid` validated), `docker.io` search registry, Fish completion |
+| `browsers` (`firefox`, `chrome`) | Firefox Developer Edition (Mozilla APT repo + pin) and Google Chrome stable |
+| `desktop_apps` (`fonts`, `vscode`, `kicad`, `flatpak`, `arduino`, `saleae`, `synology`, `hyper_backup`) | JetBrainsMono Nerd Font, VS Code, KiCad 10 + `kicad-python`, Flathub apps, vendor GUI apps |
+| `ai_agents` (`claudecode`, `antigravity`, `completions`) | `claude-code` APT, pinned `antigravity-cli` (`agy`) + guardrails, dynamic completions |
+| `workstation` (`chezmoi`, `mise`, `neovim`, `tmux`) | Chezmoi drift apply, Mise tool sync, Neovim `pynvim` venv + `lazy-lock.json` merge, TPM |
+| `stm32` *(opt-in: `mise run role stm32`)* | ST-LINK udev rules + verified CubeIDE, CubeMX, CubeProgrammer, SW4STM32 installers |
 
-These hashes describe the supplied files, including the supplied SW4STM32 wrapper;
-they are not a claim of an independently verified ST signature. The original
-files in the download directory are never modified.
+### Developer Runtimes, CLIs & Secrets
 
-Install script prerequisites if the workstation dependencies have not been run:
+Runtimes (`go`, `node`, `rust`, `uv`) and developer CLIs (`neovim`, `starship`, `bottom`, `fastfetch`, `rclone`, `eza`, `ripgrep`, `fd`, `bat`, `fzf`, `zoxide`, `gdu`, `herdr`, `codex`, `copilot`, `asm-lsp`, `nasmfmt`, `gocomplete`, `django`) live in your private Chezmoi `dotfiles` repository (`~/.config/mise/config.toml` + `mise.lock`) with `age` encryption for OAuth secrets.
 
-```bash
-sudo apt-get install python3 python3-pil desktop-file-utils libusb-1.0-0
-```
+## 4. Day-2 Management
 
-Run without `sudo`:
+- **Preview OS/desktop drift**: `mise run plan`
+- **Converge OS/desktop state**: `mise run apply`
+- **Update dev runtimes & CLIs**: `mise upgrade --bump && chezmoi re-add ~/.config/mise`
+- **Pull dotfiles & auto-sync Mise**: `chezmoi update`
 
-```bash
-./install_stm32_cube_ide.sh
-./install_stm32_cube_mx.sh
-./install_stm32_cube_prog.sh
-./install_sw4stm32.sh
-# Or select a specific file:
-./install_stm32_cube_ide.sh "$HOME/github/st-microelectronics/stm32cubeide_2.2.0-Lin-Deb-x86_64.sh.zip"
-```
-
-CubeIDE selects its Debian package by metadata and extracts the ST-LINK server
-alongside it. CubeMX's extensionless installer and CubeProgrammer's adjacent Java
-payload are supported. The IzPack panel classes/IDs are checked against the payload
-before installation, and XML paths are escaped. CubeMX and CubeProgrammer run
-unattended Java installation in headless mode from the extracted archive directory
-so ST's post-install scripts can copy the bundled JRE. The installed Java runtime
-is checked before publishing the application. SW4STM32 uses its bundled JRE
-directly to preserve the installer's exit status; its system driver/server packs
-are deselected in favor of the reviewed repository rules.
-
-Each version remains at its original directory under `.APPNAME.versions` so
-embedded installer paths remain valid. The public application path becomes a
-symlink only after required executables and runtime libraries pass validation.
-Earlier directories/versions are retained. Launchers and wrappers quote paths and
-forward arguments; an optional icon failure does not fail installation. Existing
-unrelated desktop launchers and COSMIC caches are preserved.
-
-The fixed ST-LINK rules in [resources/udev](resources/udev) were reviewed from the
-supplied CubeIDE rules package. Saleae rules come from its official
-[support asset](https://www.saleae.com/support-assets/99-SaleaeLogic.rules).
-No installer rule directory or mutable remote rule is searched. Rule installation
-uses `sudo`; reconnect the USB device afterward. Missing ELF libraries are reported
-by name rather than claiming installation succeeded. `~/.local/bin` must be in your
-PATH for CLI tools.
-
-For another download directory, export `ST_DOWNLOAD_DIR` in your shell. A changed
-installer requires an updated reviewed manifest, or an explicitly supplied hash:
+## 5. Validation
 
 ```bash
-ST_INSTALLER_SHA256='<reviewed SHA-256>' ./install_stm32_cube_mx.sh /path/to/new.zip
+mise run check   # or: bash scripts/check.sh
 ```
 
-## Validation
-
-```bash
-bash scripts/check.sh
-```
-
-This runs ShellCheck, shell/Python syntax checks, and filesystem/command-stub
-regressions. Test dependencies are ShellCheck, Python 3, `apt-config`, and
-`desktop-file-validate`; Fish/Zsh syntax checks run when those shells are installed.
-CI runs on Ubuntu 22.04 and 24.04.
-
-Local checks do not run the real installers, mount disks, change system settings,
-or prove that a converted system boots. Real GUI/USB checks and a disposable-VM
-conversion/rollback/reboot test are still needed for those integration guarantees.
+Runs `shellcheck`, Bash syntax checks, Python AST & YAML validation, `ansible-playbook --syntax-check`, `ansible-lint`, and `unittest` regressions. CI runs `check` plus an `ubuntu:24.04` container two-pass convergence/idempotency test (`changed=0` on pass 2).

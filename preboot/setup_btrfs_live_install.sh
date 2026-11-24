@@ -3,7 +3,8 @@
 # Only a fresh installation directly in Btrfs top-level subvolume ID 5 is supported.
 set -euo pipefail
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+PREBOOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+SCRIPT_DIR=$(cd "$PREBOOT_DIR/.." && pwd)
 # shellcheck source=common.sh
 source "$SCRIPT_DIR/common.sh"
 
@@ -287,7 +288,7 @@ main() {
     repair_boot=1
     shift
   fi
-  [[ $# -ge 1 && $# -le 2 ]] || fail "Usage: sudo $SCRIPT_DIR/setup_btrfs_live_install.sh [--repair-boot] ROOT_DEVICE [EFI_DEVICE]"
+  [[ $# -ge 1 && $# -le 2 ]] || fail "Usage: sudo $PREBOOT_DIR/setup_btrfs_live_install.sh [--repair-boot] ROOT_DEVICE [EFI_DEVICE]"
   local tool target_dev efi_dev root_uuid efi_uuid subvolumes kernel_options path
   for tool in btrfs blkid lsblk findfs findmnt mount umount mountpoint chroot python3 awk mktemp readlink mv cp chmod chown rmdir rm grep mkdir cat du df; do
     command -v "$tool" >/dev/null || fail "Required command missing: $tool"

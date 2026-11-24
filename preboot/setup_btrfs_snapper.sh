@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Configure Snapper and hibernation; run after booting the installed @ root.
 set -euo pipefail
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+PREBOOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+SCRIPT_DIR=$(cd "$PREBOOT_DIR/.." && pwd)
 # shellcheck source=common.sh
 source "$SCRIPT_DIR/common.sh"
 
@@ -67,8 +68,8 @@ main() {
   if [[ ${1:-} == --skip-hibernation ]]; then hibernation=0; shift; fi
   [[ $# -eq 0 ]] || die "Usage: sudo $0 [--skip-hibernation]"
   if [[ $EUID -ne 0 ]]; then
-    if (( hibernation )); then exec sudo -- "$SCRIPT_DIR/${BASH_SOURCE[0]##*/}";
-    else exec sudo -- "$SCRIPT_DIR/${BASH_SOURCE[0]##*/}" --skip-hibernation; fi
+    if (( hibernation )); then exec sudo -- "$PREBOOT_DIR/${BASH_SOURCE[0]##*/}";
+    else exec sudo -- "$PREBOOT_DIR/${BASH_SOURCE[0]##*/}" --skip-hibernation; fi
   fi
   require_commands findmnt python3 apt-get apt-config flock
   local os_id
