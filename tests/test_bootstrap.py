@@ -155,7 +155,15 @@ class BootstrapAndV2FoundationTests(unittest.TestCase):
             handlers = set()
             if handlers_file.is_file():
                 parsed_handlers = yaml.safe_load(handlers_file.read_text(encoding='utf-8')) or []
-                handlers = {entry['name'] for entry in parsed_handlers if isinstance(entry, dict) and 'name' in entry}
+                for entry in parsed_handlers:
+                    if isinstance(entry, dict):
+                        self.assertNotIn(
+                            'block',
+                            entry,
+                            f'{handlers_file.relative_to(REPO)} must not use block in handlers',
+                        )
+                        if 'name' in entry:
+                            handlers.add(entry['name'])
             for task_file in sorted((role_dir / 'tasks').glob('*.yml')):
                 parsed_tasks = yaml.safe_load(task_file.read_text(encoding='utf-8')) or []
                 for notified in collect_notifies(parsed_tasks):

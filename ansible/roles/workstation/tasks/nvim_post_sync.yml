@@ -1,0 +1,73 @@
+---
+- name: Check whether Neovim executable is available
+  ansible.builtin.command:
+    argv:
+      - which
+      - nvim
+  environment:
+    PATH: >-
+      {{ [
+        workstation_local_bin,
+        workstation_home ~ '/.local/share/mise/shims',
+        ansible_facts['env'].PATH | default('/usr/bin:/bin'),
+      ] | join(':') }}
+  register: workstation_nvim_which
+  changed_when: false
+  failed_when: false
+
+- name: Check for custom AstroNvim setup script
+  ansible.builtin.stat:
+    path: "{{ workstation_home }}/.config/nvim/scripts/setup.sh"
+  register: workstation_nvim_setup_sh
+
+- name: Check for AstroNvim setup_checks.lua helper
+  ansible.builtin.stat:
+    path: "{{ workstation_home }}/.config/nvim/lua/setup_checks.lua"
+  register: workstation_nvim_setup_checks
+
+- name: Run Neovim setup.sh --install when present
+  ansible.builtin.command:
+    argv:
+      - bash
+      - "{{ workstation_home }}/.config/nvim/scripts/setup.sh"
+      - --install
+  environment:
+    NVIM_BIN: "{{ workstation_nvim_which.stdout | trim }}"
+  changed_when: true
+  failed_when: false
+  when:
+    - workstation_nvim_which.rc == 0
+    - workstation_nvim_setup_sh.stat.exists
+    - workstation_nvim_setup_checks.stat.exists
+
+- name: Run headless Neovim initialization when custom setup is absent
+  ansible.builtin.command:
+    argv:
+      - timeout
+      - --foreground
+      - 5m
+      - "{{ workstation_nvim_which.stdout | trim }}"
+      - --headless
+      - -c
+      - quitall
+  changed_when: true
+  failed_when: false
+  when:
+    - workstation_nvim_which.rc == 0
+    - not (workstation_nvim_setup_sh.stat.exists and workstation_nvim_setup_checks.stat.exists)
+
+- name: Restore Lazy.nvim plugins to merged lockfile
+  ansible.builtin.command:
+    argv:
+      - timeout
+      - --foreground
+      - 5m
+      - "{{ workstation_nvim_which.stdout | trim }}"
+      - --headless
+      - "+Lazy! restore"
+      - +qa
+  changed_when: true
+  failed_when: false
+  when:
+    - workstation_nvim_which.rc == 0
+    - (workstation_nvim_sync_result.merged | default(false)) | bool
