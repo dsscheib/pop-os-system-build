@@ -39,12 +39,14 @@ def configure(root_config, default_config, initialize=False):
     group = 'sudo' if any(g.gr_name == 'sudo' for g in grp.getgrall()) else 'root'
     groups = list(dict.fromkeys(values.get('ALLOW_GROUPS', '').split() + [group]))
     settings.update(ALLOW_GROUPS=' '.join(groups), SYNC_ACL='yes')
+    changed = False
     root_backup = root.with_name(root.name + '.pre-pop-setup')
     if not root_backup.exists():
         atomic_text(root_backup, text, 0o600)
     updated_root = update(text, settings)
     if updated_root != text or (root.stat().st_mode & 0o777) != 0o640:
         atomic_text(root, updated_root, 0o640)
+        changed = True
     defaults_text = defaults.read_text() if defaults.exists() else ''
     default_values = read_assignments(defaults_text)
     names = list(dict.fromkeys(default_values.get('SNAPPER_CONFIGS', '').split() + ['root']))
@@ -55,6 +57,8 @@ def configure(root_config, default_config, initialize=False):
     updated_defaults = update(defaults_text, {'SNAPPER_CONFIGS': ' '.join(names), 'DISABLE_APT_SNAPSHOT': 'yes'})
     if not defaults.exists() or updated_defaults != defaults_text or (defaults.stat().st_mode & 0o777) != 0o644:
         atomic_text(defaults, updated_defaults, 0o644)
+        changed = True
+    return changed
 
 
 if __name__ == '__main__':
@@ -64,4 +68,5 @@ if __name__ == '__main__':
     parser.add_argument('root', nargs='?', default='/etc/snapper/configs/root')
     parser.add_argument('defaults', nargs='?', default='/etc/default/snapper')
     args = parser.parse_args()
-    configure(args.root, args.defaults, args.initialize)
+    changed = configure(args.root, args.defaults, args.initialize)
+    print('Snapper configuration updated.' if changed else 'Snapper configuration already up to date.')

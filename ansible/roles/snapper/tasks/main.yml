@@ -263,7 +263,7 @@
   ansible.builtin.command:
     argv: "{{ ['python3', repo_root ~ '/scripts/configure_snapper.py'] + (['--initialize'] if not snapper_root_cfg_before.stat.exists else []) }}"
   register: snapper_configure_cmd
-  changed_when: false
+  changed_when: "'Snapper configuration updated.' in snapper_configure_cmd.stdout"
   become: true
 
 - name: Check Snapper config checksums after update

@@ -87,10 +87,13 @@ class Hibernation:
         path = self.path(name)
         if path.is_symlink():
             raise ValueError(f'Refusing to replace symlink: {name}')
+        if path.exists() and path.read_text() == text and (path.stat().st_mode & 0o777) == mode:
+            return False
         backup = path.with_name(path.name + '.pre-hibernation')
         if path.exists() and not backup.exists():
             shutil.copy2(path, backup)
         atomic_text(path, text, mode)
+        return True
 
     def mount_info(self, point, field):
         return self.run('findmnt', '-n', '-o', field, '--mountpoint', point)
@@ -182,7 +185,7 @@ class Hibernation:
             if (self.mount_info('/swap', 'FSROOT') != '/@swap'
                     or self.mount_info('/swap', 'UUID') != self.uuid):
                 raise ValueError('/swap is mounted from another subvolume or filesystem')
-            return
+            return False
         if directory.exists() and (not directory.is_dir() or any(directory.iterdir())):
             raise ValueError('The unmounted /swap directory must be empty')
         with self.top_level() as top:
@@ -198,53 +201,9 @@ class Hibernation:
                  f'UUID={self.uuid}', str(directory))
         if self.mount_info('/swap', 'FSROOT') != '/@swap' or self.mount_info('/swap', 'UUID') != self.uuid:
             raise ValueError('Mounted swap subvolume did not match the requested filesystem')
+        return True
 
-    def configure(self):
-        self.preflight()
-        self.ensure_subvolume()
-        os.chmod(self.path('/swap'), 0o700)
-        swap = self.path(SWAP)
-        if swap.is_symlink() or (swap.exists() and not swap.is_file()):
-            raise ValueError('Refusing an invalid existing swap file')
-        if not swap.exists():
-            # mkswapfile sets NOCOW, disables compression, allocates and formats.
-            self.run('btrfs', 'filesystem', 'mkswapfile', '--size', str(self.size), str(swap))
-        if swap.stat().st_size < self.size:
-            raise ValueError('Existing @swap file is too small; it was preserved without resizing')
-        os.chmod(swap, 0o600)
-        if self.run('blkid', '-p', '-s', 'TYPE', '-o', 'value', str(swap)) != 'swap':
-            raise ValueError('Existing file is not formatted as swap; refusing to overwrite it')
-        offset = self.run('btrfs', 'inspect-internal', 'map-swapfile', '-r', str(swap))
-        if not offset.isdecimal() or int(offset) <= 0:
-            raise ValueError('Btrfs did not return a valid resume offset')
-        active = self.run('swapon', '--show=NAME', '--noheadings', '--raw').splitlines()
-        if str(swap) not in active:
-            self.run('swapon', '--priority', '100', str(swap))
-        active = self.run('swapon', '--show=NAME', '--noheadings', '--raw').splitlines()
-        if str(swap) not in active:
-            raise ValueError('Hibernation swap did not become active')
-        self.write('/etc/fstab', self.fstab)
-        self.run('findmnt', '--verify', '--tab-file', str(self.path('/etc/fstab')))
-        self.write('/etc/initramfs-tools/conf.d/resume', f'RESUME=UUID={self.uuid}\n')
-        self.write('/etc/systemd/sleep.conf.d/90-pop-hibernation.conf',
-                   '[Sleep]\nAllowHibernation=yes\nHibernateMode=platform shutdown\n')
-        sleep = self.run('systemd-analyze', 'cat-config', 'systemd/sleep.conf')
-        section, settings = '', {}
-        for line in sleep.splitlines():
-            line = line.strip()
-            if line.startswith('[') and line.endswith(']'):
-                section = line
-            elif section == '[Sleep]' and '=' in line and not line.startswith(('#', ';')):
-                key, value = line.split('=', 1)
-                settings[key.strip()] = value.strip()
-        if settings.get('AllowHibernation', '').lower() not in ('yes', 'true', '1', 'on'):
-            raise ValueError('Another systemd sleep drop-in overrides AllowHibernation; resolve it and rerun')
-        # Retain unrelated options and replace old resume/noresume parameters.
-        self.config.setdefault('user', {})['kernel_options'] = resume_options(self.config, self.uuid, offset)
-        self.write('/etc/kernelstub/configuration', json.dumps(self.config, indent=2) + '\n')
-        self.run('update-initramfs', '-u', '-k', 'all')
-        # Refresh the ESP only after the new initramfs images have been built.
-        self.run('kernelstub', '-e', '/boot/efi', '-l', '-f')
+    def _verify_boot_entry(self, offset):
         entry = self.read('/boot/efi/loader/entries/Pop_OS-current.conf')
         options = [line.split()[1:] for line in entry.splitlines()
                    if line.split() and line.split()[0] == 'options']
@@ -270,16 +229,90 @@ class Hibernation:
                 has_resume |= 'scripts/local-premount/resume' in listing
         if not has_resume:
             raise ValueError('The EFI initramfs is missing its early-boot resume script')
+
+    def _boot_entry_valid(self, offset):
+        try:
+            self._verify_boot_entry(offset)
+            return True
+        except (ValueError, OSError, subprocess.CalledProcessError):
+            return False
+
+    def configure(self):
+        self.preflight()
+        subvol_changed = self.ensure_subvolume()
+        swap_dir = self.path('/swap')
+        if (swap_dir.stat().st_mode & 0o777) != 0o700:
+            os.chmod(swap_dir, 0o700)
+            subvol_changed = True
+        swap = self.path(SWAP)
+        if swap.is_symlink() or (swap.exists() and not swap.is_file()):
+            raise ValueError('Refusing an invalid existing swap file')
+        swap_changed = False
+        if not swap.exists():
+            # mkswapfile sets NOCOW, disables compression, allocates and formats.
+            self.run('btrfs', 'filesystem', 'mkswapfile', '--size', str(self.size), str(swap))
+            swap_changed = True
+        if swap.stat().st_size < self.size:
+            raise ValueError('Existing @swap file is too small; it was preserved without resizing')
+        if (swap.stat().st_mode & 0o777) != 0o600:
+            os.chmod(swap, 0o600)
+            swap_changed = True
+        if self.run('blkid', '-p', '-s', 'TYPE', '-o', 'value', str(swap)) != 'swap':
+            raise ValueError('Existing file is not formatted as swap; refusing to overwrite it')
+        offset = self.run('btrfs', 'inspect-internal', 'map-swapfile', '-r', str(swap))
+        if not offset.isdecimal() or int(offset) <= 0:
+            raise ValueError('Btrfs did not return a valid resume offset')
+        active = self.run('swapon', '--show=NAME', '--noheadings', '--raw').splitlines()
+        if str(swap) not in active:
+            self.run('swapon', '--priority', '100', str(swap))
+            swap_changed = True
+        active = self.run('swapon', '--show=NAME', '--noheadings', '--raw').splitlines()
+        if str(swap) not in active:
+            raise ValueError('Hibernation swap did not become active')
+        fstab_changed = self.write('/etc/fstab', self.fstab)
+        self.run('findmnt', '--verify', '--tab-file', str(self.path('/etc/fstab')))
+        resume_changed = self.write('/etc/initramfs-tools/conf.d/resume', f'RESUME=UUID={self.uuid}\n')
+        sleep_changed = self.write('/etc/systemd/sleep.conf.d/90-pop-hibernation.conf',
+                                   '[Sleep]\nAllowHibernation=yes\nHibernateMode=platform shutdown\n')
+        sleep = self.run('systemd-analyze', 'cat-config', 'systemd/sleep.conf')
+        section, settings = '', {}
+        for line in sleep.splitlines():
+            line = line.strip()
+            if line.startswith('[') and line.endswith(']'):
+                section = line
+            elif section == '[Sleep]' and '=' in line and not line.startswith(('#', ';')):
+                key, value = line.split('=', 1)
+                settings[key.strip()] = value.strip()
+        if settings.get('AllowHibernation', '').lower() not in ('yes', 'true', '1', 'on'):
+            raise ValueError('Another systemd sleep drop-in overrides AllowHibernation; resolve it and rerun')
+        # Retain unrelated options and replace old resume/noresume parameters.
+        self.config.setdefault('user', {})['kernel_options'] = resume_options(self.config, self.uuid, offset)
+        kernelstub_changed = self.write('/etc/kernelstub/configuration', json.dumps(self.config, indent=2) + '\n')
+        if resume_changed or kernelstub_changed or not self._boot_entry_valid(offset):
+            boot_changed = True
+            self.run('update-initramfs', '-u', '-k', 'all')
+            # Refresh the ESP only after the new initramfs images have been built.
+            self.run('kernelstub', '-e', '/boot/efi', '-l', '-f')
+            self._verify_boot_entry(offset)
+        else:
+            boot_changed = False
         # Install lid policy only after validating the persistent resume setup.
         # Reboot applies it without restarting logind in the desktop session.
-        self.write('/etc/systemd/logind.conf.d/90-lid-close.conf',
-                   '[Login]\nHandleLidSwitch=hibernate\n'
-                   'HandleLidSwitchExternalPower=suspend\nHandleLidSwitchDocked=ignore\n')
-        self.run('systemctl', 'daemon-reload')
-        print(f'Hibernation configured: {SWAP} ({swap.stat().st_size // GIB} GiB).')
-        print('Reboot to load the new resume settings, then test: systemctl hibernate')
-        print('After reboot, lid close hibernates on battery, suspends on AC, and is ignored when docked.')
-        print('A successful hibernate/resume cycle is required to verify hardware and driver support.')
+        lid_changed = self.write('/etc/systemd/logind.conf.d/90-lid-close.conf',
+                                 '[Login]\nHandleLidSwitch=hibernate\n'
+                                 'HandleLidSwitchExternalPower=suspend\nHandleLidSwitchDocked=ignore\n')
+        if fstab_changed or sleep_changed or lid_changed:
+            self.run('systemctl', 'daemon-reload')
+        changed = any((subvol_changed, swap_changed, fstab_changed, resume_changed,
+                       sleep_changed, kernelstub_changed, boot_changed, lid_changed))
+        if changed:
+            print(f'Hibernation configured: {SWAP} ({swap.stat().st_size // GIB} GiB).')
+            print('Reboot to load the new resume settings, then test: systemctl hibernate')
+            print('After reboot, lid close hibernates on battery, suspends on AC, and is ignored when docked.')
+            print('A successful hibernate/resume cycle is required to verify hardware and driver support.')
+        else:
+            print(f'Hibernation already configured: {SWAP} ({swap.stat().st_size // GIB} GiB).')
+        return changed
 
 
 def main():

@@ -687,10 +687,10 @@ configure_user_links "$1" "$(id -u)" "$(id -g)"
         root.write_text('SUBVOLUME="/"\nALLOW_GROUPS=""\nNUMBER_LIMIT="10"\n')
         defaults = self.root / 'snapper-defaults'
         defaults.write_text('SNAPPER_CONFIGS=""\n')
-        snapper_config.configure(root, defaults)
+        self.assertTrue(snapper_config.configure(root, defaults))
         root_stat_1 = root.stat()
         defaults_stat_1 = defaults.stat()
-        snapper_config.configure(root, defaults)
+        self.assertFalse(snapper_config.configure(root, defaults))
         root_stat_2 = root.stat()
         defaults_stat_2 = defaults.stat()
         self.assertEqual((root_stat_1.st_ino, root_stat_1.st_mtime_ns),
