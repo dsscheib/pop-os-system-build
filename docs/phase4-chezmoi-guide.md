@@ -13,7 +13,7 @@ dotfiles/
 ├── dot_config/
 │   ├── mise/
 │   │   ├── config.toml                                  # Global runtimes & developer CLIs
-│   │   └── mise.lock                                    # Generated via `mise lock` (pins URLs + SHA-256)
+│   │   └── mise.lock                                    # Generated via `mise lock --global` (pins URLs + SHA-256)
 │   ├── pop-workstation/
 │   │   ├── executable_agent-scope                       # Moved from pop-os-system-build/resources/agent-scope
 │   │   ├── bash                                         # Moved from resources/shell.bash
@@ -139,8 +139,9 @@ Generate the SHA-256 lockfile and commit both files to `dotfiles`:
 
 ```bash
 chezmoi apply ~/.config/mise/config.toml
-mise lock
-chezmoi re-add ~/.config/mise/config.toml ~/.config/mise/mise.lock
+mise lock --global
+chezmoi add ~/.config/mise/mise.lock
+chezmoi re-add ~/.config/mise/config.toml
 ```
 
 Add `run_onchange_after_mise-install.sh.tmpl` so `chezmoi apply` / `chezmoi update` automatically converges global Mise tools whenever `config.toml` or `mise.lock` changes:
@@ -150,6 +151,8 @@ Add `run_onchange_after_mise-install.sh.tmpl` so `chezmoi apply` / `chezmoi upda
 # config.toml hash: {{ include "dot_config/mise/config.toml" | sha256sum }}
 {{- if stat (joinPath .chezmoi.sourceDir "dot_config/mise/mise.lock") }}
 # mise.lock hash: {{ include "dot_config/mise/mise.lock" | sha256sum }}
+{{- else if stat (joinPath .chezmoi.sourceDir "dot_config/mise/private_mise.lock") }}
+# mise.lock hash: {{ include "dot_config/mise/private_mise.lock" | sha256sum }}
 {{- end }}
 set -euo pipefail
 if command -v mise >/dev/null 2>&1; then
