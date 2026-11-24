@@ -6,11 +6,11 @@
     - name: Set Arduino IDE path facts
       ansible.builtin.set_fact:
         desktop_apps_arduino_versions_dir: "{{ workstation_home }}/Applications/.arduino-ide.versions"
-        desktop_apps_arduino_install_dir: "{{ workstation_home }}/Applications/.arduino-ide.versions/{{ arduino_ide_version }}"
+        desktop_apps_arduino_install_dir: "{{ workstation_home }}/Applications/.arduino-ide.versions/{{ pinned_downloads.arduino_ide.version }}"
         desktop_apps_arduino_link: "{{ workstation_home }}/Applications/arduino-ide"
         desktop_apps_arduino_app_dir: >-
-          {{ workstation_home ~ '/Applications/.arduino-ide.versions/' ~ arduino_ide_version
-             ~ '/arduino-ide_' ~ arduino_ide_version ~ '_Linux_64bit' }}
+          {{ workstation_home ~ '/Applications/.arduino-ide.versions/' ~ pinned_downloads.arduino_ide.version
+             ~ '/arduino-ide_' ~ pinned_downloads.arduino_ide.version ~ '_Linux_64bit' }}
 
     - name: Ensure Arduino IDE versions directory exists
       ansible.builtin.file:
@@ -30,8 +30,9 @@
       block:
         - name: Create temporary workspace for Arduino IDE download
           ansible.builtin.tempfile:
+            path: "{{ desktop_apps_arduino_versions_dir }}"
             state: directory
-            prefix: pop-arduino-
+            prefix: .tmp-pop-arduino-
           register: desktop_apps_arduino_tmpdir
 
         - name: Download verified Arduino IDE zip
@@ -48,13 +49,36 @@
               - "{{ repo_root }}/scripts/st_assets.py"
               - zip
               - "{{ desktop_apps_arduino_tmpdir.path }}/arduino-ide.zip"
-              - "{{ desktop_apps_arduino_install_dir }}"
+              - "{{ desktop_apps_arduino_tmpdir.path }}/extracted"
           changed_when: true
 
+        - name: Verify extracted Arduino IDE binary exists
+          ansible.builtin.stat:
+            path: >-
+              {{ desktop_apps_arduino_tmpdir.path ~ '/extracted/arduino-ide_'
+                 ~ pinned_downloads.arduino_ide.version ~ '_Linux_64bit/arduino-ide' }}
+          register: desktop_apps_arduino_extracted_stat
+          failed_when: not desktop_apps_arduino_extracted_stat.stat.exists
+
+        - name: Remove incomplete Arduino IDE directory if present
+          ansible.builtin.file:
+            path: "{{ desktop_apps_arduino_install_dir }}"
+            state: absent
+
+        - name: Move validated Arduino IDE release into place
+          ansible.builtin.command:
+            argv:
+              - mv
+              - -T
+              - "{{ desktop_apps_arduino_tmpdir.path }}/extracted"
+              - "{{ desktop_apps_arduino_install_dir }}"
+          changed_when: true
+      always:
         - name: Remove temporary Arduino IDE workspace
           ansible.builtin.file:
             path: "{{ desktop_apps_arduino_tmpdir.path }}"
             state: absent
+          when: desktop_apps_arduino_tmpdir.path is defined
 
     - name: Link active Arduino IDE directory
       ansible.builtin.file:
@@ -181,20 +205,21 @@
   tags:
     - synology
   block:
-    - name: Check whether synology-drive package is installed
+    - name: Check installed Synology Drive package status and version
       ansible.builtin.command:
         argv:
           - dpkg-query
           - -W
-          - -f=${Status}
+          - "-f=${Status}|${Version}"
           - synology-drive
       register: desktop_apps_synology_dpkg
+      check_mode: false
       changed_when: false
       failed_when: false
 
     - name: Download and install Synology Drive Debian package
       when:
-        - "'install ok installed' not in desktop_apps_synology_dpkg.stdout"
+        - (desktop_apps_synology_dpkg.stdout | trim) != ('install ok installed|' ~ pinned_downloads.synology.deb_version)
         - not ansible_check_mode
       become: true
       block:
@@ -262,8 +287,9 @@
       block:
         - name: Create temporary workspace for Hyper Backup Explorer download
           ansible.builtin.tempfile:
+            path: "{{ desktop_apps_hbe_versions_dir }}"
             state: directory
-            prefix: pop-hbe-
+            prefix: .tmp-pop-hbe-
           register: desktop_apps_hbe_tmpdir
 
         - name: Download verified Hyper Backup Explorer archive
@@ -280,13 +306,34 @@
               - "{{ repo_root }}/scripts/st_assets.py"
               - tar
               - "{{ desktop_apps_hbe_tmpdir.path }}/hyper-backup-explorer.tar.bz2"
-              - "{{ desktop_apps_hbe_install_dir }}"
+              - "{{ desktop_apps_hbe_tmpdir.path }}/extracted"
           changed_when: true
 
+        - name: Verify extracted Hyper Backup Explorer binary exists
+          ansible.builtin.stat:
+            path: "{{ desktop_apps_hbe_tmpdir.path }}/extracted/HyperBackupExplorer"
+          register: desktop_apps_hbe_extracted_stat
+          failed_when: not desktop_apps_hbe_extracted_stat.stat.exists
+
+        - name: Remove incomplete Hyper Backup Explorer directory if present
+          ansible.builtin.file:
+            path: "{{ desktop_apps_hbe_install_dir }}"
+            state: absent
+
+        - name: Move validated Hyper Backup Explorer release into place
+          ansible.builtin.command:
+            argv:
+              - mv
+              - -T
+              - "{{ desktop_apps_hbe_tmpdir.path }}/extracted"
+              - "{{ desktop_apps_hbe_install_dir }}"
+          changed_when: true
+      always:
         - name: Remove temporary Hyper Backup Explorer workspace
           ansible.builtin.file:
             path: "{{ desktop_apps_hbe_tmpdir.path }}"
             state: absent
+          when: desktop_apps_hbe_tmpdir.path is defined
 
     - name: Link active Hyper Backup Explorer directory
       ansible.builtin.file:
@@ -339,20 +386,21 @@
   tags:
     - appimagelauncher
   block:
-    - name: Check whether appimagelauncher package is installed
+    - name: Check installed AppImageLauncher package status and version
       ansible.builtin.command:
         argv:
           - dpkg-query
           - -W
-          - -f=${Status}
+          - "-f=${Status}|${Version}"
           - appimagelauncher
       register: desktop_apps_ail_dpkg
+      check_mode: false
       changed_when: false
       failed_when: false
 
     - name: Download and install AppImageLauncher Debian package
       when:
-        - "'install ok installed' not in desktop_apps_ail_dpkg.stdout"
+        - (desktop_apps_ail_dpkg.stdout | trim) != ('install ok installed|' ~ pinned_downloads.appimagelauncher.deb_version)
         - not ansible_check_mode
       become: true
       block:

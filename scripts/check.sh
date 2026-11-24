@@ -23,8 +23,18 @@ for path in sorted(Path('ansible').rglob('*.yml')):
 PY
 if command -v ansible-playbook >/dev/null; then
   ANSIBLE_CONFIG="$PWD/ansible/ansible.cfg" ansible-playbook -i ansible/inventory/hosts.yml --syntax-check ansible/playbook.yml
+elif [[ ${CI:-false} == true ]]; then
+  printf 'Missing CI dependency: ansible-playbook\n' >&2
+  exit 1
+else
+  printf '[WARN] ansible-playbook not found; skipping syntax check.\n' >&2
 fi
 if command -v ansible-lint >/dev/null; then
   (cd ansible && ansible-lint)
+elif [[ ${CI:-false} == true ]]; then
+  printf 'Missing CI dependency: ansible-lint\n' >&2
+  exit 1
+else
+  printf '[WARN] ansible-lint not found; skipping lint check.\n' >&2
 fi
 git diff --check

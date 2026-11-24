@@ -185,11 +185,23 @@
           register: workstation_nvim_sync_cmd
           check_mode: false
           changed_when: (workstation_nvim_sync_cmd.stdout | from_json).changed | bool
-          notify: Initialize or restore Neovim configuration after sync
 
         - name: Parse Neovim sync metadata
           ansible.builtin.set_fact:
             workstation_nvim_sync_result: "{{ workstation_nvim_sync_cmd.stdout | from_json }}"
+
+        - name: Check whether Lazy.nvim plugin manager is bootstrapped
+          ansible.builtin.stat:
+            path: "{{ workstation_home }}/.local/share/nvim/lazy/lazy.nvim"
+          register: workstation_nvim_lazy_stat
+
+        - name: Initialize or restore Neovim plugins when synced or unbootstrapped
+          ansible.builtin.include_tasks: nvim_post_sync.yml
+          when:
+            - not ansible_check_mode
+            - >-
+              (workstation_nvim_sync_result.changed | default(false)) | bool
+              or not workstation_nvim_lazy_stat.stat.exists
 
 - name: Configure Tmux Plugin Manager (TPM)
   tags:
@@ -208,4 +220,27 @@
         dest: "{{ workstation_home }}/.local/share/tmux/plugins/tpm"
         version: "{{ tpm_commit }}"
         force: false
-      notify: Install tmux plugins via TPM
+
+    - name: Check declared tmux plugins missing from plugin directory
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - >-
+            import pathlib, re, sys;
+            home = pathlib.Path(sys.argv[1]);
+            pdir = home / '.local/share/tmux/plugins';
+            confs = [home / '.tmux.conf', home / '.config/tmux/tmux.conf'];
+            txt = '\n'.join(c.read_text(encoding='utf-8') for c in confs if c.exists());
+            plugins = [m.split('/')[-1] for m in re.findall(r"set(?:-option)?\s+-g\s+@plugin\s+['\"]([^'\"]+)['\"]", txt)];
+            print('\n'.join(p for p in plugins if p and not (pdir / p).is_dir()))
+          - "{{ workstation_home }}"
+      register: workstation_tpm_missing_plugins
+      check_mode: false
+      changed_when: false
+
+    - name: Install missing tmux plugins via TPM
+      ansible.builtin.include_tasks: tpm_install.yml
+      when:
+        - not ansible_check_mode
+        - (workstation_tpm_missing_plugins.stdout | trim) | length > 0

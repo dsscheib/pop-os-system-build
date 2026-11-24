@@ -35,20 +35,31 @@
 - name: Flush toolchains handlers before querying LLVM candidates
   ansible.builtin.meta: flush_handlers
 
+- name: Check whether LLVM deb822 repository is configured on disk
+  ansible.builtin.stat:
+    path: /etc/apt/sources.list.d/llvm.sources
+  register: toolchains_llvm_repo_stat
+
 - name: Determine newest complete LLVM major
   ansible.builtin.command:
     argv: "{{ ['python3', repo_root ~ '/scripts/toolchain_links.py', 'latest-major'] + llvm_packages }}"
   register: toolchains_llvm_major
-  changed_when: false
   check_mode: false
-  when: not ansible_check_mode
+  changed_when: false
+  when: not ansible_check_mode or toolchains_llvm_repo_stat.stat.exists
 
 - name: Install versioned LLVM toolchain packages
   ansible.builtin.apt:
     name: "{{ llvm_packages | map('regex_replace', '$', '-' ~ (toolchains_llvm_major.stdout | trim)) | list }}"
     state: present
   become: true
-  when: not ansible_check_mode
+  when: (toolchains_llvm_major.stdout | default('') | trim) | length > 0
+
+- name: Check whether target Clang executable is installed
+  ansible.builtin.stat:
+    path: "/usr/bin/clang-{{ toolchains_llvm_major.stdout | trim }}"
+  register: toolchains_llvm_bin_stat
+  when: (toolchains_llvm_major.stdout | default('') | trim) | length > 0
 
 - name: Synchronize LLVM symlinks in ~/.local/bin
   ansible.builtin.command:
@@ -68,7 +79,9 @@
   register: toolchains_llvm_links
   check_mode: false
   changed_when: toolchains_llvm_links.stdout | trim == 'changed'
-  when: not ansible_check_mode
+  when: >-
+    ((toolchains_llvm_major.stdout | default('') | trim) | length > 0)
+    and (not ansible_check_mode or (toolchains_llvm_bin_stat.stat.exists | default(false)))
 
 - name: Verify Clang executable version
   ansible.builtin.command:

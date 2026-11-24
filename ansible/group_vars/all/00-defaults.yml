@@ -19,7 +19,6 @@ kicad_release_series: "10.0"
 kicad_python_version: "0.8.0"
 pynvim_version: "0.6.0"
 tpm_commit: "e261deb1b47614eed3400089ce7197dc68acc4eb"
-arduino_ide_version: "2.3.10"
 
 # Managed compiler wrapper links in ~/.local/bin
 gcc_managed_commands:

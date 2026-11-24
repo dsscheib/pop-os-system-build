@@ -285,6 +285,8 @@
     (snapper_root_cfg_before.stat.checksum | default('')) != (snapper_cfg_after.results[0].stat.checksum | default(''))
     or (snapper_defaults_before.stat.checksum | default('')) != (snapper_cfg_after.results[1].stat.checksum | default(''))
 
+# configure_snapper.py edits SYNC_ACL in /etc/snapper/configs/root directly,
+# whereas snapper -c root set-config triggers snapperd over D-Bus to apply POSIX ACLs.
 - name: Enable Snapper ACL synchronization
   ansible.builtin.command:
     argv:
@@ -295,6 +297,9 @@
       - SYNC_ACL=yes
   changed_when: false
   become: true
+  when: >-
+    not snapper_root_cfg_before.stat.exists
+    or (snapper_root_cfg_before.stat.checksum | default('')) != (snapper_cfg_after.results[0].stat.checksum | default(''))
 
 - name: Set /.snapshots permissions to 0750
   ansible.builtin.file:

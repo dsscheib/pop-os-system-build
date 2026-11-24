@@ -44,25 +44,32 @@ Run as your **desktop user** (never with `sudo`):
 ```bash
 ./bootstrap.sh
 cp ansible/group_vars/all/local.yml.example ansible/group_vars/all/local.yml
-# Edit local.yml with your private dotfiles_repo / nvim_config_repo if desired.
+# Edit local.yml: set dotfiles_repo / nvim_config_repo (and enable_hibernation: true on laptops).
+
+# If restoring encrypted Chezmoi files on a fresh machine, place your backed-up age key first:
+install -d -m 0700 ~/.config/chezmoi && install -m 0600 /path/to/backup/key.txt ~/.config/chezmoi/key.txt
 
 mise run plan    # Dry-run with --check --diff
-mise run apply   # Converge OS, toolchains, containers, browsers, apps, AI CLIs, workstation
-mise run auth    # Interactive gh login, Chezmoi init/apply, Google Drive rclone OAuth, Herdr hooks
+mise run apply   # Pass 1: OS, toolchains, containers, browsers, apps, Antigravity/Claude CLIs
+mise run auth    # Interactive gh login, Chezmoi init/apply + Mise lock install, Google Drive rclone, Herdr
+mise run apply   # Pass 2: converge Chezmoi/Mise-dependent integrations (Neovim/TPM plugins & completions)
 ```
+
+> **Note for rebuilds**: Authenticate with `gh auth login` via `mise run auth` instead of restoring old desktop keyring archives over `~/.local/share/keyrings/` (old keyring imports can clobber your `gh` token).
 
 Run a single role/tag with `mise run role <tag>`:
 
 | Role / Tag | Scope |
 | :--- | :--- |
-| `system` | APT upgrades, UFW, `dialout`/`plugdev`, `systemd-oomd`, `journald` retention, `gh` CLI, NVMe udev rule |
+| `system` | APT upgrades, UFW, `dialout`/`plugdev`, `systemd-oomd`, `journald` retention, `gh` CLI, optional NVMe udev rule |
 | `snapper` | Snapper, `snapper-rollback`, APT hooks (default on; hibernation opt-in via `enable_hibernation: true`) |
 | `toolchains` (`gcc`, `llvm`, `arm`, `avr`, `riscv`) | Latest complete GCC/G++ & LLVM (`apt.llvm.org`) majors linked in `~/.local/bin`, cross-compilers |
 | `containers` (`podman`) | Rootless Podman (`subuid`/`subgid` validated), `docker.io` search registry, Fish completion |
 | `browsers` (`firefox`, `chrome`) | Firefox Developer Edition (Mozilla APT repo + pin) and Google Chrome stable |
 | `desktop_apps` (`fonts`, `vscode`, `kicad`, `flatpak`, `arduino`, `saleae`, `synology`, `hyper_backup`) | JetBrainsMono Nerd Font, VS Code, KiCad 10 + `kicad-python`, Flathub apps, vendor GUI apps |
-| `ai_agents` (`claudecode`, `antigravity`, `completions`) | `claude-code` APT, pinned `antigravity-cli` (`agy`) + guardrails, dynamic completions |
-| `workstation` (`chezmoi`, `mise`, `neovim`, `tmux`) | Chezmoi drift apply, Mise tool sync, Neovim `pynvim` venv + `lazy-lock.json` merge, TPM |
+| `ai_agents` (`claudecode`, `antigravity`) | `claude-code` APT, pinned `antigravity-cli` (`agy`) + guardrails |
+| `workstation` (`chezmoi`, `mise`, `neovim`, `tmux`) | Chezmoi drift apply, Mise tool sync, Neovim `pynvim` venv + `lazy-lock.json` merge, TPM plugins |
+| `completions` (`post_tasks`) | Dynamic shell completions (`codex`, `herdr`, `rustup`, `cargo`) generated after Mise tools |
 | `stm32` *(opt-in: `mise run role stm32`)* | ST-LINK udev rules + verified CubeIDE, CubeMX, CubeProgrammer, SW4STM32 installers |
 
 ### Developer Runtimes, CLIs & Secrets
@@ -73,7 +80,7 @@ Runtimes (`go`, `node`, `rust`, `uv`) and developer CLIs (`neovim`, `starship`, 
 
 - **Preview OS/desktop drift**: `mise run plan`
 - **Converge OS/desktop state**: `mise run apply`
-- **Update dev runtimes & CLIs**: `mise upgrade --bump && chezmoi re-add ~/.config/mise`
+- **Update dev runtimes & CLIs**: `mise upgrade --bump && chezmoi re-add ~/.config/mise/config.toml ~/.config/mise/mise.lock`
 - **Pull dotfiles & auto-sync Mise**: `chezmoi update`
 
 ## 5. Validation
@@ -82,4 +89,4 @@ Runtimes (`go`, `node`, `rust`, `uv`) and developer CLIs (`neovim`, `starship`, 
 mise run check   # or: bash scripts/check.sh
 ```
 
-Runs `shellcheck`, Bash syntax checks, Python AST & YAML validation, `ansible-playbook --syntax-check`, `ansible-lint`, and `unittest` regressions. CI runs `check` plus an `ubuntu:24.04` container two-pass convergence/idempotency test (`changed=0` on pass 2).
+Runs `shellcheck`, Bash syntax checks, Python AST & YAML validation, `ansible-playbook --syntax-check`, `ansible-lint`, and `unittest` regressions (`bootstrap.sh` installs pinned `ansible-core` and `ansible-lint`). CI runs `check` plus an `ubuntu:24.04` container suite testing fresh `--check`, initial convergence, post-convergence `--check` (`changed=0`), and repeat apply (`changed=0`).

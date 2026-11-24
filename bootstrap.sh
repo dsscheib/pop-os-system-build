@@ -12,6 +12,9 @@ UV_VERSION="0.13.0"
 UV_URL="https://github.com/astral-sh/uv/releases/download/0.13.0/uv-x86_64-unknown-linux-gnu.tar.gz"
 UV_SHA256="1468ebd5a5541121837c5a2817b9972ba6090fa6caa3d142620850a47fb75154"
 
+ANSIBLE_CORE_VERSION="2.22.0"
+ANSIBLE_LINT_VERSION="26.11.0"
+
 log_info() { printf '[INFO] %s\n' "$*"; }
 log_warn() { printf '[WARN] %s\n' "$*" >&2; }
 log_error() { printf '[ERROR] %s\n' "$*" >&2; }
@@ -115,16 +118,22 @@ install_mise() {
     install -m 0755 "$WORK_DIR/mise" "$local_bin/mise" || return
   fi
   hash -r
-  mise settings self_update.auto=true
 }
 
 install_ansible() {
   if ! command -v ansible-playbook >/dev/null; then
-    log_info "Installing ansible-core via uv..."
-    uv tool install --with-executables-from ansible-core ansible-core
+    log_info "Installing pinned ansible-core $ANSIBLE_CORE_VERSION via uv..."
+    uv tool install --with-executables-from ansible-core "ansible-core==${ANSIBLE_CORE_VERSION}"
     hash -r
   else
     log_info "ansible-playbook is already installed: $(command -v ansible-playbook)"
+  fi
+  if ! command -v ansible-lint >/dev/null; then
+    log_info "Installing pinned ansible-lint $ANSIBLE_LINT_VERSION via uv..."
+    uv tool install "ansible-lint==${ANSIBLE_LINT_VERSION}"
+    hash -r
+  else
+    log_info "ansible-lint is already installed: $(command -v ansible-lint)"
   fi
   log_info "Installing Ansible Galaxy collections..."
   ansible-galaxy collection install -r "$SCRIPT_DIR/ansible/requirements.yml"

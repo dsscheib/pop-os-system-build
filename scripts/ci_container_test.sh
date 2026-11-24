@@ -22,25 +22,41 @@ chown -R tester:tester /home/tester/repo
 su - tester -s /bin/bash <<'EOF'
 set -euo pipefail
 export PATH="$HOME/.local/bin:$PATH"
-pipx install ansible-core
+pipx install "ansible-core==2.22.0"
 cd /home/tester/repo
 ansible-galaxy collection install -r ansible/requirements.yml
 export ANSIBLE_CONFIG="$PWD/ansible/ansible.cfg"
+
+echo "=== Ansible Pass 0 (fresh --check --diff) ==="
+ansible-playbook --check --diff -i ansible/inventory/hosts.yml ansible/playbook.yml \
+  --skip-tags snapper,systemd_live,desktop_gui \
+  -e system_apt_upgrade=false
 
 echo "=== Ansible Pass 1 (initial convergence) ==="
 ansible-playbook -i ansible/inventory/hosts.yml ansible/playbook.yml \
   --skip-tags snapper,systemd_live,desktop_gui \
   -e system_apt_upgrade=false
 
-echo "=== Ansible Pass 2 (idempotency check) ==="
-pass2_log=$(mktemp)
-trap 'rm -f -- "$pass2_log"' EXIT
+echo "=== Ansible Pass 2 (post-convergence --check --diff idempotency) ==="
+check_log=$(mktemp)
+pass3_log=$(mktemp)
+trap 'rm -f -- "$check_log" "$pass3_log"' EXIT
+ansible-playbook --check --diff -i ansible/inventory/hosts.yml ansible/playbook.yml \
+  --skip-tags snapper,systemd_live,desktop_gui \
+  -e system_apt_upgrade=false | tee "$check_log"
+
+grep -Eq 'changed=0[[:space:]].*failed=0' "$check_log" || {
+  echo "Expected changed=0 and failed=0 on post-convergence --check pass." >&2
+  exit 1
+}
+
+echo "=== Ansible Pass 3 (apply idempotency check) ==="
 ansible-playbook --diff -i ansible/inventory/hosts.yml ansible/playbook.yml \
   --skip-tags snapper,systemd_live,desktop_gui \
-  -e system_apt_upgrade=false | tee "$pass2_log"
+  -e system_apt_upgrade=false | tee "$pass3_log"
 
-grep -Eq 'changed=0[[:space:]].*failed=0' "$pass2_log" || {
-  echo "Expected changed=0 and failed=0 on second pass." >&2
+grep -Eq 'changed=0[[:space:]].*failed=0' "$pass3_log" || {
+  echo "Expected changed=0 and failed=0 on second apply pass." >&2
   exit 1
 }
 EOF

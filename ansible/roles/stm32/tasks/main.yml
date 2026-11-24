@@ -14,21 +14,69 @@
   become: true
   notify: Reload stm32 udev rules
 
+- name: Flush stm32 udev handlers before running user-space installers
+  ansible.builtin.meta: flush_handlers
+
+- name: Check local availability of requested STMicroelectronics archives
+  ansible.builtin.command:
+    argv: >-
+      {{
+        [
+          'bash',
+          '-c',
+          'set -euo pipefail; source "$1/common.sh"; find_archive "" "${@:2}" 2>/dev/null',
+          '--',
+          repo_root,
+        ] + item.patterns
+      }}
+  loop:
+    - key: cubeide
+      script: install_stm32_cube_ide.sh
+      patterns:
+        - "stm32cubeide_*.sh.zip"
+        - "stm32cubeide_*.zip"
+    - key: cubemx
+      script: install_stm32_cube_mx.sh
+      patterns:
+        - "SetupSTM32CubeMX-*.zip"
+        - "en.stm32cubemx-*.zip"
+    - key: cubeprog
+      script: install_stm32_cube_prog.sh
+      patterns:
+        - "SetupSTM32CubeProgrammer_*.zip"
+        - "SetupSTM32CubeProgrammer-*.zip"
+    - key: sw4stm32
+      script: install_sw4stm32.sh
+      patterns:
+        - install_sw4stm32_linux_64bits.run
+        - "sw4stm32_*.run"
+  register: stm32_archive_probes
+  check_mode: false
+  changed_when: false
+  failed_when: false
+  when: item.key in stm32_tools
+
+- name: Warn about requested STMicroelectronics tools without matching archives
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: Skipping {{ item.item.key }} ({{ item.item.patterns | join(', ') }}) —
+      no unique archive found in CWD, ST_DOWNLOAD_DIR, or ~/Downloads.
+  loop: "{{ stm32_archive_probes.results }}"
+  when:
+    - item.item.key in stm32_tools
+    - (item.rc | default(1)) != 0
+
 - name: Run requested STMicroelectronics user-space installers
   ansible.builtin.command:
     argv:
       - bash
-      - "{{ repo_root }}/{{ item.script }}"
-  loop:
-    - key: cubeide
-      script: install_stm32_cube_ide.sh
-    - key: cubemx
-      script: install_stm32_cube_mx.sh
-    - key: cubeprog
-      script: install_stm32_cube_prog.sh
-    - key: sw4stm32
-      script: install_sw4stm32.sh
+      - "{{ repo_root }}/{{ item.item.script }}"
+      - "{{ item.stdout | trim }}"
+  environment:
+    ST_SKIP_UDEV: "1"
+  loop: "{{ stm32_archive_probes.results }}"
   changed_when: true
   when:
-    - item.key in stm32_tools
+    - item.item.key in stm32_tools
+    - (item.rc | default(1)) == 0
     - not ansible_check_mode

@@ -81,7 +81,9 @@ main() {
   repair_old_hook
   apt-get update
   apt-get install -y btrfs-progs python3-btrfsutil snapper snapper-gui libpam-snapper git acl
-  local commit=04488f2350e8ec214277fe7de608492a9ee665a7
+  local commit
+  commit=$(awk -F: '$1 == "snapper_rollback_commit" {gsub(/["[:space:]]/, "", $2); print $2}' "$SCRIPT_DIR/ansible/group_vars/all/00-defaults.yml")
+  [[ $commit =~ ^[0-9a-f]{40}$ ]] || die "Invalid snapper_rollback_commit in ansible/group_vars/all/00-defaults.yml."
   git clone https://github.com/jrabinow/snapper-rollback.git "$WORK_DIR/rollback"
   git -C "$WORK_DIR/rollback" checkout --detach "$commit"
   [[ $(git -C "$WORK_DIR/rollback" rev-parse HEAD) == "$commit" ]] || die "Rollback commit verification failed."

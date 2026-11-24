@@ -94,6 +94,65 @@ class BootstrapAndV2FoundationTests(unittest.TestCase):
             self.assertNotIn('/latest/', url)
             self.assertRegex(sha, re.compile(r'^[0-9a-f]{64}$'))
 
+        text = BOOTSTRAP.read_text(encoding='utf-8')
+        self.assertRegex(text, r'ANSIBLE_CORE_VERSION="[0-9]+\.[0-9]+\.[0-9]+"')
+        self.assertRegex(text, r'ANSIBLE_LINT_VERSION="[0-9]+\.[0-9]+\.[0-9]+"')
+        self.assertNotIn('self_update', text)
+
+    def test_requirements_versions_are_pinned_exactly(self):
+        reqs = yaml.safe_load((ANSIBLE_DIR / 'requirements.yml').read_text(encoding='utf-8'))
+        for entry in reqs['collections']:
+            with self.subTest(name=entry['name']):
+                self.assertRegex(entry['version'], r'^[0-9]+\.[0-9]+\.[0-9]+$')
+
+    def test_ansible_run_dispatches_positional_args_and_mise_tasks(self):
+        stub_dir = self.root / 'bin'
+        stub_dir.mkdir()
+        stub = stub_dir / 'ansible-playbook'
+        stub.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
+        stub.chmod(0o755)
+        env = dict(os.environ, PATH=f'{stub_dir}:{os.environ.get("PATH", "")}')
+
+        missing_tag = subprocess.run(
+            ['bash', str(REPO / 'scripts/ansible_run.sh'), 'role'],
+            cwd=REPO,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(missing_tag.returncode, 2)
+        self.assertIn('Usage: mise run role', missing_tag.stderr)
+
+        role_res = subprocess.run(
+            ['bash', str(REPO / 'scripts/ansible_run.sh'), 'role', 'stm32', '--check'],
+            cwd=REPO,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(role_res.returncode, 0, role_res.stderr)
+        lines = role_res.stdout.splitlines()
+        self.assertIn('--tags', lines)
+        idx = lines.index('--tags')
+        self.assertEqual(lines[idx + 1], 'stm32')
+        self.assertIn('--check', lines)
+
+        mise_bin = subprocess.run(['which', 'mise'], capture_output=True, text=True)
+        if mise_bin.returncode == 0:
+            mise_env = dict(env, MISE_TRUSTED_CONFIG_PATHS=str(REPO))
+            mise_role = subprocess.run(
+                [mise_bin.stdout.strip(), 'run', 'role', 'stm32', '--check'],
+                cwd=REPO,
+                env=mise_env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(mise_role.returncode, 0, mise_role.stderr)
+            mise_lines = mise_role.stdout.splitlines()
+            self.assertIn('--tags', mise_lines)
+            self.assertEqual(mise_lines[mise_lines.index('--tags') + 1], 'stm32')
+            self.assertIn('--check', mise_lines)
+
     def test_ansible_yaml_files_parse_cleanly(self):
         yaml_files = sorted(ANSIBLE_DIR.rglob('*.yml'))
         self.assertTrue(yaml_files)
@@ -191,12 +250,26 @@ class BootstrapAndV2FoundationTests(unittest.TestCase):
             'llvm_key',
         }
         self.assertEqual(set(v2_downloads.keys()), expected_keys)
+        url_version_keys = {
+            'font',
+            'appimagelauncher',
+            'saleae',
+            'synology',
+            'hyper_backup_explorer',
+            'antigravity_cli',
+            'arduino_ide',
+        }
+        deb_version_keys = {'synology', 'appimagelauncher'}
         for key, entry in v2_downloads.items():
             with self.subTest(key=key):
                 self.assertTrue(entry['version'])
                 self.assertTrue(entry['url'].startswith('https://'))
                 self.assertNotIn('/latest/', entry['url'])
                 self.assertRegex(entry['sha256'], re.compile(r'^[0-9a-f]{64}$'))
+                if key in url_version_keys:
+                    self.assertIn(entry['version'], entry['url'])
+                if key in deb_version_keys:
+                    self.assertTrue(entry.get('deb_version'))
 
     def test_group_vars_local_yml_sorts_last(self):
         group_vars_dir = ANSIBLE_DIR / 'group_vars/all'

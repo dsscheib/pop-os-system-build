@@ -165,12 +165,20 @@
   tags:
     - desktop_packages
 
-- name: Install nautilus-dropbox when enabled
-  ansible.builtin.apt:
-    name: nautilus-dropbox
-    state: present
-  become: true
-  failed_when: false
+- name: Install optional nautilus-dropbox integration when enabled
   when: install_dropbox | bool
   tags:
     - desktop_packages
+  block:
+    - name: Install nautilus-dropbox when enabled
+      ansible.builtin.apt:
+        name: nautilus-dropbox
+        state: present
+      register: desktop_apps_dropbox_apt
+      become: true
+  rescue:
+    - name: Warn when nautilus-dropbox installation failed
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: nautilus-dropbox installation failed ({{ desktop_apps_dropbox_apt.msg | default('unknown APT error') }});
+          continuing.

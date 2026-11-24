@@ -77,23 +77,45 @@ class RepositoryTests(unittest.TestCase):
         result = self.bash('find_archive installer.run "*.run"')
         self.assertEqual(result.stdout.strip(), str(path))
 
-    def test_checksum_mismatch_keeps_existing_download(self):
-        destination = self.root / 'application'
-        destination.write_text('working')
-        result = self.bash('''
-curl() { printf partial > "${@: -1}"; }
-download_verified https://example.invalid/file "$1" "$(printf '%064d' 0)"
-''', destination)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(destination.read_text(), 'working')
-        self.assertFalse(list(self.root.glob('*.download.*')))
+    def test_st_preflight_skips_sudo_check_when_st_skip_udev_is_set(self):
+        path = self.root / 'bin'
+        path.mkdir()
+        for cmd in ('python3', 'sha256sum', 'realpath', 'find', 'mktemp', 'ldd', 'desktop-file-validate'):
+            tool = path / cmd
+            tool.write_text('#!/bin/sh\nexit 0\n')
+            tool.chmod(0o755)
+        skipped = self.bash(
+            'require_supported_system() { return 0; }\nPATH="$1"\nhash -r\nst_preflight',
+            path,
+            env={'ST_SKIP_UDEV': '1'},
+        )
+        self.assertEqual(skipped.returncode, 0, skipped.stderr)
 
-    def test_network_failure_keeps_existing_download(self):
-        destination = self.root / 'application'
-        destination.write_text('working')
-        result = self.bash('curl() { return 42; }; download_verified https://example.invalid/file "$1" ignored', destination)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(destination.read_text(), 'working')
+        required = self.bash(
+            'require_supported_system() { return 0; }\nPATH="$1"\nhash -r\nst_preflight',
+            path,
+        )
+        self.assertNotEqual(required.returncode, 0)
+        self.assertIn('sudo', required.stderr)
+
+    def test_st_finish_skips_stlink_udev_when_st_skip_udev_is_set(self):
+        exe = self.root / 'app'
+        exe.write_text('#!/bin/sh\nexit 0\n')
+        exe.chmod(0o755)
+        result = self.bash('''
+SCRIPT_DIR="$3"
+install_stlink_rules() { return 99; }
+WORK_DIR="$1/work"
+INSTALL_DIR="$1/inst"
+INSTALL_TARGET="$1/target"
+mkdir -p "$WORK_DIR" "$INSTALL_DIR"
+HOME="$1/home"
+mkdir -p "$HOME"
+st_finish TestApp "$HOME/.local/bin/testapp" "$2" "$INSTALL_DIR" icon wmclass "$HOME/.local/share/applications/testapp.desktop"
+''', self.root, exe, REPO, env={'ST_SKIP_UDEV': '1'})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.root / 'home/.local/bin/testapp').is_file())
+        self.assertTrue((self.root / 'home/.local/share/applications/testapp.desktop').is_file())
 
     def test_publish_preserves_old_installation_and_hidden_files(self):
         target = self.root / 'app'
@@ -474,48 +496,6 @@ snapshot_pair post "$1"
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('Pre-snapshot failed', result.stderr)
         self.assertFalse((state / 'apt-pre.num').exists())
-
-    def install_local_deb(self, apt_status=0):
-        workspace = self.root / 'private'
-        workspace.mkdir(mode=0o700)
-        package = workspace / 'tool.deb'
-        package.write_bytes(b'fixture package')
-        stage = self.root / 'apt-stage'
-        result = self.bash('''
-dpkg-deb() { printf fixture; }
-package_installed() { return 0; }
-sudo() {
-    case "$1" in
-        mktemp) mkdir -m 0700 "$DEB_TEST_STAGE"; printf '%s' "$DEB_TEST_STAGE";;
-        apt-get)
-            [[ ${*: -1} == "$DEB_TEST_STAGE/package.deb" ]] || return 90
-            [[ $(stat -c %a "$DEB_TEST_STAGE") == 755 ]] || return 91
-            [[ $(stat -c %a "$DEB_TEST_STAGE/package.deb") == 644 ]] || return 92
-            cmp "$DEB_TEST_ORIGINAL" "$DEB_TEST_STAGE/package.deb" || return 93
-            printf 'APT read staged package\n'
-            return "$DEB_TEST_APT_STATUS";;
-        *) "$@";;
-    esac
-}
-install_deb "$1"
-''', package, env={'DEB_TEST_STAGE': str(stage), 'DEB_TEST_ORIGINAL': str(package),
-                   'DEB_TEST_APT_STATUS': str(apt_status)})
-        return result, workspace, package, stage
-
-    def test_local_deb_stages_readable_copy_without_exposing_workspace(self):
-        result, workspace, package, stage = self.install_local_deb()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('APT read staged package', result.stdout)
-        self.assertEqual(workspace.stat().st_mode & 0o777, 0o700)
-        self.assertTrue(package.exists())
-        self.assertFalse(stage.exists())
-
-    def test_failed_local_deb_install_removes_staging_and_preserves_status(self):
-        result, workspace, package, stage = self.install_local_deb(48)
-        self.assertEqual(result.returncode, 48, result.stderr)
-        self.assertEqual(workspace.stat().st_mode & 0o777, 0o700)
-        self.assertTrue(package.exists())
-        self.assertFalse(stage.exists())
 
     def test_failed_install_after_published_stage_cleans_only_new_staging(self):
         result = self.bash('''

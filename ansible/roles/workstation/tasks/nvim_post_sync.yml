@@ -12,6 +12,7 @@
         ansible_facts['env'].PATH | default('/usr/bin:/bin'),
       ] | join(':') }}
   register: workstation_nvim_which
+  check_mode: false
   changed_when: false
   failed_when: false
 
@@ -25,49 +26,58 @@
     path: "{{ workstation_home }}/.config/nvim/lua/setup_checks.lua"
   register: workstation_nvim_setup_checks
 
-- name: Run Neovim setup.sh --install when present
-  ansible.builtin.command:
-    argv:
-      - bash
-      - "{{ workstation_home }}/.config/nvim/scripts/setup.sh"
-      - --install
-  environment:
-    NVIM_BIN: "{{ workstation_nvim_which.stdout | trim }}"
-  changed_when: true
-  failed_when: false
-  when:
-    - workstation_nvim_which.rc == 0
-    - workstation_nvim_setup_sh.stat.exists
-    - workstation_nvim_setup_checks.stat.exists
+- name: Run Neovim setup and lazy-lock restore cleanly
+  when: workstation_nvim_which.rc == 0
+  block:
+    - name: Run Neovim setup.sh --install when present
+      ansible.builtin.command:
+        argv:
+          - bash
+          - "{{ workstation_home }}/.config/nvim/scripts/setup.sh"
+          - --install
+      environment:
+        NVIM_BIN: "{{ workstation_nvim_which.stdout | trim }}"
+      register: workstation_nvim_setup_cmd
+      changed_when: true
+      when:
+        - workstation_nvim_setup_sh.stat.exists
+        - workstation_nvim_setup_checks.stat.exists
 
-- name: Run headless Neovim initialization when custom setup is absent
-  ansible.builtin.command:
-    argv:
-      - timeout
-      - --foreground
-      - 5m
-      - "{{ workstation_nvim_which.stdout | trim }}"
-      - --headless
-      - -c
-      - quitall
-  changed_when: true
-  failed_when: false
-  when:
-    - workstation_nvim_which.rc == 0
-    - not (workstation_nvim_setup_sh.stat.exists and workstation_nvim_setup_checks.stat.exists)
+    - name: Run headless Neovim initialization when custom setup is absent
+      ansible.builtin.command:
+        argv:
+          - timeout
+          - --foreground
+          - 5m
+          - "{{ workstation_nvim_which.stdout | trim }}"
+          - --headless
+          - -c
+          - quitall
+      register: workstation_nvim_headless_cmd
+      changed_when: true
+      when: not (workstation_nvim_setup_sh.stat.exists and workstation_nvim_setup_checks.stat.exists)
 
-- name: Restore Lazy.nvim plugins to merged lockfile
-  ansible.builtin.command:
-    argv:
-      - timeout
-      - --foreground
-      - 5m
-      - "{{ workstation_nvim_which.stdout | trim }}"
-      - --headless
-      - "+Lazy! restore"
-      - +qa
-  changed_when: true
-  failed_when: false
-  when:
-    - workstation_nvim_which.rc == 0
-    - (workstation_nvim_sync_result.merged | default(false)) | bool
+    - name: Restore Lazy.nvim plugins to merged lockfile
+      ansible.builtin.command:
+        argv:
+          - timeout
+          - --foreground
+          - 5m
+          - "{{ workstation_nvim_which.stdout | trim }}"
+          - --headless
+          - "+Lazy! restore"
+          - +qa
+      register: workstation_nvim_lazy_cmd
+      changed_when: true
+      when: >-
+        (workstation_nvim_sync_result.merged | default(false)) | bool
+        or not (workstation_nvim_lazy_stat.stat.exists | default(false))
+  rescue:
+    - name: Warn when headless Neovim post-sync step failed
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: Neovim post-sync step failed (rc={{
+            ansible_failed_result.rc | default('unknown')
+          }}); run nvim manually to inspect. {{
+            (ansible_failed_result.stderr | default(ansible_failed_result.msg | default(''))) | trim
+          }}
