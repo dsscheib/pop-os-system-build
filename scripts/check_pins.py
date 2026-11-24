@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import urllib.error
+import urllib.parse
 import urllib.request
 
 import yaml
@@ -30,7 +31,7 @@ DEFAULTS = 'ansible/group_vars/all/00-defaults.yml'
 REQUIREMENTS = 'ansible/requirements.yml'
 BOOTSTRAP = 'bootstrap.sh'
 # Files that repeat a bootstrap PyPI pin as `package==version`.
-PYPI_PIN_MIRRORS = ('.github/workflows/check.yml', 'scripts/ci_container_test.sh')
+PYPI_PIN_MIRRORS = ('.github/workflows/check.yml',)
 ANTIGRAVITY_MANIFEST_URL = (
     'https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/linux_amd64.json'
 )
@@ -60,7 +61,7 @@ PINS = [
         ('synology', 'HyperBackupExplorer', r'/Linux/x86_64/[^"]*\.tar\.bz2$')),
     Pin('antigravity_cli', 'download', 'antigravity_cli', ('antigravity',)),
     Pin('arduino_ide', 'download', 'arduino_ide',
-        ('github', 'arduino/arduino-ide', r'_Linux_64bit\.zip$'), also_defaults=('arduino_ide_version',)),
+        ('github', 'arduino/arduino-ide', r'_Linux_64bit\.zip$')),
     Pin('mise', 'bootstrap', 'MISE', ('github', 'jdx/mise', r'^mise-v[0-9.]+-linux-x64$')),
     Pin('uv', 'bootstrap', 'UV', ('github', 'astral-sh/uv', r'^uv-x86_64-unknown-linux-gnu\.tar\.gz$')),
     Pin('ansible-core', 'bootstrap-version', 'ANSIBLE_CORE_VERSION', ('pypi', 'ansible-core')),
@@ -82,7 +83,15 @@ PINS = [
 
 # ---------------------------------------------------------------- HTTP
 
+def _require_https(url):
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme != 'https' or not parsed.netloc:
+        raise ValueError(f'Refusing non-HTTPS URL: {url}')
+    return url
+
+
 def _request(url, method='GET'):
+    _require_https(url)
     headers = {'User-Agent': USER_AGENT}
     token = os.environ.get('GITHUB_TOKEN')
     if token and url.startswith('https://api.github.com/'):
@@ -92,6 +101,7 @@ def _request(url, method='GET'):
 
 def http_text(url):
     with urllib.request.urlopen(_request(url), timeout=TIMEOUT) as response:
+        _require_https(response.geturl())
         return response.read().decode('utf-8', 'replace')
 
 
@@ -102,6 +112,7 @@ def http_json(url):
 def http_exists(url):
     try:
         with urllib.request.urlopen(_request(url, 'HEAD'), timeout=TIMEOUT) as response:
+            _require_https(response.geturl())
             return response.status == 200
     except urllib.error.HTTPError:
         return False
@@ -109,16 +120,18 @@ def http_exists(url):
 
 def http_final_url(url):
     with urllib.request.urlopen(_request(url, 'HEAD'), timeout=TIMEOUT) as response:
-        return response.geturl()
+        return _require_https(response.geturl())
 
 
 def download(url, destination):
     """Stream url to destination and return its SHA-256 hex digest."""
     digest = hashlib.sha256()
-    with urllib.request.urlopen(_request(url), timeout=TIMEOUT) as response, open(destination, 'wb') as out:
-        for chunk in iter(lambda: response.read(1 << 20), b''):
-            digest.update(chunk)
-            out.write(chunk)
+    with urllib.request.urlopen(_request(url), timeout=TIMEOUT) as response:
+        _require_https(response.geturl())
+        with open(destination, 'wb') as out:
+            for chunk in iter(lambda: response.read(1 << 20), b''):
+                digest.update(chunk)
+                out.write(chunk)
     return digest.hexdigest()
 
 
@@ -310,7 +323,10 @@ def _file_digest(path, algo):
 
 def fetch_and_hash(info, workdir, fetch=download):
     """Download info['url'] and return (sha256, local path), verifying any published digest."""
-    path = Path(workdir) / (info['url'].rsplit('/', 1)[-1] or 'download')
+    _require_https(info['url'])
+    raw_name = Path(urllib.parse.urlparse(info['url']).path).name
+    filename = raw_name if raw_name and raw_name not in ('.', '..') else 'download'
+    path = Path(workdir) / filename
     sha256 = fetch(info['url'], path)
     if info.get('digest'):
         algo = info.get('digest_algo', 'sha256')
@@ -368,6 +384,43 @@ def short(value):
     return value[:12] if value and re.fullmatch(r'[0-9a-f]{40}', value) else value
 
 
+def _is_commit(value):
+    return bool(value and re.fullmatch(r'[0-9a-fA-F]{40}', value))
+
+
+def _parse_version(value):
+    cleaned = value.strip().lstrip('vV')
+    match = re.match(r'^([0-9]+(?:[.\-][0-9]+)*)(?:[-~.+]?([a-zA-Z].*))?$', cleaned)
+    if not match:
+        return None
+    nums = tuple(int(part) for part in re.findall(r'\d+', match.group(1)))
+    pre_raw = match.group(2)
+    if not pre_raw:
+        return (nums, 1, ())
+    pre_parts = tuple(
+        (0, int(tok)) if tok.isdigit() else (1, tok.lower())
+        for tok in re.findall(r'\d+|[a-zA-Z]+', pre_raw)
+    )
+    return (nums, 0, pre_parts)
+
+
+def _compare_versions(candidate, current):
+    if candidate == current:
+        return 0
+    if _is_commit(candidate) or _is_commit(current):
+        return None
+    pa, pb = _parse_version(candidate), _parse_version(current)
+    if pa is None or pb is None:
+        return None
+    na, sa, ta = pa
+    nb, sb, tb = pb
+    width = max(len(na), len(nb))
+    na = na + (0,) * (width - len(na))
+    nb = nb + (0,) * (width - len(nb))
+    ka, kb = (na, sa, ta), (nb, sb, tb)
+    return -1 if ka < kb else (1 if ka > kb else 0)
+
+
 def check(root, pins, lookup_fn=lookup):
     """Yield (pin, current, latest_info_or_None, status) for every pin present in this checkout."""
     for pin in pins:
@@ -379,8 +432,11 @@ def check(root, pins, lookup_fn=lookup):
         except Exception as error:  # report network and parsing problems per pin
             yield pin, current, None, f'check failed: {error}'
             continue
+        cmp_res = _compare_versions(info['version'], current)
         if info['version'] == current:
             status = 'up to date'
+        elif cmp_res is not None and cmp_res <= 0:
+            status = f'up to date ({short(current)} is newer than {short(info["version"])})'
         elif pin.bumpable:
             status = f'update available: mise run pins --bump {pin.name}'
         else:
@@ -421,6 +477,11 @@ def bump_named(root, names, lookup_fn=lookup, fetch=download, out=sys.stdout):
             info = lookup_fn(pin, current)
             if info['version'] == current:
                 print(f'{name}: already up to date ({short(current)})', file=out)
+                continue
+            cmp_res = _compare_versions(info['version'], current)
+            if cmp_res is not None and cmp_res <= 0:
+                print(f'{name}: already at newer version {short(current)} than {short(info["version"])}; skipping downgrade',
+                      file=out)
                 continue
             files = bump(root, pin, info, fetch)
         except Exception as error:

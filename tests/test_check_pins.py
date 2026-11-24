@@ -3,6 +3,7 @@ import hashlib
 import importlib
 import io
 from pathlib import Path
+import re
 import shutil
 import sys
 import tempfile
@@ -55,7 +56,7 @@ class CheckPinsTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         files = {check_pins.DOWNLOADS: DOWNLOADS, check_pins.DEFAULTS: DEFAULTS,
                  check_pins.REQUIREMENTS: REQUIREMENTS, check_pins.BOOTSTRAP: BOOTSTRAP,
-                 'scripts/ci_container_test.sh': 'uv tool install "ansible-core==2.22.0"\n'}
+                 '.github/workflows/check.yml': 'pipx install --include-deps ansible-lint==26.11.0\npipx inject --include-apps ansible-lint ansible-core==2.22.0\n'}
         for relative, text in files.items():
             (self.root / relative).parent.mkdir(parents=True, exist_ok=True)
             (self.root / relative).write_text(text)
@@ -110,7 +111,13 @@ class CheckPinsTests(unittest.TestCase):
     def test_bump_download_records_hash_and_mirrors_defaults_version(self):
         info = {'version': '2.3.11', 'url': 'https://example.com/2.3.11/arduino-ide_2.3.11_Linux_64bit.zip'}
         out = io.StringIO()
-        failures = check_pins.bump_named(self.root, ['arduino_ide'], lambda pin, current: info, self.fake_fetch, out)
+        mirrored_pin = check_pins.Pin(
+            'arduino_ide', 'download', 'arduino_ide',
+            ('github', 'arduino/arduino-ide', r'_Linux_64bit\.zip$'),
+            also_defaults=('arduino_ide_version',),
+        )
+        with mock.patch.object(check_pins, 'PINS', [mirrored_pin]):
+            failures = check_pins.bump_named(self.root, ['arduino_ide'], lambda pin, current: info, self.fake_fetch, out)
         self.assertEqual(failures, 0, out.getvalue())
         entry = yaml.safe_load((self.root / check_pins.DOWNLOADS).read_text())['pinned_downloads']['arduino_ide']
         self.assertEqual(entry, {'version': '2.3.11', 'url': info['url'], 'sha256': self.sha})
@@ -135,7 +142,7 @@ class CheckPinsTests(unittest.TestCase):
         self.assertIn('UV_VERSION="0.14.0"', bootstrap)
         self.assertIn(f'UV_SHA256="{self.sha}"', bootstrap)
         self.assertIn('ANSIBLE_CORE_VERSION="2.23.0"', bootstrap)
-        self.assertIn('ansible-core==2.23.0', (self.root / 'scripts/ci_container_test.sh').read_text())
+        self.assertIn('ansible-core==2.23.0', (self.root / '.github/workflows/check.yml').read_text())
 
     def test_report_only_and_unknown_pins_are_refused(self):
         out = io.StringIO()
@@ -148,9 +155,78 @@ class CheckPinsTests(unittest.TestCase):
     def test_every_pin_reads_from_the_real_repository(self):
         """Guards against the PINS table drifting from the files it edits."""
         missing = [pin.name for pin in check_pins.PINS
-                   if check_pins.current_value(REPO, pin) is None
-                   and pin.location != 'bootstrap-version']
+                   if check_pins.current_value(REPO, pin) is None]
         self.assertEqual(missing, [])
+
+    def test_ci_workflow_pins_match_bootstrap(self):
+        workflow = (REPO / '.github/workflows/check.yml').read_text()
+        for pin_name, pkg in (('ansible-core', 'ansible-core'), ('ansible-lint', 'ansible-lint')):
+            expected = check_pins.current_value(REPO, self.pin(pin_name))
+            self.assertIn(f'{pkg}=={expected}', workflow)
+
+    def test_rejects_non_https_urls_and_redirects(self):
+        with self.assertRaises(ValueError):
+            check_pins.http_text('http://example.com/file')
+        fake_resp = mock.MagicMock()
+        fake_resp.__enter__.return_value = fake_resp
+        fake_resp.geturl.return_value = 'http://insecure.example.com/redirected'
+        with mock.patch.object(check_pins.urllib.request, 'urlopen', return_value=fake_resp):
+            with self.assertRaises(ValueError):
+                check_pins.http_text('https://example.com/start')
+            with self.assertRaises(ValueError):
+                check_pins.download('https://example.com/start', self.root / 'out.bin')
+
+    def test_fetch_and_hash_sanitizes_query_and_traversal_filenames(self):
+        _, p1 = check_pins.fetch_and_hash(
+            {'url': 'https://example.com/releases/app.deb?token=secret&dl=1'},
+            self.root,
+            self.fake_fetch,
+        )
+        self.assertEqual(p1, self.root / 'app.deb')
+        _, p2 = check_pins.fetch_and_hash(
+            {'url': 'https://example.com/..'},
+            self.root,
+            self.fake_fetch,
+        )
+        self.assertEqual(p2, self.root / 'download')
+
+    def test_prerelease_pin_is_not_downgraded_to_older_stable_release(self):
+        downloads_ail = DOWNLOADS + (
+            '  appimagelauncher:\n'
+            '    version: "v3.0.0-beta-3"\n'
+            '    deb_version: "3.0.0-beta-2"\n'
+            '    url: "https://example.com/v3.0.0-beta-3/ail_amd64.deb"\n'
+            '    sha256: "dddd"\n'
+        )
+        (self.root / check_pins.DOWNLOADS).write_text(downloads_ail)
+        ail_pin = self.pin('appimagelauncher')
+
+        rows = check_pins.report(
+            self.root, [ail_pin],
+            lambda pin, current: {'version': 'v2.2.0', 'url': 'https://example.com/v2.2.0/ail_amd64.deb'},
+            out=io.StringIO(),
+        )
+        self.assertTrue(rows[0][3].startswith('up to date'))
+
+        out = io.StringIO()
+        failures = check_pins.bump_named(
+            self.root, ['appimagelauncher'],
+            lambda pin, current: {'version': 'v2.2.0', 'url': 'https://example.com/v2.2.0/ail_amd64.deb'},
+            self.fake_fetch, out,
+        )
+        self.assertEqual(failures, 0)
+        self.assertIn('skipping downgrade', out.getvalue())
+        self.assertEqual((self.root / check_pins.DOWNLOADS).read_text(), downloads_ail)
+
+        with mock.patch.object(check_pins, 'deb_version', return_value='3.0.0'):
+            upgrade_failures = check_pins.bump_named(
+                self.root, ['appimagelauncher'],
+                lambda pin, current: {'version': 'v3.0.0', 'url': 'https://example.com/v3.0.0/ail_amd64.deb'},
+                self.fake_fetch, io.StringIO(),
+            )
+        self.assertEqual(upgrade_failures, 0)
+        entry = yaml.safe_load((self.root / check_pins.DOWNLOADS).read_text())['pinned_downloads']['appimagelauncher']
+        self.assertEqual(entry['version'], 'v3.0.0')
 
     def test_editing_real_files_with_current_values_is_a_no_op(self):
         root = self.root / 'real'
