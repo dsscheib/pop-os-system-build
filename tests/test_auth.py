@@ -153,6 +153,8 @@ class AuthScriptTests(unittest.TestCase):
             'printf "%s\\n" "$*" >> "$RCLONE_LOG"\n'
             'if [[ $1 == listremotes ]]; then\n'
             '  if [[ -f "$RCLONE_CONFIG" ]]; then grep -E "^\\[.+\\]$" "$RCLONE_CONFIG" | tr -d "[]" | sed "s/$/:/"; fi\n'
+            'elif [[ "$1 ${2:-}" == "config file" ]]; then\n'
+            '  printf "Configuration file is stored at:\\n%s\\n" "$RCLONE_CONFIG"\n'
             'fi\n'
         )
         rclone.chmod(0o755)
@@ -319,3 +321,47 @@ class AuthScriptTests(unittest.TestCase):
             finally:
                 locked.chmod(0o600)
             self.assertEqual(locked.read_text(), locked_body)
+
+    def test_write_gdrive_rclone_config_uses_rclone_config_file_path(self):
+        bin_dir = self.root / 'bin'
+        bin_dir.mkdir()
+        custom_conf = self.root / 'legacy/.rclone.conf'
+        custom_conf.parent.mkdir(parents=True)
+        custom_conf.write_text('[other]\ntype = s3\n')
+        (bin_dir / 'rclone').write_text(
+            '#!/usr/bin/env bash\n'
+            'if [[ "$1 ${2:-}" == "config file" ]]; then\n'
+            '  if [[ -n ${FAIL_CONFIG_FILE:-} ]]; then exit 1; fi\n'
+            '  printf "Configuration file is stored at:\\n%s\\n" "$CUSTOM_RCLONE_CONF"\n'
+            'fi\n'
+        )
+        (bin_dir / 'rclone').chmod(0o755)
+
+        res = self.bash(
+            'unset RCLONE_CONFIG; write_gdrive_rclone_config',
+            env={
+                'PATH': f'{bin_dir}:/usr/bin:/bin',
+                'CUSTOM_RCLONE_CONF': str(custom_conf),
+                'GDRIVE_REMOTE': 'gdrive',
+                'GDRIVE_CLIENT_ID': 'custom-cid',
+                'GDRIVE_CLIENT_SECRET': 'custom-sec',
+            },
+        )
+        self.assertEqual(res.returncode, 0, res.stderr)
+        written = custom_conf.read_text()
+        self.assertIn('[other]', written)
+        self.assertIn('client_id = custom-cid', written)
+        self.assertFalse((self.root / '.config/rclone/rclone.conf').exists())
+
+        fallback_conf = self.root / 'fallback.conf'
+        fallback_res = self.bash(
+            'rclone_config_path',
+            env={
+                'PATH': f'{bin_dir}:/usr/bin:/bin',
+                'CUSTOM_RCLONE_CONF': str(custom_conf),
+                'RCLONE_CONFIG': str(fallback_conf),
+                'FAIL_CONFIG_FILE': '1',
+            },
+        )
+        self.assertEqual(fallback_res.returncode, 0, fallback_res.stderr)
+        self.assertEqual(fallback_res.stdout.strip(), str(fallback_conf))

@@ -29,3 +29,14 @@
   changed_when: true
   become: true
   when: ansible_facts['service_mgr'] == 'systemd'
+
+- name: Trigger USB udev rules for desktop devices
+  ansible.builtin.command:
+    argv:
+      - udevadm
+      - trigger
+      - --subsystem-match=usb
+  listen: Reload desktop udev rules
+  changed_when: true
+  become: true
+  when: ansible_facts['service_mgr'] == 'systemd'

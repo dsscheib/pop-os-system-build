@@ -152,8 +152,24 @@ gdrive_bisync_args() {
   [[ -z $filters ]] || printf '%s\n' --filters-file "$filters"
 }
 
+rclone_config_path() {
+  local out first_line path
+  if command -v rclone >/dev/null 2>&1; then
+    if out=$(rclone config file </dev/null 2>/dev/null); then
+      first_line=${out%%$'\n'*}
+      path=$(printf '%s\n' "$out" | awk 'NF { line = $0 } END { print line }')
+      if [[ $first_line == "Configuration file "* && -n $path && $path != "$first_line" ]]; then
+        printf '%s\n' "$path"
+        return 0
+      fi
+    fi
+  fi
+  printf '%s\n' "${RCLONE_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/rclone/rclone.conf}"
+}
+
 write_gdrive_rclone_config() {
-  local conf_path="${RCLONE_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/rclone/rclone.conf}"
+  local conf_path
+  conf_path=$(rclone_config_path) || return
   GDRIVE_CLIENT_ID="$GDRIVE_CLIENT_ID" \
     GDRIVE_CLIENT_SECRET="$GDRIVE_CLIENT_SECRET" \
     GDRIVE_REMOTE="$GDRIVE_REMOTE" \

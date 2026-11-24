@@ -961,6 +961,21 @@ main "$1"
         run = next(t for t in tasks if t['name'] == 'Run requested STMicroelectronics user-space installers')
         self.assertIn('(unchanged)', run['changed_when'])
 
+    def test_desktop_udev_handler_reloads_and_triggers_usb_rules(self):
+        handlers = yaml.safe_load((REPO / 'ansible/roles/desktop_apps/handlers/main.yml').read_text(encoding='utf-8'))
+        reload_handler = next(h for h in handlers if h['name'] == 'Reload desktop udev rules')
+        self.assertEqual(
+            reload_handler['ansible.builtin.command']['argv'],
+            ['udevadm', 'control', '--reload-rules'],
+        )
+        trigger_handler = next(h for h in handlers if h.get('listen') == 'Reload desktop udev rules')
+        self.assertEqual(
+            trigger_handler['ansible.builtin.command']['argv'],
+            ['udevadm', 'trigger', '--subsystem-match=usb'],
+        )
+        self.assertTrue(trigger_handler['become'])
+        self.assertEqual(trigger_handler['when'], "ansible_facts['service_mgr'] == 'systemd'")
+
 
 if __name__ == '__main__':
     unittest.main()
