@@ -49,11 +49,17 @@
 - name: Flush browsers handlers before installing Google Chrome
   ansible.builtin.meta: flush_handlers
 
+- name: Check whether Google Chrome deb822 repository is configured on disk
+  ansible.builtin.stat:
+    path: /etc/apt/sources.list.d/pop-google-chrome.sources
+  register: browsers_chrome_repo_stat
+
 - name: Install Google Chrome stable
   ansible.builtin.apt:
     name: google-chrome-stable
     state: present
   become: true
+  when: not ansible_check_mode or browsers_chrome_repo_stat.stat.exists
 
 - name: Verify Google Chrome executable version
   ansible.builtin.command:

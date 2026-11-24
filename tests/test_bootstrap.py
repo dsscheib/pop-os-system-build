@@ -80,6 +80,95 @@ class BootstrapAndV2FoundationTests(unittest.TestCase):
         mismatch = self.bash('verify_sha256 "$1" "' + ('0' * 64) + '"', sample)
         self.assertNotEqual(mismatch.returncode, 0)
 
+    def test_bootstrap_download_verified_preserves_existing_file_on_failure(self):
+        dest = self.root / 'tool.bin'
+        dest.write_text('working')
+        bad_hash = self.bash('''
+curl() { printf partial > "${@: -1}"; }
+download_verified https://example.invalid/tool.bin "$1" "$(printf '%064d' 0)"
+''', dest)
+        self.assertNotEqual(bad_hash.returncode, 0)
+        self.assertEqual(dest.read_text(), 'working')
+        self.assertFalse(list(self.root.glob('*.download.*')))
+
+        net_err = self.bash(
+            'curl() { return 42; }; download_verified https://example.invalid/tool.bin "$1" ignored',
+            dest,
+        )
+        self.assertNotEqual(net_err.returncode, 0)
+        self.assertEqual(dest.read_text(), 'working')
+
+    def test_bootstrap_install_ansible_enforces_exact_pins_when_version_differs(self):
+        calls = self.root / 'calls.log'
+        result = self.bash('''
+SCRIPT_DIR="$2"
+log_file="$1"
+ansible-playbook() { printf 'ansible-playbook [core 2.19.0]\n'; }
+ansible-lint() { printf 'ansible-lint 25.1.0\n'; }
+uv() { printf 'uv %s\n' "$*" >> "$log_file"; }
+ansible-galaxy() { printf 'galaxy %s\n' "$*" >> "$log_file"; }
+install_ansible
+''', calls, REPO)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        logged = calls.read_text()
+        self.assertIn('uv tool install --force --with-executables-from ansible-core ansible-core==', logged)
+        self.assertIn('uv tool install --force ansible-lint==', logged)
+
+    def test_tpm_missing_plugin_probe_ignores_comments_and_strips_branch_refs(self):
+        tasks = yaml.safe_load((ANSIBLE_DIR / 'roles/workstation/tasks/main.yml').read_text(encoding='utf-8'))
+        tmux_block = next(entry['block'] for entry in tasks if 'tmux' in entry.get('tags', []))
+        probe_task = next(t for t in tmux_block if t['name'] == 'Check declared tmux plugins missing from plugin directory')
+        py_script = probe_task['ansible.builtin.command']['argv'][2]
+
+        home = self.root / 'home'
+        pdir = home / '.local/share/tmux/plugins'
+        (home / '.config/tmux').mkdir(parents=True)
+        (pdir / 'installed-plugin').mkdir(parents=True)
+        (home / '.config/tmux/tmux.conf').write_text(
+            "# set -g @plugin 'commented/ignored'\n"
+            "  set -g @plugin 'tmux-plugins/tpm'\n"
+            "set -g @plugin 'user/branch-plugin#main'\n"
+            "set -g @plugin 'https://github.com/user/git-plugin.git'\n"
+            "set-option -g @plugin \"user/installed-plugin#v2\" # inline comment\n"
+        )
+        res = subprocess.run(['python3', '-c', py_script, str(home)], capture_output=True, text=True, check=True)
+        self.assertEqual(res.stdout.splitlines(), ['tpm', 'branch-plugin', 'git-plugin'])
+
+    def test_desktop_apps_and_systemd_check_mode_guards(self):
+        apt_apps = yaml.safe_load((ANSIBLE_DIR / 'roles/desktop_apps/tasks/apt_apps.yml').read_text(encoding='utf-8'))
+        kicad_block = next(entry['block'] for entry in apt_apps if 'kicad' in entry.get('tags', []))
+        uv_probe = next(t for t in kicad_block if t['name'] == 'Check whether uv is available for kicad-python venv')
+        self.assertIs(uv_probe['check_mode'], False)
+        kicad_key_verify = next(t for t in kicad_block if t['name'] == 'Verify installed KiCad PPA signing key fingerprint')
+        self.assertIs(kicad_key_verify['check_mode'], False)
+        self.assertIn('pgp-verify', kicad_key_verify['ansible.builtin.command']['argv'])
+        kicad_key_dl = next(t for t in kicad_block if t['name'] == 'Download and verify KiCad PPA signing key')
+        self.assertIn('not ansible_check_mode', kicad_key_dl['when'])
+
+        vendor_apps = yaml.safe_load((ANSIBLE_DIR / 'roles/desktop_apps/tasks/vendor_apps.yml').read_text(encoding='utf-8'))
+        saleae_block = next(entry['block'] for entry in vendor_apps if 'saleae' in entry.get('tags', []))
+        saleae_dir_stat = next(t for t in saleae_block if t['name'] == 'Check whether Saleae Logic destination directory exists')
+        self.assertEqual(saleae_dir_stat['register'], 'desktop_apps_saleae_dir_stat')
+        saleae_dl = next(t for t in saleae_block if t['name'] == 'Download verified Saleae Logic 2 AppImage')
+        self.assertIn('desktop_apps_saleae_dir_stat.stat.exists', saleae_dl['when'])
+
+        flatpak_tasks = yaml.safe_load((ANSIBLE_DIR / 'roles/desktop_apps/tasks/flatpak.yml').read_text(encoding='utf-8'))
+        fp_probe = next(t for t in flatpak_tasks if t['name'] == 'Check whether flatpak binary is installed')
+        self.assertIs(fp_probe['check_mode'], False)
+        for task_name in ('Configure user Flathub remote', 'Install Flathub desktop applications'):
+            task = next(t for t in flatpak_tasks if t['name'] == task_name)
+            self.assertIn('desktop_apps_flatpak_which.rc == 0', task['when'])
+
+        system_tasks = yaml.safe_load((ANSIBLE_DIR / 'roles/system/tasks/main.yml').read_text(encoding='utf-8'))
+        ufw_probe = next(t for t in system_tasks if t['name'] == 'Check whether UFW binary is installed')
+        oomd_probe = next(t for t in system_tasks if t['name'] == 'Check whether systemd-oomd.service unit exists')
+        self.assertIs(ufw_probe['check_mode'], False)
+        self.assertIs(oomd_probe['check_mode'], False)
+
+        snapper_tasks = yaml.safe_load((ANSIBLE_DIR / 'roles/snapper/tasks/main.yml').read_text(encoding='utf-8'))
+        cleanup_probe = next(t for t in snapper_tasks if t['name'] == 'Check whether snapper-cleanup.timer unit exists')
+        self.assertIs(cleanup_probe['check_mode'], False)
+
     def test_bootstrap_pins_are_valid_https_and_sha256(self):
         result = self.bash(
             'printf "%s\\n%s\\n%s\\n%s\\n%s\\n%s\\n" '
@@ -93,6 +182,65 @@ class BootstrapAndV2FoundationTests(unittest.TestCase):
             self.assertTrue(url.startswith('https://'))
             self.assertNotIn('/latest/', url)
             self.assertRegex(sha, re.compile(r'^[0-9a-f]{64}$'))
+
+        text = BOOTSTRAP.read_text(encoding='utf-8')
+        self.assertRegex(text, r'ANSIBLE_CORE_VERSION="[0-9]+\.[0-9]+\.[0-9]+"')
+        self.assertRegex(text, r'ANSIBLE_LINT_VERSION="[0-9]+\.[0-9]+\.[0-9]+"')
+        self.assertNotIn('self_update', text)
+
+    def test_requirements_versions_are_pinned_exactly(self):
+        reqs = yaml.safe_load((ANSIBLE_DIR / 'requirements.yml').read_text(encoding='utf-8'))
+        for entry in reqs['collections']:
+            with self.subTest(name=entry['name']):
+                self.assertRegex(entry['version'], r'^[0-9]+\.[0-9]+\.[0-9]+$')
+
+    def test_ansible_run_dispatches_positional_args_and_mise_tasks(self):
+        stub_dir = self.root / 'bin'
+        stub_dir.mkdir()
+        stub = stub_dir / 'ansible-playbook'
+        stub.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
+        stub.chmod(0o755)
+        env = dict(os.environ, PATH=f'{stub_dir}:{os.environ.get("PATH", "")}')
+
+        missing_tag = subprocess.run(
+            ['bash', str(REPO / 'scripts/ansible_run.sh'), 'role'],
+            cwd=REPO,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(missing_tag.returncode, 2)
+        self.assertIn('Usage: mise run role', missing_tag.stderr)
+
+        role_res = subprocess.run(
+            ['bash', str(REPO / 'scripts/ansible_run.sh'), 'role', 'stm32', '--check'],
+            cwd=REPO,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(role_res.returncode, 0, role_res.stderr)
+        lines = role_res.stdout.splitlines()
+        self.assertIn('--tags', lines)
+        idx = lines.index('--tags')
+        self.assertEqual(lines[idx + 1], 'stm32')
+        self.assertIn('--check', lines)
+
+        mise_bin = subprocess.run(['which', 'mise'], capture_output=True, text=True)
+        if mise_bin.returncode == 0:
+            mise_env = dict(env, MISE_TRUSTED_CONFIG_PATHS=str(REPO))
+            mise_role = subprocess.run(
+                [mise_bin.stdout.strip(), 'run', 'role', 'stm32', '--check'],
+                cwd=REPO,
+                env=mise_env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(mise_role.returncode, 0, mise_role.stderr)
+            mise_lines = mise_role.stdout.splitlines()
+            self.assertIn('--tags', mise_lines)
+            self.assertEqual(mise_lines[mise_lines.index('--tags') + 1], 'stm32')
+            self.assertIn('--check', mise_lines)
 
     def test_ansible_yaml_files_parse_cleanly(self):
         yaml_files = sorted(ANSIBLE_DIR.rglob('*.yml'))
@@ -191,12 +339,32 @@ class BootstrapAndV2FoundationTests(unittest.TestCase):
             'llvm_key',
         }
         self.assertEqual(set(v2_downloads.keys()), expected_keys)
+        url_version_keys = {
+            'font',
+            'appimagelauncher',
+            'saleae',
+            'synology',
+            'hyper_backup_explorer',
+            'antigravity_cli',
+            'arduino_ide',
+        }
+        deb_version_keys = {'synology', 'appimagelauncher'}
+        fingerprint_key_keys = {'kicad_key'}
         for key, entry in v2_downloads.items():
             with self.subTest(key=key):
                 self.assertTrue(entry['version'])
                 self.assertTrue(entry['url'].startswith('https://'))
                 self.assertNotIn('/latest/', entry['url'])
-                self.assertRegex(entry['sha256'], re.compile(r'^[0-9a-f]{64}$'))
+                if key in fingerprint_key_keys:
+                    self.assertRegex(entry['fingerprint'], re.compile(r'^[0-9A-F]{40}$'))
+                    self.assertIn(entry['fingerprint'], entry['url'])
+                    self.assertNotIn('sha256', entry)
+                else:
+                    self.assertRegex(entry['sha256'], re.compile(r'^[0-9a-f]{64}$'))
+                if key in url_version_keys:
+                    self.assertIn(entry['version'], entry['url'])
+                if key in deb_version_keys:
+                    self.assertTrue(entry.get('deb_version'))
 
     def test_group_vars_local_yml_sorts_last(self):
         group_vars_dir = ANSIBLE_DIR / 'group_vars/all'

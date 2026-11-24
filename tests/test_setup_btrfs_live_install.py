@@ -407,5 +407,12 @@ verify_target_bootloader "$1"
         self.assertEqual(os.getxattr(destination, "user.pop-test"), b"metadata")
 
 
+    def test_launcher_reexecs_preboot_script_path(self):
+        text = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('"$PREBOOT_DIR/${BASH_SOURCE[0]##*/}"', text)
+        self.assertNotIn('"$SCRIPT_DIR/${BASH_SOURCE[0]##*/}"', text)
+        self.assertTrue(SCRIPT.is_file())
+
+
 if __name__ == "__main__":
     unittest.main()

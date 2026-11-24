@@ -1,6 +1,6 @@
 # Phase 4 Migration Guide: Private Chezmoi Dotfiles + Global Mise
 
-This guide documents how to structure your **private `dotfiles` repository** under **Chezmoi (Option B)** with **`age` encryption** and **global Mise** tool management, retiring `dotfiles-private`, `config.secrets.env`, `scripts/shell_integration.py`, and `scripts/antigravity_permissions.py`.
+This guide documents how to structure your **private `dotfiles` repository** under **Chezmoi (Option B)** with **`age` encryption** and **global Mise** tool management, retiring `dotfiles-private`, `config.secrets.env`, and `scripts/shell_integration.py` (while `scripts/antigravity_permissions.py` stays in `ai_agents` only for Day-1 standalone safety before dotfiles apply).
 
 ---
 
@@ -219,7 +219,7 @@ for rule in ASK_RULES:
 sys.stdout.write(json.dumps(settings, indent=2) + "\n")
 ```
 
-Use the same `modify_` pattern for `dot_claude/executable_modify_settings.json` (JSON) and `dot_codex/executable_modify_config.toml` (using stdlib `tomllib` to read and merging only your personal keys while preserving `[hooks]` / `herdr` entries).
+Use the same `modify_` pattern for `dot_claude/executable_modify_settings.json` (JSON) and `dot_codex/executable_modify_config.toml` (using stdlib `tomllib` to read and merging only your personal keys while preserving `[hooks]` / `herdr` entries). Note that `scripts/antigravity_permissions.py` remains in `pop-os-system-build`'s `ai_agents` role so a fresh machine has destructive-git guardrails on Day-1 before `mise run auth` applies private dotfiles, and Chezmoi's `modify_settings.json` merges the same rules idempotently afterwards.
 
 ---
 
@@ -269,7 +269,7 @@ fi
 
 ## 7. Shell Integration (`dot_config/pop-workstation/`)
 
-Copy these files from `pop-os-system-build/resources/` into your Chezmoi source:
+If bootstrapping a new Chezmoi repository from scratch, extract these legacy v1 files from git tag `v1` (`git show v1:resources/...`) into your Chezmoi source (already migrated into `dsscheib/dotfiles`):
 - `resources/agent-scope` → `dot_config/pop-workstation/executable_agent-scope`
 - `resources/shell.bash` → `dot_config/pop-workstation/bash` (sourced from `dot_bashrc`)
 - `resources/shell.zsh` → `dot_config/pop-workstation/zsh` (sourced from `dot_zshenv`)
@@ -293,4 +293,4 @@ Copy these files from `pop-os-system-build/resources/` into your Chezmoi source:
    mise doctor
    herdr config check
    ```
-5. Record your private repo URL in `ansible/group_vars/all/local.yml` (`dotfiles_repo: "https://github.com/dsscheib/dotfiles.git"`) so future fresh installs converge automatically via `mise run apply` + `mise run auth`.
+5. Record your private repo URL in `ansible/group_vars/all/local.yml` (`dotfiles_repo: "https://github.com/dsscheib/dotfiles.git"`) so future fresh installs converge cleanly via `mise run apply` → `mise run auth` → `mise run apply`.

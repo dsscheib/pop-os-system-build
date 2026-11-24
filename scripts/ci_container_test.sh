@@ -6,41 +6,65 @@ REPO_SRC=${1:-/workspace}
 export DEBIAN_FRONTEND=noninteractive
 
 apt-get update
-apt-get install -y sudo python3 python3-venv python3-yaml curl git ca-certificates pipx
+apt-get install -y sudo
 
 if ! id -u tester >/dev/null 2>&1; then
   useradd -m -s /bin/bash tester
 fi
-echo 'tester ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/tester
+cat > /etc/sudoers.d/tester <<'EOF'
+Defaults env_keep += "DEBIAN_FRONTEND"
+tester ALL=(ALL) NOPASSWD:ALL
+EOF
 chmod 0440 /etc/sudoers.d/tester
 usermod --add-subuids 100000-165535 --add-subgids 100000-165535 tester
 
 rm -rf /home/tester/repo
 cp -a "$REPO_SRC" /home/tester/repo
+rm -f /home/tester/repo/ansible/group_vars/all/local.yml
 chown -R tester:tester /home/tester/repo
 
 su - tester -s /bin/bash <<'EOF'
 set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
 export PATH="$HOME/.local/bin:$PATH"
-pipx install ansible-core
 cd /home/tester/repo
-ansible-galaxy collection install -r ansible/requirements.yml
+
+echo "=== Bootstrap (APT prereqs, uv, mise, pinned ansible-core/ansible-lint) ==="
+bash ./bootstrap.sh
+mise run lint
+
 export ANSIBLE_CONFIG="$PWD/ansible/ansible.cfg"
+
+echo "=== Ansible Pass 0 (fresh --check --diff) ==="
+ansible-playbook --check --diff -i ansible/inventory/hosts.yml ansible/playbook.yml \
+  --skip-tags snapper,systemd_live,desktop_gui \
+  -e system_apt_upgrade=false
 
 echo "=== Ansible Pass 1 (initial convergence) ==="
 ansible-playbook -i ansible/inventory/hosts.yml ansible/playbook.yml \
   --skip-tags snapper,systemd_live,desktop_gui \
   -e system_apt_upgrade=false
 
-echo "=== Ansible Pass 2 (idempotency check) ==="
-pass2_log=$(mktemp)
-trap 'rm -f -- "$pass2_log"' EXIT
+echo "=== Ansible Pass 2 (post-convergence --check --diff idempotency) ==="
+check_log=$(mktemp)
+pass3_log=$(mktemp)
+trap 'rm -f -- "$check_log" "$pass3_log"' EXIT
+ansible-playbook --check --diff -i ansible/inventory/hosts.yml ansible/playbook.yml \
+  --skip-tags snapper,systemd_live,desktop_gui \
+  -e system_apt_upgrade=false | tee "$check_log"
+
+grep -Eq 'changed=0[[:space:]].*failed=0' "$check_log" || {
+  echo "Expected changed=0 and failed=0 on post-convergence --check pass." >&2
+  exit 1
+}
+
+echo "=== Ansible Pass 3 (apply idempotency check) ==="
 ansible-playbook --diff -i ansible/inventory/hosts.yml ansible/playbook.yml \
   --skip-tags snapper,systemd_live,desktop_gui \
-  -e system_apt_upgrade=false | tee "$pass2_log"
+  -e system_apt_upgrade=false | tee "$pass3_log"
 
-grep -Eq 'changed=0[[:space:]].*failed=0' "$pass2_log" || {
-  echo "Expected changed=0 and failed=0 on second pass." >&2
+grep -Eq 'changed=0[[:space:]].*failed=0' "$pass3_log" || {
+  echo "Expected changed=0 and failed=0 on second apply pass." >&2
   exit 1
 }
 EOF

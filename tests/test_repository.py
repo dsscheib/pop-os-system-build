@@ -12,6 +12,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from unittest import mock
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -77,23 +78,45 @@ class RepositoryTests(unittest.TestCase):
         result = self.bash('find_archive installer.run "*.run"')
         self.assertEqual(result.stdout.strip(), str(path))
 
-    def test_checksum_mismatch_keeps_existing_download(self):
-        destination = self.root / 'application'
-        destination.write_text('working')
-        result = self.bash('''
-curl() { printf partial > "${@: -1}"; }
-download_verified https://example.invalid/file "$1" "$(printf '%064d' 0)"
-''', destination)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(destination.read_text(), 'working')
-        self.assertFalse(list(self.root.glob('*.download.*')))
+    def test_st_preflight_skips_sudo_check_when_st_skip_udev_is_set(self):
+        path = self.root / 'bin'
+        path.mkdir()
+        for cmd in ('python3', 'sha256sum', 'realpath', 'find', 'mktemp', 'ldd', 'desktop-file-validate'):
+            tool = path / cmd
+            tool.write_text('#!/bin/sh\nexit 0\n')
+            tool.chmod(0o755)
+        skipped = self.bash(
+            'require_supported_system() { return 0; }\nPATH="$1"\nhash -r\nst_preflight',
+            path,
+            env={'ST_SKIP_UDEV': '1'},
+        )
+        self.assertEqual(skipped.returncode, 0, skipped.stderr)
 
-    def test_network_failure_keeps_existing_download(self):
-        destination = self.root / 'application'
-        destination.write_text('working')
-        result = self.bash('curl() { return 42; }; download_verified https://example.invalid/file "$1" ignored', destination)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(destination.read_text(), 'working')
+        required = self.bash(
+            'require_supported_system() { return 0; }\nPATH="$1"\nhash -r\nst_preflight',
+            path,
+        )
+        self.assertNotEqual(required.returncode, 0)
+        self.assertIn('sudo', required.stderr)
+
+    def test_st_finish_skips_stlink_udev_when_st_skip_udev_is_set(self):
+        exe = self.root / 'app'
+        exe.write_text('#!/bin/sh\nexit 0\n')
+        exe.chmod(0o755)
+        result = self.bash('''
+SCRIPT_DIR="$3"
+install_stlink_rules() { return 99; }
+WORK_DIR="$1/work"
+INSTALL_DIR="$1/inst"
+INSTALL_TARGET="$1/target"
+mkdir -p "$WORK_DIR" "$INSTALL_DIR"
+HOME="$1/home"
+mkdir -p "$HOME"
+st_finish TestApp "$HOME/.local/bin/testapp" "$2" "$INSTALL_DIR" icon wmclass "$HOME/.local/share/applications/testapp.desktop"
+''', self.root, exe, REPO, env={'ST_SKIP_UDEV': '1'})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.root / 'home/.local/bin/testapp').is_file())
+        self.assertTrue((self.root / 'home/.local/share/applications/testapp.desktop').is_file())
 
     def test_publish_preserves_old_installation_and_hidden_files(self):
         target = self.root / 'app'
@@ -475,48 +498,6 @@ snapshot_pair post "$1"
         self.assertIn('Pre-snapshot failed', result.stderr)
         self.assertFalse((state / 'apt-pre.num').exists())
 
-    def install_local_deb(self, apt_status=0):
-        workspace = self.root / 'private'
-        workspace.mkdir(mode=0o700)
-        package = workspace / 'tool.deb'
-        package.write_bytes(b'fixture package')
-        stage = self.root / 'apt-stage'
-        result = self.bash('''
-dpkg-deb() { printf fixture; }
-package_installed() { return 0; }
-sudo() {
-    case "$1" in
-        mktemp) mkdir -m 0700 "$DEB_TEST_STAGE"; printf '%s' "$DEB_TEST_STAGE";;
-        apt-get)
-            [[ ${*: -1} == "$DEB_TEST_STAGE/package.deb" ]] || return 90
-            [[ $(stat -c %a "$DEB_TEST_STAGE") == 755 ]] || return 91
-            [[ $(stat -c %a "$DEB_TEST_STAGE/package.deb") == 644 ]] || return 92
-            cmp "$DEB_TEST_ORIGINAL" "$DEB_TEST_STAGE/package.deb" || return 93
-            printf 'APT read staged package\n'
-            return "$DEB_TEST_APT_STATUS";;
-        *) "$@";;
-    esac
-}
-install_deb "$1"
-''', package, env={'DEB_TEST_STAGE': str(stage), 'DEB_TEST_ORIGINAL': str(package),
-                   'DEB_TEST_APT_STATUS': str(apt_status)})
-        return result, workspace, package, stage
-
-    def test_local_deb_stages_readable_copy_without_exposing_workspace(self):
-        result, workspace, package, stage = self.install_local_deb()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('APT read staged package', result.stdout)
-        self.assertEqual(workspace.stat().st_mode & 0o777, 0o700)
-        self.assertTrue(package.exists())
-        self.assertFalse(stage.exists())
-
-    def test_failed_local_deb_install_removes_staging_and_preserves_status(self):
-        result, workspace, package, stage = self.install_local_deb(48)
-        self.assertEqual(result.returncode, 48, result.stderr)
-        self.assertEqual(workspace.stat().st_mode & 0o777, 0o700)
-        self.assertTrue(package.exists())
-        self.assertFalse(stage.exists())
-
     def test_failed_install_after_published_stage_cleans_only_new_staging(self):
         result = self.bash('''
 start_workspace install-test
@@ -607,6 +588,90 @@ configure_user_links "$1" "$(id -u)" "$(id -g)"
         self.assertTrue((home / 'Downloads').is_symlink())
         self.assertEqual((home / 'Downloads').resolve(), (mnt_data / 'Downloads').resolve())
         self.assertEqual((mnt_data / 'Downloads/file.txt').read_text(), 'saved-download')
+
+    def test_preboot_non_root_sudo_reexec_points_to_existing_script(self):
+        bin_dir = self.root / 'bin'
+        bin_dir.mkdir()
+        sudo_log = self.root / 'sudo.log'
+        sudo_stub = bin_dir / 'sudo'
+        sudo_stub.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$@" > "$SUDO_LOG"\n')
+        sudo_stub.chmod(0o755)
+        env = dict(os.environ, PATH=f'{bin_dir}:{os.environ["PATH"]}', SUDO_LOG=str(sudo_log))
+        for rel_path, args, expected_flag in (
+            ('preboot/setup_secondary_btrfs_drive.sh', ['--format', '/dev/nvme9n1'], '--format'),
+            ('preboot/setup_btrfs_snapper.sh', ['--skip-hibernation'], '--skip-hibernation'),
+        ):
+            with self.subTest(script=rel_path):
+                sudo_log.unlink(missing_ok=True)
+                res = subprocess.run(
+                    ['bash', str(REPO / rel_path), *args],
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(res.returncode, 0, res.stderr)
+                recorded = sudo_log.read_text().splitlines()
+                self.assertEqual(recorded[0], '--')
+                self.assertEqual(recorded[1], str(REPO / rel_path))
+                self.assertTrue(Path(recorded[1]).is_file())
+                self.assertIn(expected_flag, recorded[2:])
+
+    def test_snapper_config_skips_rewrite_when_unchanged(self):
+        root = self.root / 'root-config'
+        root.write_text('SUBVOLUME="/"\nALLOW_GROUPS=""\nNUMBER_LIMIT="10"\n')
+        defaults = self.root / 'snapper-defaults'
+        defaults.write_text('SNAPPER_CONFIGS=""\n')
+        snapper_config.configure(root, defaults)
+        root_stat_1 = root.stat()
+        defaults_stat_1 = defaults.stat()
+        snapper_config.configure(root, defaults)
+        root_stat_2 = root.stat()
+        defaults_stat_2 = defaults.stat()
+        self.assertEqual((root_stat_1.st_ino, root_stat_1.st_mtime_ns),
+                         (root_stat_2.st_ino, root_stat_2.st_mtime_ns))
+        self.assertEqual((defaults_stat_1.st_ino, defaults_stat_1.st_mtime_ns),
+                         (defaults_stat_2.st_ino, defaults_stat_2.st_mtime_ns))
+
+    def test_verify_pgp_accepts_exact_single_primary_fingerprint(self):
+        key = self.root / 'kicad.asc'
+        key.write_text('dummy key')
+        fpr = 'FDA854F61C4D0D9572BB95E5245D5502FAD7A805'
+        colons = f'pub:-:4096:1:245D5502FAD7A805:1594116023:::-:::scSC::::::23::0:\nfpr:::::::::{fpr}:\n'
+        observed_mode = None
+
+        def fake_run(cmd, env=None, **_kwargs):
+            nonlocal observed_mode
+            self.assertIn('--with-colons', cmd)
+            observed_mode = os.stat(env['GNUPGHOME']).st_mode & 0o777
+            return subprocess.CompletedProcess(cmd, 0, stdout=colons, stderr='')
+
+        with mock.patch.object(assets.subprocess, 'run', side_effect=fake_run):
+            assets.verify_pgp(key, fpr.lower())
+        self.assertEqual(observed_mode, 0o700)
+
+    def test_verify_pgp_rejects_mismatch_extra_keys_or_bad_inputs(self):
+        key = self.root / 'kicad.asc'
+        key.write_text('dummy key')
+        fpr = 'FDA854F61C4D0D9572BB95E5245D5502FAD7A805'
+        other = '0' * 40
+
+        with self.assertRaises(ValueError):
+            assets.verify_pgp(key, 'not-a-fingerprint')
+        with self.assertRaises(ValueError):
+            assets.verify_pgp(self.root / 'missing.asc', fpr)
+
+        bad_outputs = (
+            (1, '', 'gpg error'),
+            (0, f'pub:-:4096:\nfpr:::::::::{other}:\n', ''),
+            (0, f'pub:-:4096:\nfpr:::::::::{fpr}:\nsub:-:4096:\n', ''),
+            (0, f'pub:-:4096:\nfpr:::::::::{fpr}:\npub:-:4096:\nfpr:::::::::{fpr}:\n', ''),
+        )
+        for rc, stdout, stderr in bad_outputs:
+            with self.subTest(rc=rc, stdout=stdout):
+                proc = subprocess.CompletedProcess(['gpg'], rc, stdout=stdout, stderr=stderr)
+                with mock.patch.object(assets.subprocess, 'run', return_value=proc):
+                    with self.assertRaises(ValueError):
+                        assets.verify_pgp(key, fpr)
 
 
 if __name__ == '__main__':

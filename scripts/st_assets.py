@@ -10,7 +10,9 @@ import re
 import shlex
 import shutil
 import stat
+import subprocess
 import tarfile
+import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -132,7 +134,6 @@ def desktop(destination, name, executable, directory, icon, wmclass, categories=
 
 
 def atomic_text(destination, content, mode):
-    import tempfile
     path = Path(destination)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(dir=path.parent, prefix='.' + path.name + '.')
@@ -146,9 +147,48 @@ def atomic_text(destination, content, mode):
             os.unlink(temporary)
 
 
+def verify_pgp(key_path, expected_fingerprint):
+    """Verify `key_path` contains exactly one primary OpenPGP key with `expected_fingerprint`."""
+    expected = expected_fingerprint.strip().upper()
+    if not re.fullmatch(r'[0-9A-F]{40}', expected):
+        raise ValueError(f'Invalid OpenPGP fingerprint: {expected_fingerprint}')
+    path = Path(key_path)
+    if not path.is_file():
+        raise ValueError(f'OpenPGP key file missing: {path}')
+    with tempfile.TemporaryDirectory(prefix='pop-gpg-') as gnupg_home:
+        os.chmod(gnupg_home, 0o700)
+        env = dict(os.environ, GNUPGHOME=gnupg_home, LC_ALL='C')
+        proc = subprocess.run(
+            ['gpg', '--batch', '--with-colons', '--show-keys', str(path)],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    if proc.returncode != 0:
+        detail = proc.stderr.strip() or proc.stdout.strip()
+        raise ValueError(f'Invalid OpenPGP key {path}: {detail}')
+    pubs = 0
+    subs = 0
+    fprs = []
+    for line in proc.stdout.splitlines():
+        cols = line.split(':')
+        record = cols[0] if cols else ''
+        if record == 'pub':
+            pubs += 1
+        elif record == 'sub':
+            subs += 1
+        elif record == 'fpr' and len(cols) > 9:
+            fprs.append(cols[9].upper())
+    if pubs != 1 or subs != 0 or fprs != [expected]:
+        raise ValueError(
+            f'OpenPGP key {path} verification failed: pubs={pubs}, subs={subs}, fprs={fprs}'
+        )
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('operation', choices=('zip', 'tar', 'makeself', 'sw-jre', 'response', 'wrapper', 'desktop'))
+    parser.add_argument('operation', choices=('zip', 'tar', 'makeself', 'sw-jre', 'response', 'wrapper', 'desktop', 'pgp-verify'))
     parser.add_argument('arguments', nargs='+')
     args = parser.parse_args()
     if args.operation == 'tar':
@@ -156,7 +196,8 @@ def main():
             extract_tar(archive, args.arguments[1])
     else:
         operations = {'zip': extract_zip, 'makeself': makeself, 'sw-jre': sw_jre,
-                      'response': response, 'wrapper': wrapper, 'desktop': desktop}
+                      'response': response, 'wrapper': wrapper, 'desktop': desktop,
+                      'pgp-verify': verify_pgp}
         operations[args.operation](*args.arguments)
 
 

@@ -1,8 +1,0 @@
----
-- name: Initialize or restore Neovim configuration after sync
-  ansible.builtin.include_tasks: nvim_post_sync.yml
-  when: not ansible_check_mode
-
-- name: Install tmux plugins via TPM
-  ansible.builtin.include_tasks: tpm_install.yml
-  when: not ansible_check_mode

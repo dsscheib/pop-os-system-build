@@ -10,21 +10,31 @@
     state: directory
     mode: "0755"
 
-- name: Check whether pinned JetBrainsMono version is already extracted
+- name: Check whether pinned JetBrainsMono version directory exists
   ansible.builtin.stat:
     path: "{{ desktop_apps_font_version_dir }}"
   register: desktop_apps_font_stat
 
+- name: Check whether JetBrainsMono version directory contains TTF files
+  ansible.builtin.find:
+    paths: "{{ desktop_apps_font_version_dir }}"
+    patterns: "*.ttf"
+    recurse: true
+  register: desktop_apps_font_existing_ttfs
+  when: desktop_apps_font_stat.stat.exists
+
 - name: Download and extract pinned JetBrainsMono Nerd Font
   when:
-    - not desktop_apps_font_stat.stat.exists
+    - >-
+      not desktop_apps_font_stat.stat.exists
+      or (desktop_apps_font_existing_ttfs.matched | default(0)) == 0
     - not ansible_check_mode
-  notify: Refresh user font cache
   block:
     - name: Create temporary workspace for JetBrainsMono download
       ansible.builtin.tempfile:
+        path: "{{ desktop_apps_font_versions_dir }}"
         state: directory
-        prefix: pop-font-
+        prefix: .tmp-pop-font-
       register: desktop_apps_font_tmpdir
 
     - name: Download verified JetBrainsMono Nerd Font archive
@@ -41,21 +51,37 @@
           - "{{ repo_root }}/scripts/st_assets.py"
           - zip
           - "{{ desktop_apps_font_tmpdir.path }}/JetBrainsMono.zip"
-          - "{{ desktop_apps_font_version_dir }}"
+          - "{{ desktop_apps_font_tmpdir.path }}/extracted"
       changed_when: true
 
     - name: Verify JetBrainsMono archive contains TTF files
       ansible.builtin.find:
-        paths: "{{ desktop_apps_font_version_dir }}"
+        paths: "{{ desktop_apps_font_tmpdir.path }}/extracted"
         patterns: "*.ttf"
         recurse: true
       register: desktop_apps_font_ttfs
       failed_when: desktop_apps_font_ttfs.matched == 0
 
+    - name: Remove incomplete JetBrainsMono directory if present
+      ansible.builtin.file:
+        path: "{{ desktop_apps_font_version_dir }}"
+        state: absent
+
+    - name: Move validated JetBrainsMono font release into place
+      ansible.builtin.command:
+        argv:
+          - mv
+          - -T
+          - "{{ desktop_apps_font_tmpdir.path }}/extracted"
+          - "{{ desktop_apps_font_version_dir }}"
+      changed_when: true
+      notify: Refresh user font cache
+  always:
     - name: Remove temporary JetBrainsMono workspace
       ansible.builtin.file:
         path: "{{ desktop_apps_font_tmpdir.path }}"
         state: absent
+      when: desktop_apps_font_tmpdir.path is defined
 
 - name: Link active JetBrainsMono font directory
   ansible.builtin.file:

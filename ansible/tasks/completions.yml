@@ -1,0 +1,164 @@
+---
+- name: Generate dynamic shell completions for installed CLIs
+  tags:
+    - ai_agents
+    - completions
+    - workstation
+  environment:
+    PATH: >-
+      {{ [
+        workstation_local_bin,
+        workstation_home ~ '/.local/share/mise/shims',
+        workstation_home ~ '/.cargo/bin',
+        ansible_facts['env'].PATH | default('/usr/bin:/bin'),
+      ] | join(':') }}
+  block:
+    - name: Ensure shell completion directories exist
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "u+rwx,g+rx,o+rx"
+      loop:
+        - "{{ workstation_home }}/.local/share/bash-completion/completions"
+        - "{{ workstation_home }}/.zsh/completion"
+        - "{{ workstation_home }}/.config/fish/completions"
+
+    - name: Locate dynamic completion generators
+      ansible.builtin.command:
+        argv:
+          - which
+          - "{{ item }}"
+      loop:
+        - codex
+        - herdr
+        - rustup
+      register: ai_agents_completion_tools
+      check_mode: false
+      changed_when: false
+      failed_when: false
+
+    - name: Set located tool map for dynamic completions
+      ansible.builtin.set_fact:
+        ai_agents_tool_paths:
+          codex: "{{ ai_agents_completion_tools.results[0].stdout | default('') | trim }}"
+          herdr: "{{ ai_agents_completion_tools.results[1].stdout | default('') | trim }}"
+          rustup: "{{ ai_agents_completion_tools.results[2].stdout | default('') | trim }}"
+
+    - name: Generate Codex shell completions
+      ansible.builtin.command:
+        argv:
+          - "{{ ai_agents_tool_paths.codex }}"
+          - completion
+          - "{{ item.shell }}"
+      loop:
+        - shell: bash
+          dest: "{{ workstation_home }}/.local/share/bash-completion/completions/codex"
+        - shell: zsh
+          dest: "{{ workstation_home }}/.zsh/completion/_codex"
+        - shell: fish
+          dest: "{{ workstation_home }}/.config/fish/completions/codex.fish"
+      register: ai_agents_codex_completions
+      changed_when: false
+      when:
+        - ai_agents_tool_paths.codex | length > 0
+        - not ansible_check_mode
+
+    - name: Install generated Codex shell completions
+      ansible.builtin.copy:
+        content: "{{ item.stdout }}\n"
+        dest: "{{ item.item.dest }}"
+        mode: "0644"
+      loop: "{{ ai_agents_codex_completions.results | default([]) }}"
+      when:
+        - ai_agents_tool_paths.codex | length > 0
+        - not ansible_check_mode
+        - item.stdout is defined
+
+    - name: Generate Herdr shell completions
+      ansible.builtin.command:
+        argv:
+          - "{{ ai_agents_tool_paths.herdr }}"
+          - completion
+          - "{{ item.shell }}"
+      loop:
+        - shell: bash
+          dest: "{{ workstation_home }}/.local/share/bash-completion/completions/herdr"
+        - shell: zsh
+          dest: "{{ workstation_home }}/.zsh/completion/_herdr"
+        - shell: fish
+          dest: "{{ workstation_home }}/.config/fish/completions/herdr.fish"
+      register: ai_agents_herdr_completions
+      changed_when: false
+      when:
+        - ai_agents_tool_paths.herdr | length > 0
+        - not ansible_check_mode
+
+    - name: Install generated Herdr shell completions
+      ansible.builtin.copy:
+        content: "{{ item.stdout }}\n"
+        dest: "{{ item.item.dest }}"
+        mode: "0644"
+      loop: "{{ ai_agents_herdr_completions.results | default([]) }}"
+      when:
+        - ai_agents_tool_paths.herdr | length > 0
+        - not ansible_check_mode
+        - item.stdout is defined
+
+    - name: Generate Rustup shell completions
+      ansible.builtin.command:
+        argv:
+          - "{{ ai_agents_tool_paths.rustup }}"
+          - completions
+          - "{{ item.shell }}"
+      loop:
+        - shell: bash
+          dest: "{{ workstation_home }}/.local/share/bash-completion/completions/rustup"
+        - shell: zsh
+          dest: "{{ workstation_home }}/.zsh/completion/_rustup"
+        - shell: fish
+          dest: "{{ workstation_home }}/.config/fish/completions/rustup.fish"
+      register: ai_agents_rustup_completions
+      changed_when: false
+      when:
+        - ai_agents_tool_paths.rustup | length > 0
+        - not ansible_check_mode
+
+    - name: Install generated Rustup shell completions
+      ansible.builtin.copy:
+        content: "{{ item.stdout }}\n"
+        dest: "{{ item.item.dest }}"
+        mode: "0644"
+      loop: "{{ ai_agents_rustup_completions.results | default([]) }}"
+      when:
+        - ai_agents_tool_paths.rustup | length > 0
+        - not ansible_check_mode
+        - item.stdout is defined
+
+    - name: Generate Cargo shell completions
+      ansible.builtin.command:
+        argv:
+          - "{{ ai_agents_tool_paths.rustup }}"
+          - completions
+          - "{{ item.shell }}"
+          - cargo
+      loop:
+        - shell: bash
+          dest: "{{ workstation_home }}/.local/share/bash-completion/completions/cargo"
+        - shell: zsh
+          dest: "{{ workstation_home }}/.zsh/completion/_cargo"
+      register: ai_agents_cargo_completions
+      changed_when: false
+      when:
+        - ai_agents_tool_paths.rustup | length > 0
+        - not ansible_check_mode
+
+    - name: Install generated Cargo shell completions
+      ansible.builtin.copy:
+        content: "{{ item.stdout }}\n"
+        dest: "{{ item.item.dest }}"
+        mode: "0644"
+      loop: "{{ ai_agents_cargo_completions.results | default([]) }}"
+      when:
+        - ai_agents_tool_paths.rustup | length > 0
+        - not ansible_check_mode
+        - item.stdout is defined

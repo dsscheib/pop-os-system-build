@@ -57,11 +57,17 @@
     - name: Flush ai_agents handlers before installing Claude Code
       ansible.builtin.meta: flush_handlers
 
+    - name: Check whether Claude Code deb822 repository is configured on disk
+      ansible.builtin.stat:
+        path: /etc/apt/sources.list.d/claude-code.sources
+      register: ai_agents_claude_repo_stat
+
     - name: Install claude-code package
       ansible.builtin.apt:
         name: claude-code
         state: present
       become: true
+      when: not ansible_check_mode or ai_agents_claude_repo_stat.stat.exists
 
     - name: Verify Claude Code CLI version
       ansible.builtin.command:
@@ -103,8 +109,9 @@
       block:
         - name: Create temporary workspace for Antigravity CLI download
           ansible.builtin.tempfile:
+            path: "{{ ai_agents_agy_versions }}"
             state: directory
-            prefix: pop-agy-
+            prefix: .tmp-pop-agy-
           register: ai_agents_agy_tmpdir
 
         - name: Download verified Antigravity CLI archive
@@ -121,20 +128,35 @@
               - "{{ repo_root }}/scripts/st_assets.py"
               - tar
               - "{{ ai_agents_agy_tmpdir.path }}/antigravity-cli.tar.gz"
-              - "{{ ai_agents_agy_version_dir }}"
+              - "{{ ai_agents_agy_tmpdir.path }}/extracted"
           changed_when: true
 
         - name: Validate extracted Antigravity CLI binary
           ansible.builtin.command:
             argv:
-              - "{{ ai_agents_agy_version_dir }}/antigravity"
+              - "{{ ai_agents_agy_tmpdir.path }}/extracted/antigravity"
               - --version
           changed_when: false
 
+        - name: Remove incomplete Antigravity CLI directory if present
+          ansible.builtin.file:
+            path: "{{ ai_agents_agy_version_dir }}"
+            state: absent
+
+        - name: Move validated Antigravity CLI release into place
+          ansible.builtin.command:
+            argv:
+              - mv
+              - -T
+              - "{{ ai_agents_agy_tmpdir.path }}/extracted"
+              - "{{ ai_agents_agy_version_dir }}"
+          changed_when: true
+      always:
         - name: Remove temporary Antigravity CLI workspace
           ansible.builtin.file:
             path: "{{ ai_agents_agy_tmpdir.path }}"
             state: absent
+          when: ai_agents_agy_tmpdir.path is defined
 
     - name: Link active Antigravity CLI directory
       ansible.builtin.file:
@@ -171,165 +193,3 @@
       register: ai_agents_agy_guardrails
       changed_when: "'Added ' in ai_agents_agy_guardrails.stdout"
       when: not ansible_check_mode
-
-- name: Generate dynamic shell completions for installed CLIs
-  tags:
-    - ai_agents
-    - completions
-  block:
-    - name: Ensure shell completion directories exist
-      ansible.builtin.file:
-        path: "{{ item }}"
-        state: directory
-        mode: "u+rwx,g+rx,o+rx"
-      loop:
-        - "{{ workstation_home }}/.local/share/bash-completion/completions"
-        - "{{ workstation_home }}/.zsh/completion"
-        - "{{ workstation_home }}/.config/fish/completions"
-
-    - name: Locate dynamic completion generators
-      ansible.builtin.command:
-        argv:
-          - which
-          - "{{ item }}"
-      environment:
-        PATH: >-
-          {{ [
-            workstation_local_bin,
-            workstation_home ~ '/.local/share/mise/shims',
-            workstation_home ~ '/.cargo/bin',
-            ansible_facts['env'].PATH | default('/usr/bin:/bin'),
-          ] | join(':') }}
-      loop:
-        - codex
-        - herdr
-        - rustup
-      register: ai_agents_completion_tools
-      changed_when: false
-      failed_when: false
-
-    - name: Set located tool map for dynamic completions
-      ansible.builtin.set_fact:
-        ai_agents_tool_paths:
-          codex: "{{ ai_agents_completion_tools.results[0].stdout | default('') | trim }}"
-          herdr: "{{ ai_agents_completion_tools.results[1].stdout | default('') | trim }}"
-          rustup: "{{ ai_agents_completion_tools.results[2].stdout | default('') | trim }}"
-
-    - name: Generate Codex shell completions
-      ansible.builtin.command:
-        argv:
-          - "{{ ai_agents_tool_paths.codex }}"
-          - completion
-          - "{{ item.shell }}"
-      loop:
-        - shell: bash
-          dest: "{{ workstation_home }}/.local/share/bash-completion/completions/codex"
-        - shell: zsh
-          dest: "{{ workstation_home }}/.zsh/completion/_codex"
-        - shell: fish
-          dest: "{{ workstation_home }}/.config/fish/completions/codex.fish"
-      register: ai_agents_codex_completions
-      changed_when: false
-      when:
-        - ai_agents_tool_paths.codex | length > 0
-        - not ansible_check_mode
-
-    - name: Install generated Codex shell completions
-      ansible.builtin.copy:
-        content: "{{ item.stdout }}\n"
-        dest: "{{ item.item.dest }}"
-        mode: "0644"
-      loop: "{{ ai_agents_codex_completions.results | default([]) }}"
-      when:
-        - ai_agents_tool_paths.codex | length > 0
-        - not ansible_check_mode
-        - item.stdout is defined
-
-    - name: Generate Herdr shell completions
-      ansible.builtin.command:
-        argv:
-          - "{{ ai_agents_tool_paths.herdr }}"
-          - completion
-          - "{{ item.shell }}"
-      loop:
-        - shell: bash
-          dest: "{{ workstation_home }}/.local/share/bash-completion/completions/herdr"
-        - shell: zsh
-          dest: "{{ workstation_home }}/.zsh/completion/_herdr"
-        - shell: fish
-          dest: "{{ workstation_home }}/.config/fish/completions/herdr.fish"
-      register: ai_agents_herdr_completions
-      changed_when: false
-      when:
-        - ai_agents_tool_paths.herdr | length > 0
-        - not ansible_check_mode
-
-    - name: Install generated Herdr shell completions
-      ansible.builtin.copy:
-        content: "{{ item.stdout }}\n"
-        dest: "{{ item.item.dest }}"
-        mode: "0644"
-      loop: "{{ ai_agents_herdr_completions.results | default([]) }}"
-      when:
-        - ai_agents_tool_paths.herdr | length > 0
-        - not ansible_check_mode
-        - item.stdout is defined
-
-    - name: Generate Rustup shell completions
-      ansible.builtin.command:
-        argv:
-          - "{{ ai_agents_tool_paths.rustup }}"
-          - completions
-          - "{{ item.shell }}"
-      loop:
-        - shell: bash
-          dest: "{{ workstation_home }}/.local/share/bash-completion/completions/rustup"
-        - shell: zsh
-          dest: "{{ workstation_home }}/.zsh/completion/_rustup"
-        - shell: fish
-          dest: "{{ workstation_home }}/.config/fish/completions/rustup.fish"
-      register: ai_agents_rustup_completions
-      changed_when: false
-      when:
-        - ai_agents_tool_paths.rustup | length > 0
-        - not ansible_check_mode
-
-    - name: Install generated Rustup shell completions
-      ansible.builtin.copy:
-        content: "{{ item.stdout }}\n"
-        dest: "{{ item.item.dest }}"
-        mode: "0644"
-      loop: "{{ ai_agents_rustup_completions.results | default([]) }}"
-      when:
-        - ai_agents_tool_paths.rustup | length > 0
-        - not ansible_check_mode
-        - item.stdout is defined
-
-    - name: Generate Cargo shell completions
-      ansible.builtin.command:
-        argv:
-          - "{{ ai_agents_tool_paths.rustup }}"
-          - completions
-          - "{{ item.shell }}"
-          - cargo
-      loop:
-        - shell: bash
-          dest: "{{ workstation_home }}/.local/share/bash-completion/completions/cargo"
-        - shell: zsh
-          dest: "{{ workstation_home }}/.zsh/completion/_cargo"
-      register: ai_agents_cargo_completions
-      changed_when: false
-      when:
-        - ai_agents_tool_paths.rustup | length > 0
-        - not ansible_check_mode
-
-    - name: Install generated Cargo shell completions
-      ansible.builtin.copy:
-        content: "{{ item.stdout }}\n"
-        dest: "{{ item.item.dest }}"
-        mode: "0644"
-      loop: "{{ ai_agents_cargo_completions.results | default([]) }}"
-      when:
-        - ai_agents_tool_paths.rustup | length > 0
-        - not ansible_check_mode
-        - item.stdout is defined

@@ -58,11 +58,17 @@
 - name: Flush system handlers before installing GitHub CLI
   ansible.builtin.meta: flush_handlers
 
+- name: Check whether GitHub CLI deb822 repository is configured on disk
+  ansible.builtin.stat:
+    path: /etc/apt/sources.list.d/githubcli.sources
+  register: system_githubcli_repo_stat
+
 - name: Install GitHub CLI package
   ansible.builtin.apt:
     name: gh
     state: present
   become: true
+  when: not ansible_check_mode or system_githubcli_repo_stat.stat.exists
 
 - name: Ensure hardware device groups exist
   ansible.builtin.group:
@@ -113,9 +119,38 @@
   notify: Reload udev rules
   when: install_samsung_970_evo_nvme_rule | bool
 
+- name: Check whether UFW binary is installed
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -c
+      - PATH=/usr/sbin:/sbin:/usr/bin:/bin command -v ufw
+  register: system_ufw_cmd
+  changed_when: false
+  check_mode: false
+  failed_when: false
+  tags:
+    - systemd_live
+
 - name: Enable UFW firewall on live hosts
   community.general.ufw:
     state: enabled
+  become: true
+  when: not ansible_check_mode or system_ufw_cmd.rc == 0
+  tags:
+    - systemd_live
+
+- name: Check whether systemd-oomd.service unit exists
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - list-unit-files
+      - systemd-oomd.service
+      - --no-legend
+  register: system_oomd_unit
+  changed_when: false
+  check_mode: false
+  failed_when: false
   become: true
   tags:
     - systemd_live
@@ -127,5 +162,6 @@
     state: started
     daemon_reload: true
   become: true
+  when: not ansible_check_mode or ('systemd-oomd.service' in system_oomd_unit.stdout)
   tags:
     - systemd_live

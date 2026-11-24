@@ -285,6 +285,8 @@
     (snapper_root_cfg_before.stat.checksum | default('')) != (snapper_cfg_after.results[0].stat.checksum | default(''))
     or (snapper_defaults_before.stat.checksum | default('')) != (snapper_cfg_after.results[1].stat.checksum | default(''))
 
+# configure_snapper.py edits SYNC_ACL in /etc/snapper/configs/root directly,
+# whereas snapper -c root set-config triggers snapperd over D-Bus to apply POSIX ACLs.
 - name: Enable Snapper ACL synchronization
   ansible.builtin.command:
     argv:
@@ -295,6 +297,9 @@
       - SYNC_ACL=yes
   changed_when: false
   become: true
+  when: >-
+    not snapper_root_cfg_before.stat.exists
+    or (snapper_root_cfg_before.stat.checksum | default('')) != (snapper_cfg_after.results[0].stat.checksum | default(''))
 
 - name: Set /.snapshots permissions to 0750
   ansible.builtin.file:
@@ -336,6 +341,19 @@
     mode: "0644"
   become: true
 
+- name: Check whether snapper-cleanup.timer unit exists
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - list-unit-files
+      - snapper-cleanup.timer
+      - --no-legend
+  register: snapper_cleanup_timer_check
+  changed_when: false
+  check_mode: false
+  failed_when: false
+  become: true
+
 - name: Enable and start snapper-cleanup.timer
   ansible.builtin.systemd_service:
     name: snapper-cleanup.timer
@@ -343,6 +361,7 @@
     state: started
     daemon_reload: true
   become: true
+  when: not ansible_check_mode or ('snapper-cleanup.timer' in snapper_cleanup_timer_check.stdout)
 
 - name: Check whether snapper-boot.timer unit exists
   ansible.builtin.command:

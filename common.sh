@@ -111,37 +111,6 @@ verify_installer() {
   verify_sha256 "$archive" "$expected"
 }
 
-# Never expose partially downloaded files under their final names.
-download_verified() {
-  local url=$1 destination=$2 expected=$3 partial
-  [[ $url == https://* ]] || { log_error "Downloads must use HTTPS."; return 1; }
-  mkdir -p -- "$(dirname "$destination")" || return
-  partial=$(mktemp "${destination}.download.XXXXXX") || return
-  if ! curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fSL --retry 3 --connect-timeout 15 --max-time 600 "$url" -o "$partial"; then
-    rm -f -- "$partial"
-    return 1
-  fi
-  if ! verify_sha256 "$partial" "$expected"; then rm -f -- "$partial"; return 1; fi
-  mv -T -- "$partial" "$destination"
-}
-
-package_installed() {
-  [[ $(dpkg-query -W -f='${Status}' "$1" 2>/dev/null) == 'install ok installed' ]]
-}
-install_deb() (
-  local file=$1 package staging_dir status
-  package=$(dpkg-deb -f "$file" Package) || return
-  # _apt cannot traverse our private workspace. Stage only this package in a
-  # root-owned directory; retain restrictive permissions on all other downloads.
-  staging_dir=$(sudo mktemp -d /tmp/pop-apt.XXXXXX) || return
-  [[ -n "$staging_dir" && -d "$staging_dir" ]] || { log_error "APT staging directory was not created."; return 1; }
-  trap 'status=$?; trap - EXIT; sudo rm -f -- "$staging_dir/package.deb" || { (( status != 0 )) || status=1; }; sudo rmdir -- "$staging_dir" || { (( status != 0 )) || status=1; }; exit "$status"' EXIT
-  sudo install -m 0644 -- "$file" "$staging_dir/package.deb" || return
-  sudo chmod 0755 "$staging_dir" || return
-  sudo apt-get install -y -- "$staging_dir/package.deb" || return
-  package_installed "$package" || { log_error "Package is not installed: $package"; return 1; }
-)
-
 # IzPack embeds install paths in launchers. Keep each version at its original path
 # and publish a stable symlink only after validation; retain the previous version.
 begin_install() {
@@ -236,7 +205,11 @@ unique_file() {
 st_preflight() {
   require_user || return
   require_supported_system || return
-  require_commands python3 sha256sum realpath find mktemp sudo ldd desktop-file-validate || return
+  if [[ ${ST_SKIP_UDEV:-0} == 1 ]]; then
+    require_commands python3 sha256sum realpath find mktemp ldd desktop-file-validate || return
+  else
+    require_commands python3 sha256sum realpath find mktemp sudo ldd desktop-file-validate || return
+  fi
   python3 -c 'from PIL import Image' 2>/dev/null || log_warn "Pillow is unavailable; native launcher icons will be used when possible."
 }
 
@@ -246,22 +219,13 @@ st_finish() {
   write_wrapper "$WORK_DIR/wrapper" "$working_dir" "$executable" GDK_BACKEND=x11 _JAVA_AWT_WM_NONREPARENTING=1 || return
   write_desktop "$WORK_DIR/launcher.desktop" "$name" "$wrapper" "$working_dir" "$icon" "$wmclass" || return
   desktop-file-validate "$WORK_DIR/launcher.desktop" || return
-  install_stlink_rules || return
+  if [[ ${ST_SKIP_UDEV:-0} != 1 ]]; then
+    install_stlink_rules || return
+  fi
   publish_install || return
   mkdir -p "$(dirname "$wrapper")" "$(dirname "$desktop_file")" || return
   # Regenerate with atomic replacement on each destination filesystem.
   write_wrapper "$wrapper" "$working_dir" "$executable" GDK_BACKEND=x11 _JAVA_AWT_WM_NONREPARENTING=1 || return
   write_desktop "$desktop_file" "$name" "$wrapper" "$working_dir" "$icon" "$wmclass" || return
   refresh_desktop_environment "$(dirname "$desktop_file")"
-}
-
-install_system_file() {
-  local source=$1 destination=$2 mode=${3:-0644} temporary
-  sudo install -d -o root -g root -m 0755 "$(dirname "$destination")" || return
-  temporary=$(sudo mktemp "${destination}.tmp.XXXXXX") || return
-  if ! sudo install -o root -g root -m "$mode" "$source" "$temporary"; then
-    sudo rm -f -- "$temporary"
-    return 1
-  fi
-  sudo mv -Tf -- "$temporary" "$destination"
 }

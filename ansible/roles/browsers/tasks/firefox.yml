@@ -56,8 +56,14 @@
 - name: Flush browsers handlers before installing Firefox Developer Edition
   ansible.builtin.meta: flush_handlers
 
+- name: Check whether Mozilla deb822 repository is configured on disk
+  ansible.builtin.stat:
+    path: /etc/apt/sources.list.d/mozilla.sources
+  register: browsers_mozilla_repo_stat
+
 - name: Install Firefox Developer Edition
   ansible.builtin.apt:
     name: firefox-devedition
     state: present
   become: true
+  when: not ansible_check_mode or browsers_mozilla_repo_stat.stat.exists
