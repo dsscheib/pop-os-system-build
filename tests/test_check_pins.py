@@ -7,6 +7,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 import yaml
 
@@ -160,6 +161,66 @@ class CheckPinsTests(unittest.TestCase):
         for name, entry in yaml.safe_load(downloads)['pinned_downloads'].items():
             downloads = check_pins.set_download_fields(downloads, name, {k: v for k, v in entry.items() if isinstance(v, str)})
         self.assertEqual(downloads, (REPO / check_pins.DOWNLOADS).read_text())
+
+    def test_lookup_antigravity_parses_manifest_and_requires_fields(self):
+        manifest = {
+            'version': ' 1.5.16 ',
+            'url': 'https://example.com/antigravity/1.5.16/cli_linux_x64.tar.gz',
+            'sha512': 'ABCDEF' + '0' * 122,
+        }
+        with mock.patch.object(check_pins, 'http_json', return_value=manifest):
+            result = check_pins.lookup_antigravity()
+        self.assertEqual(result, {
+            'version': '1.5.16',
+            'url': 'https://example.com/antigravity/1.5.16/cli_linux_x64.tar.gz',
+            'digest': 'abcdef' + '0' * 122,
+            'digest_algo': 'sha512',
+        })
+
+        for missing_key in ('version', 'url', 'sha512'):
+            bad = dict(manifest)
+            bad[missing_key] = ''
+            with self.subTest(missing_key=missing_key):
+                with mock.patch.object(check_pins, 'http_json', return_value=bad):
+                    with self.assertRaises(RuntimeError):
+                        check_pins.lookup_antigravity()
+
+    def test_bump_antigravity_cli_verifies_sha512_digest(self):
+        downloads_with_agy = DOWNLOADS + (
+            '  antigravity_cli:\n'
+            '    version: "1.3.5"\n'
+            '    url: "https://example.com/1.3.5/cli_linux_x64.tar.gz"\n'
+            '    sha256: "cccc"\n'
+        )
+        (self.root / check_pins.DOWNLOADS).write_text(downloads_with_agy)
+        sha512 = hashlib.sha512(self.payload).hexdigest()
+
+        bad_info = {
+            'version': '1.5.16',
+            'url': 'https://example.com/1.5.16/cli_linux_x64.tar.gz',
+            'digest': '0' * 128,
+            'digest_algo': 'sha512',
+        }
+        out = io.StringIO()
+        failures = check_pins.bump_named(
+            self.root, ['antigravity_cli'], lambda pin, current: bad_info, self.fake_fetch, out,
+        )
+        self.assertEqual(failures, 1)
+        self.assertIn('SHA-512 mismatch', out.getvalue())
+        self.assertEqual((self.root / check_pins.DOWNLOADS).read_text(), downloads_with_agy)
+
+        good_info = dict(bad_info, digest=sha512)
+        out = io.StringIO()
+        failures = check_pins.bump_named(
+            self.root, ['antigravity_cli'], lambda pin, current: good_info, self.fake_fetch, out,
+        )
+        self.assertEqual(failures, 0, out.getvalue())
+        entry = yaml.safe_load((self.root / check_pins.DOWNLOADS).read_text())['pinned_downloads']['antigravity_cli']
+        self.assertEqual(entry, {
+            'version': '1.5.16',
+            'url': good_info['url'],
+            'sha256': self.sha,
+        })
 
 
 if __name__ == '__main__':

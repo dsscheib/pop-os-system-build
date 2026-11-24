@@ -47,13 +47,12 @@ mise run pins --bump saleae uv   # update named pins in place
 mise run pins --bump-all         # update every pin that can be bumped automatically
 ```
 
-For each download, a bump fetches the new release, computes its SHA-256 (and cross-checks GitHub's published digest when there is one), and edits `downloads.yml`, `00-defaults.yml`, `bootstrap.sh` or `requirements.yml`.
+For each download, a bump fetches the new release, computes its SHA-256 (and cross-checks published upstream digests when available, such as GitHub SHA-256 or Antigravity SHA-512), and edits `downloads.yml`, `00-defaults.yml`, `bootstrap.sh` or `requirements.yml`.
 
 Some pins are report-only, because a safe bump needs a decision or a value the checker can't find:
 
 | Pin | Why it's manual |
 | :--- | :--- |
-| `antigravity_cli` | The download URL includes a build ID that isn't published |
 | `llvm` | apt.llvm.org also carries pre-release branches; confirm the version is released first |
 | `kicad` | A new KiCad series uses a new PPA with its own signing key |
 | STM32 installers | ST requires a sign-in to download them |
@@ -65,3 +64,11 @@ After bumping, do it like any other change:
 3. Run `mise run check`.
 4. Open a PR so CI runs the container test.
 5. Check with `mise run plan`, then `mise run apply`. The container test skips desktop apps, so the apply on your machine is what verifies those.
+
+## Antigravity CLI (`agy`)
+
+`agy` updates itself automatically in the background during normal runs (opt out with `export AGY_CLI_DISABLE_AUTO_UPDATE=true`). You can also trigger an update immediately anytime with `agy update` (and view release notes with `agy changelog` or `/changelog`). `mise run update` does not upgrade `agy`.
+
+Self-updates replace the binary in place inside `~/.local/share/pop-workstation/.antigravity-cli.versions/<pinned-version>/`. Future `mise run apply` runs only check that the binary exists, so they won't revert an in-place self-update while the `antigravity_cli` pin in `ansible/group_vars/all/downloads.yml` stays the same.
+
+To update the baseline version installed on fresh machines, run `mise run pins --bump antigravity_cli` (which reads Google's Linux x64 release manifest and cross-checks its SHA-512 digest), then apply normally—changing the pin switches the `antigravity-cli` symlink to the newly pinned version directory.
