@@ -27,4 +27,5 @@ fi
 if command -v ansible-lint >/dev/null; then
   (cd ansible && ansible-lint)
 fi
+python3 -B scripts/verify.py
 git diff --check
