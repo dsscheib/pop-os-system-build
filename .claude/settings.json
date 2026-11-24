@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "ask": [
+      "Bash(git reset --hard:*)",
+      "Bash(git clean:*)",
+      "Bash(git branch -D:*)",
+      "Bash(git rebase:*)",
+      "Bash(git checkout --:*)",
+      "Bash(gh pr review:*)",
+      "Bash(sudo:*)",
+      "Bash(./bootstrap.sh:*)",
+      "Bash(bash ./bootstrap.sh:*)",
+      "Bash(bash bootstrap.sh:*)",
+      "Bash(mise run bootstrap:*)",
+      "Bash(mise run apply:*)",
+      "Bash(mise run role:*)",
+      "Bash(mise run auth:*)",
+      "Bash(mise run plan:*)",
+      "Bash(ansible-playbook:*)",
+      "Bash(./preboot/setup_btrfs_live_install.sh:*)",
+      "Bash(./preboot/setup_secondary_btrfs_drive.sh:*)",
+      "Bash(./preboot/setup_btrfs_snapper.sh:*)",
+      "Bash(./install_stm32_cube_ide.sh:*)",
+      "Bash(./install_stm32_cube_mx.sh:*)",
+      "Bash(./install_stm32_cube_prog.sh:*)",
+      "Bash(./install_sw4stm32.sh:*)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./**/.env)",
+      "Read(./.env.*.local)",
+      "Read(./**/.env.*.local)"
+    ]
+  }
+}

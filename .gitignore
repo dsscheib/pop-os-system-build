@@ -22,3 +22,6 @@ installer.auto
 # Python test/import artifacts
 __pycache__/
 *.py[cod]
+
+# Personal Claude Code overrides
+.claude/settings.local.json

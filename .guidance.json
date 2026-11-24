@@ -1,0 +1,99 @@
+{
+  "version": "4.0",
+  "installed_from": {
+    "repository": "https://github.com/dsscheib/agent-guidance.git",
+    "commit": "c306e651c785493aecda04e660f86234493a2556",
+    "dirty": false,
+    "date": "2026-11-24"
+  },
+  "installed": {
+    "tier": "prototype",
+    "features": [],
+    "modules": [
+      "core"
+    ],
+    "tools": [
+      "antigravity",
+      "claude"
+    ]
+  },
+  "module_files": {
+    "core": [
+      "AGENTS.md",
+      "CLAUDE.md",
+      ".claude/settings.json",
+      "PROJECT_PROFILE.md",
+      "docs/OPEN_WORK.md",
+      "scripts/verify.py",
+      "scripts/hooks/pre-commit"
+    ]
+  },
+  "agents_blocks": {
+    "routing": "| When the change touches\u2026 | Read before | Update after |\n|---|---|---|\n| Any behavior | [PROJECT_PROFILE](PROJECT_PROFILE.md) (Command inventory) | Tests for changed behavior; run `python3 scripts/verify.py --verify` |\n| What users run or see (CLI options, usage, output formats) | [README](README.md) | README usage in the same change (never UAT steps) |\n| Anything unresolved (decisions, gaps, defects, blockers) | [docs/OPEN_WORK](docs/OPEN_WORK.md) | Update docs/OPEN_WORK in place |\n",
+    "procedures": ""
+  },
+  "guardrail_checks": [],
+  "files": [
+    {
+      "path": "AGENTS.md",
+      "kind": "entry",
+      "sha256": "46dacf2819c3d6054bf2a5e8be871bdc9d82c8ffadf0334acf87ce92d7f8a409"
+    },
+    {
+      "path": "CLAUDE.md",
+      "kind": "entry",
+      "sha256": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49"
+    },
+    {
+      "path": ".claude/settings.json",
+      "kind": "guardrail",
+      "sha256": "c716e35ae27af8c59c6fc3272e0b80c26b37fd319c82e83f3241f9d6590f9055"
+    },
+    {
+      "path": "PROJECT_PROFILE.md",
+      "kind": "template",
+      "sha256": "d7303f6ae9c00e404281f67d4fc03ffdbe97112735ad454ee4d527440526f756"
+    },
+    {
+      "path": "docs/OPEN_WORK.md",
+      "kind": "register",
+      "sha256": "125a64cdfcea637a55ed6db26adc84fa482f3cd23f01ce74f7e8bc4adaa1147d"
+    },
+    {
+      "path": "scripts/verify.py",
+      "kind": "tooling",
+      "sha256": "090abe6e2469d9ff2def646ecbb1683a474dcef06566dad5ead4157c00f48e2e"
+    },
+    {
+      "path": "scripts/hooks/pre-commit",
+      "kind": "tooling",
+      "sha256": "a52c10ff60240d3e9987cd8d8e88f12aab53b39dfe1f42d9764e35f81d48d057"
+    }
+  ],
+  "uninstalled": [
+    ".codex/rules/guidance.rules",
+    ".github/hooks/guidance.json",
+    ".github/hooks/guidance_guardrail.py",
+    "DESIGN_DOC.md",
+    "docs/decisions/ADR_TEMPLATE.md",
+    "docs/RUNBOOKS.md",
+    "docs/RELEASE_NOTES.md",
+    "docs/procedures/release-review.md",
+    "docs/VERIFICATION_MATRIX.md",
+    "docs/PRODUCTION_READINESS.md",
+    "docs/procedures/release-readiness.md",
+    "docs/ENTERPRISE.md",
+    ".github/pull_request_template.md",
+    "docs/UI.md",
+    "docs/procedures/ui-design.md",
+    "profiles/SERVER_RENDERED_WEB_GO.md",
+    "profiles/SERVER_RENDERED_WEB_RUST.md",
+    "profiles/EMBEDDED_FIRMWARE.md",
+    ".agents/skills/release-readiness/SKILL.md",
+    ".agents/skills/release-review/SKILL.md",
+    ".agents/skills/ui-design/SKILL.md",
+    ".claude/skills/release-readiness/SKILL.md",
+    ".claude/skills/release-review/SKILL.md",
+    ".claude/skills/ui-design/SKILL.md"
+  ]
+}
