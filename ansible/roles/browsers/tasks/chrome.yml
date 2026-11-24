@@ -20,15 +20,18 @@
     mode: "0644"
   become: true
 
-- name: Remove legacy Google Chrome APT source list
+- name: Remove legacy and Chrome-managed APT source files
   ansible.builtin.file:
-    path: /etc/apt/sources.list.d/google-chrome.list
+    path: "{{ item }}"
     state: absent
+  loop:
+    - /etc/apt/sources.list.d/google-chrome.list
+    - /etc/apt/sources.list.d/google-chrome.sources
   become: true
 
 - name: Configure Google Chrome deb822 APT repository
   ansible.builtin.deb822_repository:
-    name: google-chrome
+    name: pop-google-chrome
     types:
       - deb
     uris:

@@ -35,7 +35,7 @@ ansible-playbook -i ansible/inventory/hosts.yml ansible/playbook.yml \
 echo "=== Ansible Pass 2 (idempotency check) ==="
 pass2_log=$(mktemp)
 trap 'rm -f -- "$pass2_log"' EXIT
-ansible-playbook -i ansible/inventory/hosts.yml ansible/playbook.yml \
+ansible-playbook --diff -i ansible/inventory/hosts.yml ansible/playbook.yml \
   --skip-tags snapper,systemd_live,desktop_gui \
   -e system_apt_upgrade=false | tee "$pass2_log"
 
