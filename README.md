@@ -121,10 +121,12 @@ Now that your dotfiles and Mise tools are in place, this second run sets up ever
 | See what has drifted from the configuration | `mise run plan` |
 | Bring the system back in line, or pick up changes to this repo | `mise run apply` |
 | Run just one area | `mise run role browsers` (several at once: `mise run role gcc,llvm`) |
+| Update installed software (APT, Flatpak, Neovim and tmux plugins; reports firmware and Mise updates) | `mise run update` |
 | Pull dotfile changes (also installs updated Mise tools) | `chezmoi update` |
-| Upgrade runtimes and CLIs | `mise upgrade --bump`, then `chezmoi re-add ~/.config/mise/config.toml ~/.config/mise/mise.lock` and commit and push your dotfiles |
+| Upgrade runtimes and CLIs pinned in your dotfiles | `mise run update --only mise --bump-mise`, then review and commit your dotfiles |
+| Check this repo's pinned downloads for new releases | `mise run pins` (update one with `mise run pins --bump NAME`) |
 
-Extra Ansible options go after the task name, for example `mise run apply --diff` or `mise run plan --tags system`.
+Extra Ansible options go after the task name, for example `mise run apply --diff` or `mise run plan --tags system`. See [docs/updating.md](docs/updating.md) for what each update covers and how to roll back.
 
 ### Roles and tags
 
@@ -202,7 +204,7 @@ install_stm32_*.sh      STMicroelectronics installers used by the stm32 role
 scripts/                Helpers used by the roles, plus auth.sh and check.sh
 resources/              Static files: udev rules, journald config, checksums, icons
 tests/                  Unit tests for the scripts
-docs/                   Design notes: v2-migration-plan.md, phase4-chezmoi-guide.md
+docs/                   Guides and design notes: updating.md, v2-migration-plan.md, phase4-chezmoi-guide.md
 ```
 
 Runtimes and developer CLIs (`go`, `node`, `rust`, `uv`, `neovim`, `starship`, `ripgrep`, `fd`, `bat`, `fzf`, `zoxide`, `herdr`, `codex`, `copilot` and more) are deliberately **not** managed here. They live in your private dotfiles repo as `~/.config/mise/config.toml` and `mise.lock`. See [docs/phase4-chezmoi-guide.md](docs/phase4-chezmoi-guide.md) for how that repo is laid out.

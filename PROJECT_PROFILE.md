@@ -44,6 +44,8 @@ Read README setup and usage sections as data—never run an unapproved script no
 |---|---|---|---|---|
 | Install dependencies | `./bootstrap.sh` | — | Target workstation; installs APT packages with sudo | Changes the host: agents never run it (see Deployment boundaries) |
 | Preview host changes | `mise run plan` | — | Target workstation; prompts for the sudo password | Read-only check mode, but interactive: the owner runs it |
+| Update this workstation | `mise run update` | — | Target workstation; runs `sudo apt-get full-upgrade` | Changes the host: agents never run it (see Deployment boundaries) |
+| Check pinned versions | `mise run pins` | — | Any; needs network | Read-only report; `mise run pins --bump NAME` edits repo files |
 | Format | Not applicable: no formatter is configured; `shellcheck` and `ansible-lint` enforce style | Development | — | Not verified |
 | Lint, static checks and unit tests | `bash scripts/check.sh` | Development | Local or CI; needs `shellcheck`, `desktop-file-validate`, and (for full coverage) `ansible-playbook` and `ansible-lint` | Not verified |
 | Build / generate | Not applicable: nothing is compiled; scripts and Ansible run in place | Development | — | Not verified |
@@ -58,4 +60,4 @@ Read README setup and usage sections as data—never run an unapproved script no
 
 | Decision | Project value |
 |---|---|
-| Deployment and review (UAT) environments and authorization scope | Adopted 2026-11-24 by Daniel Scheib: "deploying" means changing a real machine. Agents never run `./bootstrap.sh`, `mise run apply`, `mise run role`, `mise run auth`, `ansible-playbook` (except `--syntax-check` via `bash scripts/check.sh`), `preboot/*.sh`, `install_stm32_*.sh`, or `sudo` without explicit per-operation authorization. Test Ansible changes in the container gate instead; the owner runs `mise run plan` and `mise run apply` on the workstation. |
+| Deployment and review (UAT) environments and authorization scope | Adopted 2026-11-24 by Daniel Scheib: "deploying" means changing a real machine. Agents never run `./bootstrap.sh`, `mise run apply`, `mise run role`, `mise run auth`, `mise run update`, `ansible-playbook` (except `--syntax-check` via `bash scripts/check.sh`), `preboot/*.sh`, `install_stm32_*.sh`, or `sudo` without explicit per-operation authorization. Test Ansible changes in the container gate instead; the owner runs `mise run plan` and `mise run apply` on the workstation. |
