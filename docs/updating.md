@@ -62,8 +62,10 @@ After bumping, do it like any other change:
 1. Work on a branch.
 2. Review `git diff`.
 3. Run `mise run check`.
-4. Open a PR so CI runs the container test.
-5. Check with `mise run plan`, then `mise run apply`. The container test skips desktop apps, so the apply on your machine is what verifies those.
+4. CI's container test skips the desktop apps, so for pins in `downloads.yml` also run the full end-to-end test, which installs them in a fresh container:
+   `podman run --rm -v "$PWD:/workspace:ro,Z" docker.io/library/ubuntu:24.04 bash /workspace/scripts/e2e_container_test.sh /workspace`
+5. Open a PR so CI runs the container test.
+6. Check with `mise run plan`, then `mise run apply`.
 
 ## Antigravity CLI (`agy`)
 
