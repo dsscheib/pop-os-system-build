@@ -1,5 +1,6 @@
 """Unit tests for scripts/check_pins.py (no network: lookups and downloads are faked)."""
 import hashlib
+import http.client
 import importlib
 import io
 from pathlib import Path
@@ -167,14 +168,54 @@ class CheckPinsTests(unittest.TestCase):
     def test_rejects_non_https_urls_and_redirects(self):
         with self.assertRaises(ValueError):
             check_pins.http_text('http://example.com/file')
+
+        handler = check_pins._SafeRedirectHandler()
+        req = check_pins._request('https://example.com/start')
+        with self.assertRaises(ValueError):
+            handler.redirect_request(req, None, 302, 'Found', {}, 'http://insecure.example.com/redirected')
+        with self.assertRaises(ValueError):
+            handler.redirect_request(req, None, 302, 'Found', {}, 'file:///etc/passwd')
+
+        # Redirect handling must reject http:// before parent.open is ever called.
+        handler.parent = mock.MagicMock()
+        fp = mock.MagicMock()
+        redirect_headers = http.client.HTTPMessage()
+        redirect_headers['Location'] = 'http://insecure.example.com/next'
+        with self.assertRaises(ValueError):
+            handler.http_error_302(req, fp, 302, 'Found', redirect_headers)
+        handler.parent.open.assert_not_called()
+
         fake_resp = mock.MagicMock()
         fake_resp.__enter__.return_value = fake_resp
         fake_resp.geturl.return_value = 'http://insecure.example.com/redirected'
-        with mock.patch.object(check_pins.urllib.request, 'urlopen', return_value=fake_resp):
+        with mock.patch.object(check_pins._OPENER, 'open', return_value=fake_resp):
             with self.assertRaises(ValueError):
                 check_pins.http_text('https://example.com/start')
             with self.assertRaises(ValueError):
                 check_pins.download('https://example.com/start', self.root / 'out.bin')
+
+    def test_redirect_strips_github_authorization_header(self):
+        handler = check_pins._SafeRedirectHandler()
+        with mock.patch.dict('os.environ', {'GITHUB_TOKEN': 'secret-pat'}):
+            req = check_pins._request('https://api.github.com/repos/owner/repo/releases/latest')
+            self.assertEqual(req.get_header('Authorization'), 'Bearer secret-pat')
+
+            same_host = handler.redirect_request(
+                req, None, 302, 'Found', {}, 'https://api.github.com/repositories/1/releases/latest',
+            )
+            self.assertEqual(same_host.get_header('Authorization'), 'Bearer secret-pat')
+
+            cross_host = handler.redirect_request(
+                req, None, 302, 'Found', {}, 'https://objects.githubusercontent.com/release/asset.tar.gz',
+            )
+            self.assertIsNone(cross_host.get_header('Authorization'))
+            self.assertNotIn('authorization', {k.lower() for k in cross_host.headers})
+            self.assertNotIn('authorization', {k.lower() for k in cross_host.unredirected_hdrs})
+
+            non_github = check_pins._request('https://example.com/latest')
+            self.assertIsNone(non_github.get_header('Authorization'))
+            spoofed = check_pins._request('https://api.github.com.evil.example/releases')
+            self.assertIsNone(spoofed.get_header('Authorization'))
 
     def test_fetch_and_hash_sanitizes_query_and_traversal_filenames(self):
         _, p1 = check_pins.fetch_and_hash(
@@ -297,6 +338,64 @@ class CheckPinsTests(unittest.TestCase):
             'url': good_info['url'],
             'sha256': self.sha,
         })
+
+    def test_rejects_shell_and_yaml_injection_in_versions_and_urls(self):
+        bad_versions = [
+            '1.0.0"\nPWNED="1',
+            '1.0.0$(touch /tmp/pwn)',
+            '1.0.0`id`',
+            '1.0.0";evil: true',
+            '1.0.0\\nfoo',
+            '-bad-leading-dash',
+        ]
+        for bad in bad_versions:
+            with self.subTest(bad_version=bad):
+                with self.assertRaises(ValueError):
+                    check_pins.set_shell_var(BOOTSTRAP, 'UV_VERSION', bad)
+                with self.assertRaises(ValueError):
+                    check_pins.set_download_fields(DOWNLOADS, 'arduino_ide', {'version': bad})
+                with self.assertRaises(ValueError):
+                    check_pins.set_default(DEFAULTS, 'pynvim_version', bad)
+                with self.assertRaises(ValueError):
+                    check_pins.set_collection_version(REQUIREMENTS, 'ansible.posix', bad)
+                out = io.StringIO()
+                self.assertEqual(
+                    check_pins.bump_named(
+                        self.root, ['pynvim'],
+                        lambda pin, current: {'version': bad},
+                        self.fake_fetch, out,
+                    ),
+                    1,
+                )
+
+        bad_urls = [
+            'https://example.com/app.zip"$(id)"',
+            'https://example.com/app.zip\nurl2: evil',
+            'https://example.com/app.zip`id`',
+            'http://example.com/app.zip',
+            'https://example.com/with space.zip',
+        ]
+        for bad_url in bad_urls:
+            with self.subTest(bad_url=bad_url):
+                with self.assertRaises(ValueError):
+                    check_pins.set_shell_var(BOOTSTRAP, 'UV_URL', bad_url)
+                with self.assertRaises(ValueError):
+                    check_pins.set_download_fields(DOWNLOADS, 'arduino_ide', {'url': bad_url})
+                out = io.StringIO()
+                self.assertEqual(
+                    check_pins.bump_named(
+                        self.root, ['uv'],
+                        lambda pin, current: {'version': '0.14.0', 'url': bad_url},
+                        self.fake_fetch, out,
+                    ),
+                    1,
+                )
+
+        with self.assertRaises(ValueError):
+            check_pins.set_shell_var(BOOTSTRAP, 'UV_SHA256', 'not-a-sha256')
+        self.assertEqual((self.root / check_pins.BOOTSTRAP).read_text(), BOOTSTRAP)
+        self.assertEqual((self.root / check_pins.DOWNLOADS).read_text(), DOWNLOADS)
+        self.assertEqual((self.root / check_pins.DEFAULTS).read_text(), DEFAULTS)
 
 
 if __name__ == '__main__':

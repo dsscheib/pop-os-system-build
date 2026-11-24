@@ -38,6 +38,29 @@ def _check_zip_link(resolved_root, target, link, name):
         raise ValueError(f'Unsafe archive symlink: {name}')
 
 
+def _remove_escaping_symlinks(root, resolved_root):
+    unsafe = []
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        for name in dirnames + filenames:
+            candidate = Path(dirpath) / name
+            if not candidate.is_symlink():
+                continue
+            try:
+                raw_link = os.readlink(candidate)
+                if PurePosixPath(raw_link).is_absolute():
+                    unsafe.append(candidate)
+                    continue
+                resolved = candidate.resolve()
+                if not resolved.is_relative_to(resolved_root):
+                    unsafe.append(candidate)
+            except (OSError, RuntimeError):
+                unsafe.append(candidate)
+    for link_path in unsafe:
+        link_path.unlink(missing_ok=True)
+    if unsafe:
+        raise ValueError(f'Unsafe archive symlink: {unsafe[0].relative_to(root)}')
+
+
 def extract_zip(source, destination):
     root = Path(destination)
     root.mkdir(parents=True, exist_ok=True)
@@ -76,6 +99,7 @@ def extract_zip(source, destination):
                     with archive.open(member) as src, target.open('wb') as dst:
                         shutil.copyfileobj(src, dst)
                     target.chmod(stat.S_IMODE(mode) & 0o777 if mode else 0o644)
+    _remove_escaping_symlinks(root, resolved_root)
 
 
 def extract_tar(archive, destination):

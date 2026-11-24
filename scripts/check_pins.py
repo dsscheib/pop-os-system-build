@@ -84,23 +84,44 @@ PINS = [
 # ---------------------------------------------------------------- HTTP
 
 def _require_https(url):
-    parsed = urllib.parse.urlparse(url)
+    parsed = urllib.parse.urlsplit(url)
     if parsed.scheme != 'https' or not parsed.netloc:
         raise ValueError(f'Refusing non-HTTPS URL: {url}')
     return url
 
 
+class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Block redirects to non-HTTPS URLs before opening them and strip GitHub tokens cross-host."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        target = urllib.parse.urljoin(req.full_url, newurl)
+        _require_https(target)
+        redirected = super().redirect_request(req, fp, code, msg, headers, target)
+        if redirected is None:
+            return None
+        orig_host = urllib.parse.urlsplit(req.full_url).netloc.lower()
+        dest_host = urllib.parse.urlsplit(redirected.full_url).netloc.lower()
+        if orig_host != 'api.github.com' or dest_host != 'api.github.com':
+            for hdr_map in (redirected.headers, redirected.unredirected_hdrs):
+                for key in [k for k in hdr_map if k.lower() == 'authorization']:
+                    del hdr_map[key]
+        return redirected
+
+
+_OPENER = urllib.request.build_opener(_SafeRedirectHandler)
+
+
 def _request(url, method='GET'):
-    _require_https(url)
+    parsed = urllib.parse.urlsplit(_require_https(url))
     headers = {'User-Agent': USER_AGENT}
     token = os.environ.get('GITHUB_TOKEN')
-    if token and url.startswith('https://api.github.com/'):
+    if token and parsed.netloc.lower() == 'api.github.com':
         headers['Authorization'] = f'Bearer {token}'
     return urllib.request.Request(url, headers=headers, method=method)
 
 
 def http_text(url):
-    with urllib.request.urlopen(_request(url), timeout=TIMEOUT) as response:
+    with _OPENER.open(_request(url), timeout=TIMEOUT) as response:
         _require_https(response.geturl())
         return response.read().decode('utf-8', 'replace')
 
@@ -111,7 +132,7 @@ def http_json(url):
 
 def http_exists(url):
     try:
-        with urllib.request.urlopen(_request(url, 'HEAD'), timeout=TIMEOUT) as response:
+        with _OPENER.open(_request(url, 'HEAD'), timeout=TIMEOUT) as response:
             _require_https(response.geturl())
             return response.status == 200
     except urllib.error.HTTPError:
@@ -119,14 +140,14 @@ def http_exists(url):
 
 
 def http_final_url(url):
-    with urllib.request.urlopen(_request(url, 'HEAD'), timeout=TIMEOUT) as response:
+    with _OPENER.open(_request(url, 'HEAD'), timeout=TIMEOUT) as response:
         return _require_https(response.geturl())
 
 
 def download(url, destination):
     """Stream url to destination and return its SHA-256 hex digest."""
     digest = hashlib.sha256()
-    with urllib.request.urlopen(_request(url), timeout=TIMEOUT) as response:
+    with _OPENER.open(_request(url), timeout=TIMEOUT) as response:
         _require_https(response.geturl())
         with open(destination, 'wb') as out:
             for chunk in iter(lambda: response.read(1 << 20), b''):
@@ -269,6 +290,32 @@ def current_value(root, pin):
 
 # ---------------------------------------------------------------- editing pins
 
+_VERSION_RE = re.compile(r'[A-Za-z0-9][A-Za-z0-9._+~-]*')
+_SAFE_URL_RE = re.compile(r'https://[A-Za-z0-9._~:/?#@!&+=%,;-]+')
+_SHA256_RE = re.compile(r'[0-9a-f]{64}')
+
+
+def _validate_version(value, what='version'):
+    if not isinstance(value, str) or not _VERSION_RE.fullmatch(value):
+        raise ValueError(f'Unsafe {what}: {value!r}')
+    return value
+
+
+def _validate_url(value, what='url'):
+    if not isinstance(value, str):
+        raise ValueError(f'Unsafe {what}: {value!r}')
+    _require_https(value)
+    if not _SAFE_URL_RE.fullmatch(value):
+        raise ValueError(f'Unsafe {what}: {value!r}')
+    return value
+
+
+def _validate_sha256(value, what='sha256'):
+    if not isinstance(value, str) or not _SHA256_RE.fullmatch(value):
+        raise ValueError(f'Unsafe {what}: {value!r}')
+    return value
+
+
 def _replace_once(text, pattern, replacement, what):
     new, count = re.subn(pattern, lambda _: replacement, text, count=1, flags=re.M)
     if count != 1:
@@ -283,12 +330,17 @@ def set_download_fields(text, entry, fields):
         raise RuntimeError(f'download entry {entry!r} not found')
     body = block[1]
     for name, value in fields.items():
+        if name == 'url':
+            _validate_url(value, f'{entry}.{name}')
+        else:
+            _validate_version(value, f'{entry}.{name}')
         body = _replace_once(body, rf'^    {re.escape(name)}: .*$', f'    {name}: "{value}"', f'{entry}.{name}')
     return text[:block.start(1)] + body + text[block.end(1):]
 
 
 def set_default(text, key, value):
     """Set a top-level `key: value` line, keeping the existing quoting style."""
+    _validate_version(value, key)
     match = re.search(rf'^{re.escape(key)}: (.*)$', text, re.M)
     if not match:
         raise RuntimeError(f'default {key!r} not found')
@@ -297,12 +349,19 @@ def set_default(text, key, value):
 
 
 def set_shell_var(text, var, value):
+    if var.endswith('_URL'):
+        _validate_url(value, var)
+    elif var.endswith('_SHA256'):
+        _validate_sha256(value, var)
+    else:
+        _validate_version(value, var)
     return _replace_once(text, rf'^{re.escape(var)}=".*"$', f'{var}="{value}"', var)
 
 
 def set_collection_version(text, name, value):
+    _validate_version(value, name)
     pattern = rf'(^  - name: {re.escape(name)}\n    version: )"[^"]*"'
-    new, count = re.subn(pattern, rf'\g<1>"{value}"', text, count=1, flags=re.M)
+    new, count = re.subn(pattern, lambda m: f'{m[1]}"{value}"', text, count=1, flags=re.M)
     if count != 1:
         raise RuntimeError(f'collection {name!r} not found')
     return new
@@ -339,6 +398,7 @@ def fetch_and_hash(info, workdir, fetch=download):
 
 def bump(root, pin, info, fetch=download):
     """Apply info (from lookup) to the repo files. Returns the list of files changed."""
+    version = _validate_version(info['version'], f'{pin.name}.version')
     changed = {}
 
     def edit(relative, function, *args):
@@ -346,32 +406,34 @@ def bump(root, pin, info, fetch=download):
         changed[relative] = function(text, *args)
 
     if pin.location in ('download', 'bootstrap'):
+        url = _validate_url(info['url'], f'{pin.name}.url')
         with tempfile.TemporaryDirectory(prefix='pop-pin-') as workdir:
             sha256, path = fetch_and_hash(info, workdir, fetch)
+            _validate_sha256(sha256, f'{pin.name}.sha256')
             if pin.location == 'download':
-                fields = {'version': info['version'], 'url': info['url'], 'sha256': sha256}
+                fields = {'version': version, 'url': url, 'sha256': sha256}
                 entry = yaml.safe_load(read(root, DOWNLOADS))['pinned_downloads'][pin.key]
                 if 'deb_version' in entry:
-                    fields['deb_version'] = deb_version(path)
+                    fields['deb_version'] = _validate_version(deb_version(path), f'{pin.name}.deb_version')
                 edit(DOWNLOADS, set_download_fields, pin.key, fields)
                 defaults = yaml.safe_load(read(root, DEFAULTS)) or {}
                 for key in pin.also_defaults:
                     if key in defaults:
-                        edit(DEFAULTS, set_default, key, info['version'])
+                        edit(DEFAULTS, set_default, key, version)
             else:
-                for suffix, value in (('VERSION', info['version']), ('URL', info['url']), ('SHA256', sha256)):
+                for suffix, value in (('VERSION', version), ('URL', url), ('SHA256', sha256)):
                     edit(BOOTSTRAP, set_shell_var, f'{pin.key}_{suffix}', value)
     elif pin.location == 'bootstrap-version':
         old = current_value(root, pin)
-        edit(BOOTSTRAP, set_shell_var, pin.key, info['version'])
+        edit(BOOTSTRAP, set_shell_var, pin.key, version)
         package = pin.source[1]
         for relative in PYPI_PIN_MIRRORS:
             if (root / relative).exists() and f'{package}=={old}' in read(root, relative):
-                edit(relative, lambda text: text.replace(f'{package}=={old}', f'{package}=={info["version"]}'))
+                edit(relative, lambda text: text.replace(f'{package}=={old}', f'{package}=={version}'))
     elif pin.location == 'default':
-        edit(DEFAULTS, set_default, pin.key, info['version'])
+        edit(DEFAULTS, set_default, pin.key, version)
     elif pin.location == 'collection':
-        edit(REQUIREMENTS, set_collection_version, pin.key, info['version'])
+        edit(REQUIREMENTS, set_collection_version, pin.key, version)
 
     for relative, text in changed.items():
         (root / relative).write_text(text)

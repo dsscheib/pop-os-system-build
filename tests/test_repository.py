@@ -207,6 +207,23 @@ publish_install
         self.assertEqual((extracted / 'item').read_text(), 'replacement')
         self.assertEqual(outside.read_text(), 'untouched')
 
+    def test_zip_final_pass_removes_deferred_escaping_symlink(self):
+        crafted = self.root / 'deferred-escape.zip'
+        with zipfile.ZipFile(crafted, 'w') as archive:
+            # First link looks inside root because `a/b/d` does not exist yet;
+            # the second symlink makes `d -> .`, turning `d/../../..` into parent of root.
+            escape_link = zipfile.ZipInfo('a/b/link')
+            escape_link.external_attr = (stat.S_IFLNK | 0o777) << 16
+            archive.writestr(escape_link, 'd/../../..')
+            pivot_link = zipfile.ZipInfo('a/b/d')
+            pivot_link.external_attr = (stat.S_IFLNK | 0o777) << 16
+            archive.writestr(pivot_link, '.')
+        extracted = self.root / 'extracted-deferred'
+        with self.assertRaisesRegex(ValueError, 'Unsafe archive symlink'):
+            assets.extract_zip(crafted, extracted)
+        self.assertFalse((extracted / 'a/b/link').is_symlink())
+        self.assertFalse((extracted / 'a/b/link').exists())
+
     def test_tar_extracts_valid_internal_relative_symlink(self):
         tar_path = self.root / 'valid.tar'
         with tarfile.open(tar_path, 'w') as archive:
@@ -714,6 +731,61 @@ configure_user_links "$1" "$(id -u)" "$(id -g)"
         backups = list((mnt_data / 'Downloads').glob('file.txt.~*~'))
         self.assertEqual(len(backups), 1)
         self.assertEqual(backups[0].read_text(), 'existing-pool-data')
+
+    def test_secondary_btrfs_refuses_mount_root_inside_work_dir_or_symlink(self):
+        real_dir = self.root / 'real-dir'
+        real_dir.mkdir()
+        symlink_root = self.root / 'symlink-mount-root'
+        symlink_root.symlink_to(real_dir)
+
+        symlink_res = self.bash('''
+export SECONDARY_MOUNT_ROOT="$1"
+start_workspace secondary-btrfs
+trap cleanup_secondary_workspace EXIT
+ensure_subvolumes /dev/nvme9n1p1
+''', symlink_root, script='preboot/setup_secondary_btrfs_drive.sh')
+        self.assertNotEqual(symlink_res.returncode, 0)
+        self.assertIn('Invalid secondary mount root', symlink_res.stderr)
+
+        inside_res = self.bash('''
+start_workspace secondary-btrfs
+trap cleanup_secondary_workspace EXIT
+mkdir -p "$WORK_DIR/sub"
+export SECONDARY_MOUNT_ROOT="$WORK_DIR/sub"
+ensure_subvolumes /dev/nvme9n1p1
+''', script='preboot/setup_secondary_btrfs_drive.sh')
+        self.assertNotEqual(inside_res.returncode, 0)
+        self.assertIn('must stay outside WORK_DIR', inside_res.stderr)
+
+    def test_secondary_btrfs_downloads_migration_refuses_mounted_disk(self):
+        home = self.root / 'home'
+        mnt_data = self.root / 'mnt_data'
+        usb_mount = home / 'Downloads/usb'
+        usb_mount.mkdir(parents=True)
+        mnt_data.mkdir(parents=True)
+        (home / 'Downloads/local.txt').write_text('local-file')
+        (usb_mount / 'keep.txt').write_text('external-disk-file')
+
+        for mount_point in (usb_mount.resolve(), (home / 'Downloads').resolve()):
+            with self.subTest(mount_point=mount_point):
+                res = self.bash('''
+MOUNT_DATA="$2"
+FAKE_MOUNT="$3"
+findmnt() {
+  if [[ "$*" == *"-rn -o TARGET"* ]]; then
+    printf '/\\n%s\\n' "$FAKE_MOUNT"
+    return 0
+  fi
+  command findmnt "$@"
+}
+configure_user_links "$1" "$(id -u)" "$(id -g)"
+''', home, mnt_data, mount_point, script='preboot/setup_secondary_btrfs_drive.sh')
+                self.assertNotEqual(res.returncode, 0)
+                self.assertIn('Refusing to migrate', res.stderr)
+                self.assertTrue((home / 'Downloads').is_dir())
+                self.assertFalse((home / 'Downloads').is_symlink())
+                self.assertEqual((usb_mount / 'keep.txt').read_text(), 'external-disk-file')
+                self.assertEqual((home / 'Downloads/local.txt').read_text(), 'local-file')
 
     def test_preboot_non_root_sudo_reexec_points_to_existing_script(self):
         bin_dir = self.root / 'bin'

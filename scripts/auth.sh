@@ -169,11 +169,17 @@ from st_assets import atomic_text
 path = Path(os.environ['RCLONE_CONF_PATH'])
 if path.is_symlink():
     raise SystemExit(f'Refusing to write symlinked rclone config: {path}')
+if path.exists() and not path.is_file():
+    raise SystemExit(f'Refusing to write non-regular rclone config: {path}')
 remote = os.environ['GDRIVE_REMOTE']
 cfg = configparser.RawConfigParser()
 cfg.optionxform = str
 if path.exists():
-    cfg.read(path, encoding='utf-8')
+    try:
+        with path.open('r', encoding='utf-8') as handle:
+            cfg.read_file(handle)
+    except (OSError, UnicodeDecodeError, configparser.Error) as exc:
+        raise SystemExit(f'Refusing to overwrite unreadable or unparseable rclone config {path}: {exc}') from exc
 if not cfg.has_section(remote):
     cfg.add_section(remote)
 cfg.set(remote, 'type', 'drive')

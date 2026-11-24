@@ -255,3 +255,67 @@ class AuthScriptTests(unittest.TestCase):
         self.assertEqual(fail_res.returncode, 0, fail_res.stderr)
         self.assertIn('enable --now rclone-gdrive-bisync.timer', sc_log.read_text())
         self.assertIn('Could not enable rclone-gdrive-bisync.timer', fail_res.stderr)
+
+    def test_write_gdrive_rclone_config_preserves_other_remotes(self):
+        conf = self.root / 'rclone.conf'
+        conf.write_text(
+            '[b2]\n'
+            'type = b2\n'
+            'account = acct-123\n\n'
+            '[gdrive]\n'
+            'type = drive\n'
+            'token = {"access_token":"old"}\n'
+        )
+        res = self.bash(
+            'write_gdrive_rclone_config',
+            env={
+                'RCLONE_CONFIG': str(conf),
+                'GDRIVE_REMOTE': 'gdrive',
+                'GDRIVE_CLIENT_ID': 'new-cid',
+                'GDRIVE_CLIENT_SECRET': 'new-sec',
+            },
+        )
+        self.assertEqual(res.returncode, 0, res.stderr)
+        written = conf.read_text()
+        self.assertIn('[b2]', written)
+        self.assertIn('account = acct-123', written)
+        self.assertIn('client_id = new-cid', written)
+        self.assertNotIn('access_token', written)
+
+    def test_write_gdrive_rclone_config_refuses_unreadable_or_unparseable_config(self):
+        encrypted = self.root / 'encrypted.conf'
+        encrypted_body = '# Encrypted rclone configuration File\nRCLONE_ENCRYPT_V0:opaque\n'
+        encrypted.write_text(encrypted_body)
+        enc_res = self.bash(
+            'write_gdrive_rclone_config',
+            env={
+                'RCLONE_CONFIG': str(encrypted),
+                'GDRIVE_REMOTE': 'gdrive',
+                'GDRIVE_CLIENT_ID': 'cid',
+                'GDRIVE_CLIENT_SECRET': 'sec',
+            },
+        )
+        self.assertNotEqual(enc_res.returncode, 0)
+        self.assertIn('Refusing to overwrite', enc_res.stderr)
+        self.assertEqual(encrypted.read_text(), encrypted_body)
+
+        if os.geteuid() != 0:
+            locked = self.root / 'locked.conf'
+            locked_body = '[other]\ntype = s3\n'
+            locked.write_text(locked_body)
+            locked.chmod(0o000)
+            try:
+                lock_res = self.bash(
+                    'write_gdrive_rclone_config',
+                    env={
+                        'RCLONE_CONFIG': str(locked),
+                        'GDRIVE_REMOTE': 'gdrive',
+                        'GDRIVE_CLIENT_ID': 'cid',
+                        'GDRIVE_CLIENT_SECRET': 'sec',
+                    },
+                )
+                self.assertNotEqual(lock_res.returncode, 0)
+                self.assertIn('Refusing to overwrite', lock_res.stderr)
+            finally:
+                locked.chmod(0o600)
+            self.assertEqual(locked.read_text(), locked_body)
