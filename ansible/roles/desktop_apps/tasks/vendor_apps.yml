@@ -94,7 +94,6 @@
         dest: "{{ desktop_apps_arduino_link }}"
         state: link
         force: true
-        mode: "0755"
       when: not ansible_check_mode or desktop_apps_arduino_stat.stat.exists
 
     - name: Prune superseded Arduino IDE versions
@@ -390,7 +389,6 @@
         dest: "{{ desktop_apps_hbe_link }}"
         state: link
         force: true
-        mode: "0755"
       when: not ansible_check_mode or desktop_apps_hbe_stat.stat.exists
 
     - name: Prune superseded Hyper Backup Explorer versions

@@ -12,7 +12,7 @@ This document captures the locked architecture, ownership boundaries, and phased
    - `pop-os-system-build` holds **zero secrets**. (If OS-level secrets are ever added later, prefer `sops` + `age` using the same `age` key.)
 3. **Mise Boundary**:
    - **Global** `~/.config/mise/config.toml` and `~/.config/mise/mise.lock` live in the private Chezmoi `dotfiles` repository and are auto-converged on dotfile updates via a Chezmoi `run_onchange_after_mise-install.sh.tmpl` hook.
-   - **Repo-local** `mise.toml` in `pop-os-system-build` defines operator tasks (`bootstrap`, `plan`, `apply`, `role`, `auth`, `lint`, `check`).
+   - **Repo-local** `mise.toml` in `pop-os-system-build` defines operator tasks (`bootstrap`, `plan`, `apply`, `role`, `auth`, `update`, `pins`, `lint`, `check`).
 4. **Target OS**: **Pop!_OS / Ubuntu 24.04+ only (`x86_64`)**.
    - Drops Ubuntu 22.04 compatibility shims, legacy `.list`/GPG key workarounds (adopts `ansible.builtin.deb822_repository`), `btrfs-progs < 6.1` caveats, and optional fallback branches for packages native to 24.04+.
 5. **Pre-boot & Disk Scripts**:
@@ -57,7 +57,7 @@ Only GUI/vendor downloads and signed APT repository keys remain pinned in Ansibl
 ```text
 pop-os-system-build/
 ├── bootstrap.sh                  # Installs APT prereqs -> uv -> mise -> ansible-core + collections
-├── mise.toml                     # Repo tasks: bootstrap, apply, plan, role, auth, lint, check
+├── mise.toml                     # Repo tasks: bootstrap, apply, plan, role, auth, update, pins, lint, check
 ├── docs/
 │   └── v2-migration-plan.md      # This plan
 ├── preboot/                      # Standalone Btrfs live-install & secondary-drive scripts (Phase 5 move)

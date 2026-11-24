@@ -281,6 +281,13 @@ verify_target_bootloader() {
   chroot "$1" bootctl --esp-path=/boot/efi is-installed
 }
 
+verify_efi_partition() {
+  local efi_dev=$1 parttype
+  parttype=$(lsblk -dnro PARTTYPE "$efi_dev")
+  [[ $(blkid -s TYPE -o value "$efi_dev") == vfat &&
+     ${parttype,,} == c12a7328-f81f-11d2-ba4b-00a0c93ec93b ]] || fail "EFI device must be a FAT EFI System Partition."
+}
+
 main() {
   [[ $EUID -eq 0 ]] || fail "Run this script as root from the live USB (sudo)."
   local repair_boot=0
@@ -350,8 +357,7 @@ main() {
   fi
   efi_dev=$(locate_efi_partition "$MNT/etc/fstab" "$target_dev" "${2:-}")
   [[ -b "$efi_dev" ]] || fail "Invalid EFI block device: $efi_dev"
-  [[ $(blkid -s TYPE -o value "$efi_dev") == vfat &&
-     $(lsblk -dnro PARTTYPE "$efi_dev") == c12a7328-f81f-11d2-ba4b-00a0c93ec93b ]] || fail "EFI device must be a FAT EFI System Partition."
+  verify_efi_partition "$efi_dev"
   efi_uuid=$(blkid -s UUID -o value "$efi_dev")
   [[ -n "$efi_uuid" ]] || fail "EFI filesystem UUID is missing."
   if findmnt -rn --source "UUID=$efi_uuid" >/dev/null; then

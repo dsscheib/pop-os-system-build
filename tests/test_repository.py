@@ -13,6 +13,7 @@ import tarfile
 import tempfile
 import unittest
 from unittest import mock
+import warnings
 import xml.etree.ElementTree as ET
 import zipfile
 import yaml
@@ -191,13 +192,15 @@ publish_install
         dup = self.root / 'dup.zip'
         outside = self.root / 'outside.txt'
         outside.write_text('untouched')
-        with zipfile.ZipFile(dup, 'w') as archive:
-            m1 = zipfile.ZipInfo('item')
-            m1.external_attr = (stat.S_IFLNK | 0o777) << 16
-            archive.writestr(m1, 'safe-target')
-            m2 = zipfile.ZipInfo('item')
-            m2.external_attr = (stat.S_IFREG | 0o644) << 16
-            archive.writestr(m2, 'replacement')
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', UserWarning)
+            with zipfile.ZipFile(dup, 'w') as archive:
+                m1 = zipfile.ZipInfo('item')
+                m1.external_attr = (stat.S_IFLNK | 0o777) << 16
+                archive.writestr(m1, 'safe-target')
+                m2 = zipfile.ZipInfo('item')
+                m2.external_attr = (stat.S_IFREG | 0o644) << 16
+                archive.writestr(m2, 'replacement')
         extracted = self.root / 'extracted-dup'
         assets.extract_zip(dup, extracted)
         self.assertFalse((extracted / 'item').is_symlink())

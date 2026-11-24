@@ -86,7 +86,7 @@
 
 - name: Install Podman Fish completions
   ansible.builtin.copy:
-    content: "{{ containers_podman_fish_completion.stdout }}"
+    content: "{{ containers_podman_fish_completion.stdout }}\n"
     dest: "{{ workstation_home }}/.config/fish/completions/podman.fish"
     mode: "0644"
   when: not ansible_check_mode

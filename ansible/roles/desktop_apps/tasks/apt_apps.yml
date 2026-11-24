@@ -191,6 +191,11 @@
       check_mode: false
       failed_when: false
 
+    - name: Warn when uv is unavailable for kicad-python venv
+      ansible.builtin.debug:
+        msg: "WARNING: uv is unavailable; skipping kicad-python virtual environment setup."
+      when: desktop_apps_uv_which.rc != 0
+
     - name: Check kicad-python venv python executable
       ansible.builtin.stat:
         path: "{{ workstation_home }}/.local/share/kicad-python/bin/python"

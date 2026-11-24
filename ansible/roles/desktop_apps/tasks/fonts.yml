@@ -99,7 +99,6 @@
     dest: "{{ workstation_home }}/.local/share/fonts/JetBrainsMono"
     state: link
     force: true
-    mode: "0755"
   when: not ansible_check_mode or desktop_apps_font_stat.stat.exists
   notify: Refresh user font cache
 

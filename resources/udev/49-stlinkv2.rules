@@ -2,5 +2,5 @@
 # ie, STM32L, STM32F4.
 
 SUBSYSTEMS=="usb", ATTRS{idVendor}=="0483", ATTRS{idProduct}=="3748", \
-    MODE="660", TAG+="uaccess", ENV{ID_MM_DEVICE_IGNORE}="1", \
+    MODE="0660", GROUP="plugdev", TAG+="uaccess", ENV{ID_MM_DEVICE_IGNORE}="1", \
     SYMLINK+="stlinkv2_%n"

@@ -147,6 +147,11 @@
       check_mode: false
       failed_when: false
 
+    - name: Warn when uv is unavailable for Neovim Python provider
+      ansible.builtin.debug:
+        msg: "WARNING: uv is unavailable; skipping Neovim pynvim virtual environment setup."
+      when: workstation_uv_which.rc != 0
+
     - name: Check Neovim Python provider venv
       ansible.builtin.stat:
         path: "{{ workstation_home }}/.local/share/nvim-python/bin/python"
@@ -277,17 +282,7 @@
       ansible.builtin.command:
         argv:
           - python3
-          - -c
-          - >-
-            import pathlib, re, sys;
-            home = pathlib.Path(sys.argv[1]);
-            pdir = home / '.local/share/tmux/plugins';
-            confs = [home / '.tmux.conf', home / '.config/tmux/tmux.conf'];
-            txt = '\n'.join(c.read_text(encoding='utf-8') for c in confs if c.exists());
-            pat = r'^set(?:-option)?\s+-g\s+@plugin\s+';
-            lines = [re.sub(pat, '', ln.strip()) for ln in txt.splitlines() if re.match(pat, ln.strip())];
-            plugins = [v.split('#', 1)[0].strip(" \t'\"").rstrip('/').split('/')[-1].removesuffix('.git') for v in lines];
-            print('\n'.join(p for p in plugins if p and not (pdir / p).is_dir()))
+          - "{{ repo_root }}/scripts/tmux_missing_plugins.py"
           - "{{ workstation_home }}"
       register: workstation_tpm_missing_plugins
       check_mode: false

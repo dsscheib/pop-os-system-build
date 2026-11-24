@@ -173,7 +173,6 @@
         dest: "{{ ai_agents_agy_link }}"
         state: link
         force: true
-        mode: "0755"
       when: not ansible_check_mode or ai_agents_agy_stat.stat.exists
 
     - name: Prune superseded Antigravity CLI versions

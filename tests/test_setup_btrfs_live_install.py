@@ -166,6 +166,21 @@ locate_efi_partition "$1" /dev/root
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "/dev/efi")
 
+    def test_verify_efi_partition_accepts_uppercase_parttype_guid(self):
+        upper = self.bash('''
+blkid() { printf "vfat\\n"; }
+lsblk() { printf "C12A7328-F81F-11D2-BA4B-00A0C93EC93B\\n"; }
+verify_efi_partition /dev/efi
+''')
+        self.assertEqual(upper.returncode, 0, upper.stderr)
+
+        wrong = self.bash('''
+blkid() { printf "vfat\\n"; }
+lsblk() { printf "EBD0A0A2-B9E5-4433-87C0-68B6B72699C7\\n"; }
+verify_efi_partition /dev/efi
+''')
+        self.assertNotEqual(wrong.returncode, 0)
+
     def boot_fixture(self, options):
         entry = self.root / "loader/entries/Pop_OS-current.conf"
         entry.parent.mkdir(parents=True, exist_ok=True)

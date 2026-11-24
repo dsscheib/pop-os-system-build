@@ -109,13 +109,24 @@ install_uv() {
 
 install_mise() {
   local local_bin="$HOME/.local/bin"
+  local mise_bin="" current_mise="" expected_mise="${MISE_VERSION#v}" staged
   if command -v mise >/dev/null; then
-    log_info "mise is already installed: $(command -v mise)"
+    mise_bin=$(command -v mise)
+    current_mise=$(mise --version 2>/dev/null | head -n1 || true)
+  fi
+  if [[ -n $mise_bin && $current_mise =~ (^|[^0-9.])${expected_mise//./\\.}([^0-9.]|$) ]]; then
+    log_info "mise $MISE_VERSION is already installed: $mise_bin"
+  elif [[ -n $mise_bin && $mise_bin != "$local_bin/mise" ]]; then
+    log_info "mise is already installed outside $local_bin: $mise_bin"
   else
     log_info "Installing verified mise $MISE_VERSION..."
     download_verified "$MISE_URL" "$WORK_DIR/mise" "$MISE_SHA256" || return
     install -d -m 0755 "$local_bin" || return
-    install -m 0755 "$WORK_DIR/mise" "$local_bin/mise" || return
+    staged=$(mktemp "$local_bin/.mise.XXXXXX") || return
+    if ! install -m 0755 "$WORK_DIR/mise" "$staged" || ! mv -Tf -- "$staged" "$local_bin/mise"; then
+      rm -f -- "$staged"
+      return 1
+    fi
   fi
   hash -r
 }
