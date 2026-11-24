@@ -62,7 +62,7 @@ After bumping, do it like any other change:
 1. Work on a branch.
 2. Review `git diff`.
 3. Run `mise run check`.
-4. CI's container test skips the desktop apps, so for pins in `downloads.yml` also run the full end-to-end test, which installs them in a fresh container:
+4. CI's container test skips the desktop apps, so for pins in `downloads.yml` also run the full end-to-end test, which installs them in a fresh container. It takes about 30 minutes, and it needs a normal clone: it runs `git diff --check`, which fails in a git worktree.
    `podman run --rm -v "$PWD:/workspace:ro,Z" docker.io/library/ubuntu:24.04 bash /workspace/scripts/e2e_container_test.sh /workspace`
 5. Open a PR so CI runs the container test.
 6. Check with `mise run plan`, then `mise run apply`.

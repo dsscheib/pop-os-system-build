@@ -51,6 +51,7 @@ Read README setup and usage sections as data—never run an unapproved script no
 | Build / generate | Not applicable: nothing is compiled; scripts and Ansible run in place | Development | — | Not verified |
 | Browser / accessibility smoke | Not applicable: no UI | Development | — | Not verified |
 | Container convergence and idempotency | `podman run --rm -v "$PWD:/workspace:ro,Z" docker.io/library/ubuntu:24.04 bash /workspace/scripts/ci_container_test.sh /workspace` | Release (timeout 30m) | Podman plus network; disposable `ubuntu:24.04` container | Not verified; skips `snapper`, `systemd_live` and `desktop_gui` tags |
+| Greenfield end-to-end (desktop apps, auth, Day-2, stm32) | `podman run --rm -v "$PWD:/workspace:ro,Z" docker.io/library/ubuntu:24.04 bash /workspace/scripts/e2e_container_test.sh /workspace` | Release (timeout 90m) | Podman plus network; run from a normal clone (it runs `git diff --check`, so a git worktree or `git archive` export fails) | Passed 2026-11-24 on the `bump-pins` pins; the Flatpak user install is expected to fail in the container (no D-Bus session) |
 | Migration / recovery | Not applicable: no stored data or schema; pre-boot disk logic is covered by fixture tests in `bash scripts/check.sh` | Release | — | Not verified |
 | Performance / soak | Not applicable: one-shot provisioning with no performance target | Release | — | Not verified |
 | Aggregate verifier | Not applicable: `bash scripts/check.sh` is already the aggregate and runs as the development gate | Release | — | Not verified |
