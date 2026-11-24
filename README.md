@@ -201,7 +201,7 @@ mise.toml               The `mise run …` tasks
 ansible/                Playbook, roles, and settings (group_vars/all/)
 preboot/                Standalone disk and Snapper scripts (run as root)
 install_stm32_*.sh      STMicroelectronics installers used by the stm32 role
-scripts/                Helpers used by the roles, plus auth.sh and check.sh
+scripts/                Helpers used by the roles, plus auth.sh, check.sh and container tests
 resources/              Static files: udev rules, journald config, checksums, icons
 tests/                  Unit tests for the scripts
 docs/                   Guides and design notes: updating.md, v2-migration-plan.md, phase4-chezmoi-guide.md
@@ -216,3 +216,12 @@ mise run check    # or: bash scripts/check.sh
 ```
 
 This runs `shellcheck`, Bash syntax checks, Python and YAML parsing, `ansible-playbook --syntax-check`, `ansible-lint`, and the unit tests. CI runs the same checks, plus a full playbook test in an `ubuntu:24.04` container. That test previews the changes, applies them, then confirms that both a second preview and a second apply report no changes.
+
+To run the full greenfield end-to-end test locally in a disposable `ubuntu:24.04` container (requires Podman and network access; exercises `bootstrap.sh`, `desktop_apps`, `auth.sh` with ephemeral fixtures, Day-2 convergence, `lazy-lock.json` merge, `stm32`, and `mise run role`):
+
+```bash
+podman run --rm -v "$PWD:/workspace:ro" docker.io/library/ubuntu:24.04 \
+  bash /workspace/scripts/e2e_container_test.sh /workspace
+```
+
+For the faster CI-only container test (skips `desktop_gui`, `auth.sh`, and `stm32`), substitute `scripts/ci_container_test.sh`.
