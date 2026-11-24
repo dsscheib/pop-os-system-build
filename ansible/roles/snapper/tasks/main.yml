@@ -176,6 +176,12 @@
     force: false
   become: true
 
+- name: Check whether snapper-rollback source script exists
+  ansible.builtin.stat:
+    path: /usr/local/src/snapper-rollback/snapper-rollback.py
+  register: snapper_rollback_src_stat
+  become: true
+
 - name: Install snapper-rollback executable
   ansible.builtin.copy:
     src: /usr/local/src/snapper-rollback/snapper-rollback.py
@@ -185,6 +191,7 @@
     group: root
     mode: "0755"
   become: true
+  when: not ansible_check_mode or snapper_rollback_src_stat.stat.exists
 
 - name: Render snapper-rollback configuration
   ansible.builtin.template:
