@@ -589,6 +589,72 @@ configure_user_links "$1" "$(id -u)" "$(id -g)"
         self.assertEqual((home / 'Downloads').resolve(), (mnt_data / 'Downloads').resolve())
         self.assertEqual((mnt_data / 'Downloads/file.txt').read_text(), 'saved-download')
 
+    def test_secondary_btrfs_failed_subvolume_or_umount_preserves_mounted_data(self):
+        mount_root = self.root / 'mounts'
+        mount_root.mkdir()
+        for scenario in ('btrfs-create-fail', 'busy-umount-fail'):
+            with self.subTest(scenario=scenario):
+                case_root = mount_root / scenario
+                case_root.mkdir()
+                umount_log = self.root / f'{scenario}-umount.log'
+                res = self.bash('''
+export SECONDARY_MOUNT_ROOT="$1"
+export SCENARIO="$2"
+export UMOUNT_LOG="$3"
+start_workspace secondary-btrfs
+trap cleanup_secondary_workspace EXIT
+mount() {
+  local mnt=${@: -1}
+  [[ $mnt != "$WORK_DIR"* ]] || { printf 'mountpoint inside WORK_DIR: %s\n' "$mnt" >&2; return 99; }
+  printf 'live-pool-data' > "$mnt/sentinel.txt"
+}
+btrfs() {
+  if [[ $2 == show ]]; then return 1; fi
+  if [[ $2 == create && $SCENARIO == btrfs-create-fail ]]; then return 42; fi
+  return 0
+}
+findmnt() {
+  local mnt=${@: -1}
+  [[ -e "$mnt/sentinel.txt" ]]
+}
+umount() {
+  local mnt=${@: -1}
+  printf '%s\n' "$mnt" >> "$UMOUNT_LOG"
+  if [[ $SCENARIO == busy-umount-fail ]]; then return 16; fi
+  rm -f "$mnt/sentinel.txt"
+}
+ensure_subvolumes /dev/nvme9n1p1
+''', case_root, scenario, umount_log, script='preboot/setup_secondary_btrfs_drive.sh')
+                self.assertNotEqual(res.returncode, 0)
+                self.assertTrue(umount_log.is_file())
+                if scenario == 'btrfs-create-fail':
+                    self.assertEqual(res.returncode, 42, res.stderr)
+                    self.assertEqual(list(case_root.iterdir()), [])
+                else:
+                    self.assertEqual(res.returncode, 1, res.stderr)
+                    self.assertIn('Unmount failed', res.stderr)
+                    dirs = list(case_root.iterdir())
+                    self.assertEqual(len(dirs), 1)
+                    self.assertEqual((dirs[0] / 'sentinel.txt').read_text(), 'live-pool-data')
+
+    def test_secondary_btrfs_downloads_collision_preserves_existing_file(self):
+        home = self.root / 'home'
+        mnt_data = self.root / 'mnt_data'
+        (home / 'Downloads').mkdir(parents=True)
+        (mnt_data / 'Downloads').mkdir(parents=True)
+        (home / 'Downloads/file.txt').write_text('new-local-data')
+        (mnt_data / 'Downloads/file.txt').write_text('existing-pool-data')
+        result = self.bash('''
+MOUNT_DATA="$2"
+configure_user_links "$1" "$(id -u)" "$(id -g)"
+''', home, mnt_data, script='preboot/setup_secondary_btrfs_drive.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((home / 'Downloads').is_symlink())
+        self.assertEqual((mnt_data / 'Downloads/file.txt').read_text(), 'new-local-data')
+        backups = list((mnt_data / 'Downloads').glob('file.txt.~*~'))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(backups[0].read_text(), 'existing-pool-data')
+
     def test_preboot_non_root_sudo_reexec_points_to_existing_script(self):
         bin_dir = self.root / 'bin'
         bin_dir.mkdir()
