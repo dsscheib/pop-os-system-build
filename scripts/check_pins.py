@@ -31,6 +31,9 @@ REQUIREMENTS = 'ansible/requirements.yml'
 BOOTSTRAP = 'bootstrap.sh'
 # Files that repeat a bootstrap PyPI pin as `package==version`.
 PYPI_PIN_MIRRORS = ('.github/workflows/check.yml', 'scripts/ci_container_test.sh')
+ANTIGRAVITY_MANIFEST_URL = (
+    'https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/linux_amd64.json'
+)
 USER_AGENT = 'pop-os-system-build-pin-check'
 TIMEOUT = 30
 
@@ -55,9 +58,7 @@ PINS = [
         ('synology', 'SynologyDriveClient', r'/Ubuntu/Installer/[^"]*x86_64\.deb$')),
     Pin('hyper_backup_explorer', 'download', 'hyper_backup_explorer',
         ('synology', 'HyperBackupExplorer', r'/Linux/x86_64/[^"]*\.tar\.bz2$')),
-    Pin('antigravity_cli', 'download', 'antigravity_cli', ('antigravity',), bumpable=False,
-        note='the download URL contains a build ID that is not published; copy the new URL '
-             'from the Antigravity CLI install instructions and update downloads.yml by hand'),
+    Pin('antigravity_cli', 'download', 'antigravity_cli', ('antigravity',)),
     Pin('arduino_ide', 'download', 'arduino_ide',
         ('github', 'arduino/arduino-ide', r'_Linux_64bit\.zip$'), also_defaults=('arduino_ide_version',)),
     Pin('mise', 'bootstrap', 'MISE', ('github', 'jdx/mise', r'^mise-v[0-9.]+-linux-x64$')),
@@ -161,8 +162,16 @@ def lookup_synology(product, asset_pattern):
 
 
 def lookup_antigravity():
-    version = http_text('https://storage.googleapis.com/antigravity-public/antigravity-cli/latest').strip()
-    return {'version': version}
+    data = http_json(ANTIGRAVITY_MANIFEST_URL)
+    for field_name in ('version', 'url', 'sha512'):
+        if not data.get(field_name):
+            raise RuntimeError(f'Antigravity manifest missing {field_name}')
+    return {
+        'version': str(data['version']).strip(),
+        'url': str(data['url']).strip(),
+        'digest': str(data['sha512']).strip().lower(),
+        'digest_algo': 'sha512',
+    }
 
 
 def lookup_pypi(package):
@@ -291,12 +300,24 @@ def deb_version(path):
     return result.stdout.strip()
 
 
+def _file_digest(path, algo):
+    digest = hashlib.new(algo)
+    with open(path, 'rb') as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def fetch_and_hash(info, workdir, fetch=download):
     """Download info['url'] and return (sha256, local path), verifying any published digest."""
     path = Path(workdir) / (info['url'].rsplit('/', 1)[-1] or 'download')
     sha256 = fetch(info['url'], path)
-    if info.get('digest') and info['digest'] != sha256:
-        raise RuntimeError(f'SHA-256 mismatch for {info["url"]}: GitHub publishes {info["digest"]}, downloaded {sha256}')
+    if info.get('digest'):
+        algo = info.get('digest_algo', 'sha256')
+        actual = sha256 if algo == 'sha256' else _file_digest(path, algo)
+        if info['digest'] != actual:
+            label = {'sha256': 'SHA-256', 'sha512': 'SHA-512'}.get(algo, algo.upper())
+            raise RuntimeError(f'{label} mismatch for {info["url"]}: upstream publishes {info["digest"]}, downloaded {actual}')
     return sha256, path
 
 
