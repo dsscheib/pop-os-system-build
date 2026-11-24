@@ -93,3 +93,26 @@ class AuthScriptTests(unittest.TestCase):
         )
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertIn('not configured', res.stdout)
+
+    def test_auth_chezmoi_falls_back_to_mise_exec(self):
+        bin_dir = self.root / 'bin'
+        bin_dir.mkdir()
+        mise = bin_dir / 'mise'
+        mise.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$*" > "$HOME/mise.log"\n')
+        mise.chmod(0o755)
+        gh = bin_dir / 'gh'
+        gh.write_text('#!/usr/bin/env bash\nexit 1\n')
+        gh.chmod(0o755)
+
+        res = self.bash(
+            'auth_chezmoi',
+            env={
+                'PATH': f'{bin_dir}:/usr/bin:/bin',
+                'DOTFILES_REPO': 'https://github.com/example/dotfiles.git',
+            },
+        )
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(
+            (self.root / 'mise.log').read_text().strip(),
+            'exec chezmoi -- chezmoi init --apply https://github.com/example/dotfiles.git',
+        )

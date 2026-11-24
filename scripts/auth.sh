@@ -55,14 +55,19 @@ auth_github() {
 }
 
 auth_chezmoi() {
-  if ! command -v chezmoi >/dev/null; then
-    log_info "chezmoi is not installed yet; skipping Chezmoi step."
+  local -a chezmoi_cmd
+  if command -v chezmoi >/dev/null; then
+    chezmoi_cmd=(chezmoi)
+  elif command -v mise >/dev/null; then
+    chezmoi_cmd=(mise exec chezmoi -- chezmoi)
+  else
+    log_info "Neither chezmoi nor mise is installed yet; skipping Chezmoi step."
     return 0
   fi
   local source_dir="$HOME/.local/share/chezmoi" repo
   if [[ -d "$source_dir/.git" ]]; then
     log_info "Applying existing Chezmoi dotfiles..."
-    chezmoi apply
+    "${chezmoi_cmd[@]}" apply
     return 0
   fi
   repo=${DOTFILES_REPO:-$(local_var dotfiles_repo)}
@@ -76,9 +81,9 @@ auth_chezmoi() {
     GIT_CONFIG_COUNT=$((index + 1)) \
       "GIT_CONFIG_KEY_$index=credential.https://github.com.helper" \
       "GIT_CONFIG_VALUE_$index=!gh auth git-credential" \
-      chezmoi init --apply "$repo"
+      "${chezmoi_cmd[@]}" init --apply "$repo"
   else
-    chezmoi init --apply "$repo"
+    "${chezmoi_cmd[@]}" init --apply "$repo"
   fi
 }
 

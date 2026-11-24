@@ -8,7 +8,9 @@
         desktop_apps_arduino_versions_dir: "{{ workstation_home }}/Applications/.arduino-ide.versions"
         desktop_apps_arduino_install_dir: "{{ workstation_home }}/Applications/.arduino-ide.versions/{{ arduino_ide_version }}"
         desktop_apps_arduino_link: "{{ workstation_home }}/Applications/arduino-ide"
-        desktop_apps_arduino_app_dir: "{{ workstation_home }}/Applications/.arduino-ide.versions/{{ arduino_ide_version }}/arduino-ide_{{ arduino_ide_version }}_Linux_64bit"
+        desktop_apps_arduino_app_dir: >-
+          {{ workstation_home ~ '/Applications/.arduino-ide.versions/' ~ arduino_ide_version
+             ~ '/arduino-ide_' ~ arduino_ide_version ~ '_Linux_64bit' }}
 
     - name: Ensure Arduino IDE versions directory exists
       ansible.builtin.file:
@@ -89,7 +91,7 @@
           StartupWMClass=arduino-ide
         dest: "{{ workstation_home }}/.local/share/applications/arduino-ide.desktop"
         mode: "0644"
-      notify: Refresh desktop database
+      notify: Refresh desktop applications database
 
     - name: Validate Arduino IDE desktop entry
       ansible.builtin.command:
@@ -165,7 +167,7 @@
           StartupWMClass=Logic
         dest: "{{ workstation_home }}/.local/share/applications/saleae-logic.desktop"
         mode: "0644"
-      notify: Refresh desktop database
+      notify: Refresh desktop applications database
 
     - name: Validate Saleae Logic desktop entry
       ansible.builtin.command:
@@ -322,7 +324,7 @@
           Categories=Utility;Archiving;
         dest: "{{ workstation_home }}/.local/share/applications/synology-hyper-backup-explorer.desktop"
         mode: "0644"
-      notify: Refresh desktop database
+      notify: Refresh desktop applications database
 
     - name: Validate Hyper Backup Explorer desktop entry
       ansible.builtin.command:

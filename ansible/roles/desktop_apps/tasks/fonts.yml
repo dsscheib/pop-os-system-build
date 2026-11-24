@@ -19,6 +19,7 @@
   when:
     - not desktop_apps_font_stat.stat.exists
     - not ansible_check_mode
+  notify: Refresh user font cache
   block:
     - name: Create temporary workspace for JetBrainsMono download
       ansible.builtin.tempfile:
@@ -55,7 +56,6 @@
       ansible.builtin.file:
         path: "{{ desktop_apps_font_tmpdir.path }}"
         state: absent
-  notify: Refresh font cache
 
 - name: Link active JetBrainsMono font directory
   ansible.builtin.file:
@@ -65,4 +65,4 @@
     force: true
     mode: "0755"
   when: not ansible_check_mode
-  notify: Refresh font cache
+  notify: Refresh user font cache

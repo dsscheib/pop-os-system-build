@@ -80,7 +80,9 @@
       ansible.builtin.set_fact:
         ai_agents_agy_base: "{{ workstation_home }}/.local/share/pop-workstation"
         ai_agents_agy_versions: "{{ workstation_home }}/.local/share/pop-workstation/.antigravity-cli.versions"
-        ai_agents_agy_version_dir: "{{ workstation_home }}/.local/share/pop-workstation/.antigravity-cli.versions/{{ pinned_downloads.antigravity_cli.version }}"
+        ai_agents_agy_version_dir: >-
+          {{ workstation_home ~ '/.local/share/pop-workstation/.antigravity-cli.versions/'
+             ~ pinned_downloads.antigravity_cli.version }}
         ai_agents_agy_link: "{{ workstation_home }}/.local/share/pop-workstation/antigravity-cli"
 
     - name: Ensure Antigravity CLI versions directory exists
@@ -191,7 +193,13 @@
           - which
           - "{{ item }}"
       environment:
-        PATH: "{{ workstation_local_bin }}:{{ workstation_home }}/.local/share/mise/shims:{{ workstation_home }}/.cargo/bin:{{ ansible_facts['env'].PATH | default('/usr/bin:/bin') }}"
+        PATH: >-
+          {{ [
+            workstation_local_bin,
+            workstation_home ~ '/.local/share/mise/shims',
+            workstation_home ~ '/.cargo/bin',
+            ansible_facts['env'].PATH | default('/usr/bin:/bin'),
+          ] | join(':') }}
       loop:
         - codex
         - herdr

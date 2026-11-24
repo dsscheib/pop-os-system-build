@@ -122,6 +122,49 @@ class BootstrapAndV2FoundationTests(unittest.TestCase):
         for role_name in role_names:
             self.assertTrue((ANSIBLE_DIR / 'roles' / role_name / 'tasks/main.yml').is_file())
 
+    def test_ansible_yaml_line_lengths(self):
+        for path in sorted(ANSIBLE_DIR.rglob('*.yml')):
+            for lineno, line in enumerate(path.read_text(encoding='utf-8').splitlines(), start=1):
+                self.assertLessEqual(
+                    len(line),
+                    160,
+                    f'{path.relative_to(REPO)}:{lineno} exceeds 160 chars ({len(line)})',
+                )
+
+    def test_ansible_notifies_match_role_handlers(self):
+        def collect_notifies(node):
+            found = []
+            if isinstance(node, dict):
+                if 'notify' in node:
+                    val = node['notify']
+                    if isinstance(val, str):
+                        found.append(val)
+                    elif isinstance(val, list):
+                        found.extend(item for item in val if isinstance(item, str))
+                for value in node.values():
+                    found.extend(collect_notifies(value))
+            elif isinstance(node, list):
+                for item in node:
+                    found.extend(collect_notifies(item))
+            return found
+
+        for role_dir in sorted((ANSIBLE_DIR / 'roles').iterdir()):
+            if not role_dir.is_dir():
+                continue
+            handlers_file = role_dir / 'handlers/main.yml'
+            handlers = set()
+            if handlers_file.is_file():
+                parsed_handlers = yaml.safe_load(handlers_file.read_text(encoding='utf-8')) or []
+                handlers = {entry['name'] for entry in parsed_handlers if isinstance(entry, dict) and 'name' in entry}
+            for task_file in sorted((role_dir / 'tasks').glob('*.yml')):
+                parsed_tasks = yaml.safe_load(task_file.read_text(encoding='utf-8')) or []
+                for notified in collect_notifies(parsed_tasks):
+                    self.assertIn(
+                        notified,
+                        handlers,
+                        f'{task_file.relative_to(REPO)} notifies unknown handler {notified!r}',
+                    )
+
     def test_ansible_downloads_match_downloads_json(self):
         legacy = json.loads((REPO / 'resources/downloads.json').read_text())
         v2_downloads = yaml.safe_load((ANSIBLE_DIR / 'group_vars/all/downloads.yml').read_text())['pinned_downloads']
