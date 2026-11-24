@@ -70,7 +70,7 @@
   ansible.builtin.file:
     path: "{{ workstation_home }}/.config/fish/completions"
     state: directory
-    mode: "0755"
+    mode: "u+rwx,g+rx,o+rx"
 
 - name: Generate Podman Fish completions
   ansible.builtin.command:

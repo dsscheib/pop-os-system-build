@@ -181,7 +181,7 @@
       ansible.builtin.file:
         path: "{{ item }}"
         state: directory
-        mode: "0755"
+        mode: "u+rwx,g+rx,o+rx"
       loop:
         - "{{ workstation_home }}/.local/share/bash-completion/completions"
         - "{{ workstation_home }}/.zsh/completion"
