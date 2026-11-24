@@ -10,6 +10,7 @@
       - /
   register: snapper_root_fstype
   changed_when: false
+  check_mode: false
 
 - name: Check root subvolume mount
   ansible.builtin.command:
@@ -22,6 +23,7 @@
       - /
   register: snapper_root_fsroot
   changed_when: false
+  check_mode: false
 
 - name: Check snapshot mount filesystem type
   ansible.builtin.command:
@@ -34,6 +36,7 @@
       - /.snapshots
   register: snapper_snapshots_fstype
   changed_when: false
+  check_mode: false
 
 - name: Check snapshot subvolume mount
   ansible.builtin.command:
@@ -46,6 +49,7 @@
       - /.snapshots
   register: snapper_snapshots_fsroot
   changed_when: false
+  check_mode: false
 
 - name: Check root filesystem UUID
   ansible.builtin.command:
@@ -58,6 +62,7 @@
       - /
   register: snapper_root_uuid_cmd
   changed_when: false
+  check_mode: false
 
 - name: Check snapshot filesystem UUID
   ansible.builtin.command:
@@ -70,6 +75,7 @@
       - /.snapshots
   register: snapper_snapshots_uuid_cmd
   changed_when: false
+  check_mode: false
 
 - name: Verify @ and @snapshots Btrfs mount layout
   ansible.builtin.assert:
@@ -95,6 +101,7 @@
       - "{{ repo_root }}/scripts/configure_hibernation.py"
       - --check
   changed_when: false
+  check_mode: false
   become: true
   when: enable_hibernation | bool
 
@@ -113,6 +120,7 @@
       - /etc/apt/apt.conf.d/80snapper
   register: snapper_legacy_hook_match
   changed_when: false
+  check_mode: false
   failed_when: false
   become: true
   when: snapper_legacy_hook_stat.stat.exists
@@ -300,6 +308,7 @@
       printf 'Dir::Etc::parts "%s";\nDir::Etc::main "/dev/null";\n' "$tmp_dir/parts" > "$tmp_dir/apt.conf"
       APT_CONFIG="$tmp_dir/apt.conf" apt-config dump >/dev/null
   changed_when: false
+  check_mode: false
   become: true
 
 - name: Install Snapper APT hook helper
@@ -337,6 +346,7 @@
       - --no-legend
   register: snapper_boot_timer_check
   changed_when: false
+  check_mode: false
   failed_when: false
   become: true
 

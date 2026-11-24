@@ -21,6 +21,7 @@
         PATH: "{{ workstation_local_bin }}:{{ workstation_home }}/.local/share/mise/shims:{{ ansible_facts['env'].PATH | default('/usr/bin:/bin') }}"
       register: workstation_chezmoi_which
       changed_when: false
+      check_mode: false
       failed_when: false
 
     - name: Check whether Chezmoi source repository is initialized
@@ -35,6 +36,7 @@
           - status
       register: workstation_chezmoi_status
       changed_when: false
+      check_mode: false
       when:
         - workstation_chezmoi_which.rc == 0
         - workstation_chezmoi_repo_stat.stat.exists
@@ -66,6 +68,7 @@
         PATH: "{{ workstation_local_bin }}:{{ ansible_facts['env'].PATH | default('/usr/bin:/bin') }}"
       register: workstation_mise_which
       changed_when: false
+      check_mode: false
       failed_when: false
 
     - name: Check whether global Mise config.toml exists
@@ -81,6 +84,7 @@
           - --missing
       register: workstation_mise_missing
       changed_when: false
+      check_mode: false
       when:
         - workstation_mise_which.rc == 0
         - workstation_mise_config_stat.stat.exists
@@ -112,6 +116,7 @@
         PATH: "{{ workstation_local_bin }}:{{ workstation_home }}/.local/share/mise/shims:{{ ansible_facts['env'].PATH | default('/usr/bin:/bin') }}"
       register: workstation_uv_which
       changed_when: false
+      check_mode: false
       failed_when: false
 
     - name: Set up Neovim pynvim virtual environment
