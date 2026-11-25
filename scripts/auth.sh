@@ -54,8 +54,25 @@ auth_github() {
   gh auth login --hostname github.com --git-protocol https --scopes workflow --web
 }
 
+# Print the GitHub CLI's token (or an existing GITHUB_TOKEN), if any.
+github_token() {
+  if [[ -n ${GITHUB_TOKEN:-} ]]; then
+    printf '%s' "$GITHUB_TOKEN"
+  elif command -v gh >/dev/null; then
+    gh auth token --hostname github.com 2>/dev/null || true
+  fi
+}
+
 auth_chezmoi() {
   local -a chezmoi_cmd
+  # Chezmoi's install hook runs `mise install`, which calls the GitHub API for
+  # many tools; anonymous calls are limited to 60 an hour. Export the GitHub
+  # CLI token for this function only (environment, never argv).
+  local token
+  token=$(github_token)
+  if [[ -n $token ]]; then
+    local -x GITHUB_TOKEN=$token
+  fi
   if command -v chezmoi >/dev/null; then
     chezmoi_cmd=(chezmoi)
   elif command -v mise >/dev/null; then
@@ -78,10 +95,12 @@ auth_chezmoi() {
   log_info "Initializing Chezmoi from $repo..."
   if command -v gh >/dev/null && gh auth status --hostname github.com >/dev/null 2>&1; then
     local index=${GIT_CONFIG_COUNT:-0}
-    GIT_CONFIG_COUNT=$((index + 1)) \
-      "GIT_CONFIG_KEY_$index=credential.https://github.com.helper" \
-      "GIT_CONFIG_VALUE_$index=!gh auth git-credential" \
-      "${chezmoi_cmd[@]}" init --apply "$repo"
+    # Quoted `"NAME_$i=value"` words before a command are not assignments (bash
+    # runs them as the command name), so export the computed names with local -x.
+    local -x GIT_CONFIG_COUNT=$((index + 1))
+    local -x "GIT_CONFIG_KEY_$index=credential.https://github.com.helper"
+    local -x "GIT_CONFIG_VALUE_$index=!gh auth git-credential"
+    "${chezmoi_cmd[@]}" init --apply "$repo"
   else
     "${chezmoi_cmd[@]}" init --apply "$repo"
   fi
@@ -238,12 +257,37 @@ switch_or_create_gdrive_remote() {
   }
 }
 
+# Use the folder and remote path that the dotfiles' bisync timer uses (Chezmoi
+# data `gdrive_local_dir` / `gdrive_remote_path`), so the first --resync and
+# the timer agree. Variables already set (environment or gdrive-oauth.env) win.
+load_gdrive_chezmoi_paths() {
+  [[ -z ${GDRIVE_LOCAL_DIR+x} || -z ${GDRIVE_REMOTE_PATH+x} ]] || return 0
+  command -v chezmoi >/dev/null || return 0
+  local data line key value
+  data=$(chezmoi data --format json 2>/dev/null) || return 0
+  while IFS= read -r line; do
+    key=${line%%=*} value=${line#*=}
+    case $key in
+      GDRIVE_LOCAL_DIR) [[ -n ${GDRIVE_LOCAL_DIR+x} || -z $value ]] || GDRIVE_LOCAL_DIR=$value ;;
+      GDRIVE_REMOTE_PATH) [[ -n ${GDRIVE_REMOTE_PATH+x} ]] || GDRIVE_REMOTE_PATH=$value ;;
+    esac
+  done < <(python3 -I -c '
+import json, sys
+data = json.load(sys.stdin)
+for key, name in (("gdrive_local_dir", "GDRIVE_LOCAL_DIR"), ("gdrive_remote_path", "GDRIVE_REMOTE_PATH")):
+    value = data.get(key)
+    if isinstance(value, str) and "\n" not in value:
+        print(f"{name}={value}")
+' <<<"$data" 2>/dev/null)
+}
+
 auth_gdrive() {
   if ! command -v rclone >/dev/null; then
     log_info "rclone is not installed yet; skipping Google Drive auth."
     return 0
   fi
   load_gdrive_oauth_env || return
+  load_gdrive_chezmoi_paths
   if [[ -z ${GDRIVE_CLIENT_ID:-} || -z ${GDRIVE_CLIENT_SECRET:-} ]]; then
     log_info "GDRIVE_CLIENT_ID / GDRIVE_CLIENT_SECRET not configured; skipping Google Drive auth."
     return 0

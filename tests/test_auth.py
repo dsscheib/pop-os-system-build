@@ -120,6 +120,60 @@ class AuthScriptTests(unittest.TestCase):
             'exec chezmoi -- chezmoi init --apply https://github.com/example/dotfiles.git',
         )
 
+    def test_auth_chezmoi_passes_github_token_in_environment_only(self):
+        bin_dir = self.root / 'bin'
+        bin_dir.mkdir()
+        gh = bin_dir / 'gh'
+        gh.write_text('#!/usr/bin/env bash\n'
+                      '[[ "$1 $2" == "auth token" ]] && { printf "tok-123"; exit 0; }\n'
+                      '[[ "$1 $2" == "auth status" ]] && exit 0\nexit 1\n')
+        gh.chmod(0o755)
+        chezmoi = bin_dir / 'chezmoi'
+        chezmoi.write_text('#!/usr/bin/env bash\n'
+                           'printf "%s\\n" "$*" > "$HOME/chezmoi.argv"\n'
+                           'printf "%s" "${GITHUB_TOKEN-unset}" > "$HOME/chezmoi.token"\n'
+                           'printf "%s|%s|%s" "${GIT_CONFIG_COUNT-unset}" "${GIT_CONFIG_KEY_0-unset}" '
+                           '"${GIT_CONFIG_VALUE_0-unset}" > "$HOME/chezmoi.gitconfig"\n')
+        chezmoi.chmod(0o755)
+
+        res = self.bash(
+            'auth_chezmoi; printf "after=%s" "${GITHUB_TOKEN-unset}"',
+            env={'PATH': f'{bin_dir}:/usr/bin:/bin', 'GITHUB_TOKEN': '',
+                 'DOTFILES_REPO': 'https://github.com/example/dotfiles.git'},
+        )
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual((self.root / 'chezmoi.token').read_text(), 'tok-123')
+        # The gh credential helper must reach git (regression: quoted assignments ran as a command).
+        self.assertEqual((self.root / 'chezmoi.gitconfig').read_text(),
+                         '1|credential.https://github.com.helper|!gh auth git-credential')
+        self.assertNotIn('tok-123', (self.root / 'chezmoi.argv').read_text())
+        self.assertIn('init --apply https://github.com/example/dotfiles.git',
+                      (self.root / 'chezmoi.argv').read_text())
+        self.assertIn('after=', res.stdout)
+        self.assertNotIn('tok-123', res.stdout)  # not left behind in the caller
+
+    def test_gdrive_paths_follow_chezmoi_data_unless_already_set(self):
+        bin_dir = self.root / 'bin'
+        bin_dir.mkdir()
+        chezmoi = bin_dir / 'chezmoi'
+        chezmoi.write_text('#!/usr/bin/env bash\n[[ "$1" == data ]] || exit 1\n'
+                           'printf \'{"gdrive_local_dir": "/data/Drive", "gdrive_remote_path": "Work Docs", "other": 1}\'\n')
+        chezmoi.chmod(0o755)
+        env = {'PATH': f'{bin_dir}:/usr/bin:/bin'}
+        show = 'load_gdrive_chezmoi_paths; printf "%s|%s" "${GDRIVE_LOCAL_DIR-unset}" "${GDRIVE_REMOTE_PATH-unset}"'
+
+        res = self.bash(f'unset GDRIVE_LOCAL_DIR GDRIVE_REMOTE_PATH; {show}', env=env)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(res.stdout, '/data/Drive|Work Docs')
+
+        res = self.bash(f'GDRIVE_LOCAL_DIR=/mine; unset GDRIVE_REMOTE_PATH; {show}', env=env)
+        self.assertEqual(res.stdout, '/mine|Work Docs')
+
+        res = self.bash(f'unset GDRIVE_LOCAL_DIR GDRIVE_REMOTE_PATH; {show}',
+                        env={'PATH': '/usr/bin:/bin'} if not Path('/usr/bin/chezmoi').exists() else env)
+        if not Path('/usr/bin/chezmoi').exists():
+            self.assertEqual(res.stdout, 'unset|unset')  # no chezmoi: nothing changes
+
     def test_gdrive_oauth_env_parses_as_data_without_shell_expansion(self):
         oauth = self.root / 'gdrive-oauth.env'
         pwned = self.root / 'pwned'
