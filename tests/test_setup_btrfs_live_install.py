@@ -347,6 +347,36 @@ verify_target_bootloader "$1"
         # firmware mutation that fails when the live USB booted through GRUB.
         self.assertNotIn("set-default Pop_OS-current", SCRIPT.read_text())
 
+    def test_esp_bootloader_is_checked_before_migration(self):
+        stub_dir = self.root / "bin"
+        stub_dir.mkdir()
+        log = self.root / "bootctl.log"
+        bootctl = stub_dir / "bootctl"
+        bootctl.write_text(f'#!/bin/bash\nprintf "%s\\n" "$*" >> {shlex.quote(str(log))}\n'
+                           '[[ -n "$BOOTCTL_FAIL" ]] && exit 1\nexit 0\n')
+        bootctl.chmod(0o755)
+        esp = self.root / "esp"
+        esp.mkdir()
+        run = 'PATH="$2:$PATH" verify_esp_bootloader "$1"'
+
+        ok = self.bash(run, esp, stub_dir)
+        self.assertEqual(ok.returncode, 0, ok.stderr)
+        self.assertEqual(log.read_text().strip(), f"--esp-path={esp} is-installed")
+
+        missing = self.bash(f'BOOTCTL_FAIL=1 {run}', esp, stub_dir)
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertIn("systemd-boot is not installed on the EFI partition; nothing was changed", missing.stderr)
+
+        empty = self.root / "empty"
+        empty.mkdir()
+        no_tool = self.bash('PATH="$2" verify_esp_bootloader "$1"', esp, empty)
+        self.assertEqual(no_tool.returncode, 0, no_tool.stderr)
+        self.assertIn("checked after conversion instead", no_tool.stderr)
+
+        # The early check must run while the ESP is mounted and before MIGRATION_STARTED.
+        text = SCRIPT.read_text()
+        self.assertLess(text.index('verify_esp_bootloader "$WORK_DIR/efi"'), text.index("MIGRATION_STARTED=1"))
+
     def repair_layout(self):
         for name in ("@", "@home", "@snapshots"):
             (self.root / name).mkdir()

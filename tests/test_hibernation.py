@@ -33,6 +33,7 @@ class Fixture(hibernation.Hibernation):
         self.mounted_swap = False
         self.fail_publish = False
         self.sleep_override = False
+        self.suspend_then_hibernate_override = False
 
     def run(self, *args):
         self.calls.append(args)
@@ -73,7 +74,8 @@ class Fixture(hibernation.Hibernation):
             return self.units
         if args[0] == 'systemd-analyze':
             text = self.read('/etc/systemd/sleep.conf.d/90-pop-hibernation.conf')
-            return text + ('AllowHibernation=no\n' if self.sleep_override else '')
+            return (text + ('AllowHibernation=no\n' if self.sleep_override else '')
+                    + ('AllowSuspendThenHibernate=no\n' if self.suspend_then_hibernate_override else ''))
         if args[0] == 'lsinitramfs':
             return 'scripts/local-premount/resume\nconf/conf.d/resume'
         if args[0] == 'kernelstub' and not self.fail_publish:
@@ -154,8 +156,11 @@ class HibernationTests(unittest.TestCase):
         self.assertIn('/oldswap none swap sw 0 0', fstab)
         self.assertIn('subvol=@swap', fstab)
         self.assertIn('RESUME=UUID=aaaa-bbbb', self.setup.read('/etc/initramfs-tools/conf.d/resume'))
-        self.assertIn('AllowHibernation=yes', self.setup.read('/etc/systemd/sleep.conf.d/90-pop-hibernation.conf'))
-        self.assertEqual(lid.read_text(), '[Login]\nHandleLidSwitch=hibernate\n'
+        sleep_conf = self.setup.read('/etc/systemd/sleep.conf.d/90-pop-hibernation.conf')
+        self.assertIn('AllowHibernation=yes', sleep_conf)
+        self.assertIn('AllowSuspendThenHibernate=yes', sleep_conf)
+        self.assertIn('HibernateDelaySec=1h', sleep_conf)
+        self.assertEqual(lid.read_text(), '[Login]\nHandleLidSwitch=suspend-then-hibernate\n'
                          'HandleLidSwitchExternalPower=suspend\nHandleLidSwitchDocked=ignore\n')
         lid_backup = lid.with_name(lid.name + '.pre-hibernation')
         self.assertEqual(lid_backup.read_text(), '[Login]\nHandleLidSwitch=suspend\n')
@@ -278,6 +283,13 @@ class HibernationTests(unittest.TestCase):
         self.setup.sleep_override = True
         with self.assertRaisesRegex(ValueError, 'overrides AllowHibernation'):
             self.setup.configure()
+
+    def test_reports_suspend_then_hibernate_disabled_elsewhere(self):
+        # The lid uses suspend-then-hibernate, so a drop-in disabling it must stop the run.
+        self.setup.suspend_then_hibernate_override = True
+        with self.assertRaisesRegex(ValueError, 'overrides AllowSuspendThenHibernate'):
+            self.setup.configure()
+        self.assertFalse(self.setup.path('/etc/systemd/logind.conf.d/90-lid-close.conf').exists())
 
     def test_failed_unmount_does_not_remove_mountpoint_contents(self):
         directory = self.root / 'top-level'

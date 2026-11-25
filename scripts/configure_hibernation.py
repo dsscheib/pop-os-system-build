@@ -20,6 +20,8 @@ from st_assets import atomic_text
 
 GIB = 1024 ** 3
 SWAP = '/swap/hibernate.swap'
+# How long the lid-close suspend lasts before the machine hibernates.
+HIBERNATE_DELAY = '1h'
 
 
 def swap_size(meminfo):
@@ -272,8 +274,12 @@ class Hibernation:
         fstab_changed = self.write('/etc/fstab', self.fstab)
         self.run('findmnt', '--verify', '--tab-file', str(self.path('/etc/fstab')))
         resume_changed = self.write('/etc/initramfs-tools/conf.d/resume', f'RESUME=UUID={self.uuid}\n')
+        # The lid uses suspend-then-hibernate: suspend first, hibernate after
+        # HIBERNATE_DELAY. If hibernation fails, the machine stays suspended
+        # instead of staying awake.
         sleep_changed = self.write('/etc/systemd/sleep.conf.d/90-pop-hibernation.conf',
-                                   '[Sleep]\nAllowHibernation=yes\nHibernateMode=platform shutdown\n')
+                                   '[Sleep]\nAllowHibernation=yes\nAllowSuspendThenHibernate=yes\n'
+                                   f'HibernateMode=platform shutdown\nHibernateDelaySec={HIBERNATE_DELAY}\n')
         sleep = self.run('systemd-analyze', 'cat-config', 'systemd/sleep.conf')
         section, settings = '', {}
         for line in sleep.splitlines():
@@ -285,6 +291,8 @@ class Hibernation:
                 settings[key.strip()] = value.strip()
         if settings.get('AllowHibernation', '').lower() not in ('yes', 'true', '1', 'on'):
             raise ValueError('Another systemd sleep drop-in overrides AllowHibernation; resolve it and rerun')
+        if settings.get('AllowSuspendThenHibernate', 'yes').lower() not in ('yes', 'true', '1', 'on'):
+            raise ValueError('Another systemd sleep drop-in overrides AllowSuspendThenHibernate; resolve it and rerun')
         # Retain unrelated options and replace old resume/noresume parameters.
         self.config.setdefault('user', {})['kernel_options'] = resume_options(self.config, self.uuid, offset)
         kernelstub_changed = self.write('/etc/kernelstub/configuration', json.dumps(self.config, indent=2) + '\n')
@@ -299,7 +307,7 @@ class Hibernation:
         # Install lid policy only after validating the persistent resume setup.
         # Reboot applies it without restarting logind in the desktop session.
         lid_changed = self.write('/etc/systemd/logind.conf.d/90-lid-close.conf',
-                                 '[Login]\nHandleLidSwitch=hibernate\n'
+                                 '[Login]\nHandleLidSwitch=suspend-then-hibernate\n'
                                  'HandleLidSwitchExternalPower=suspend\nHandleLidSwitchDocked=ignore\n')
         if fstab_changed or sleep_changed or lid_changed:
             self.run('systemctl', 'daemon-reload')
@@ -308,7 +316,8 @@ class Hibernation:
         if changed:
             print(f'Hibernation configured: {SWAP} ({swap.stat().st_size // GIB} GiB).')
             print('Reboot to load the new resume settings, then test: systemctl hibernate')
-            print('After reboot, lid close hibernates on battery, suspends on AC, and is ignored when docked.')
+            print(f'After reboot, closing the lid on battery suspends and then hibernates after {HIBERNATE_DELAY}; '
+                  'on AC it suspends, and docked it is ignored.')
             print('A successful hibernate/resume cycle is required to verify hardware and driver support.')
         else:
             print(f'Hibernation already configured: {SWAP} ({swap.stat().st_size // GIB} GiB).')

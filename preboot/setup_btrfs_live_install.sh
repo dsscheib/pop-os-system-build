@@ -281,6 +281,20 @@ verify_target_bootloader() {
   chroot "$1" bootctl --esp-path=/boot/efi is-installed
 }
 
+verify_esp_bootloader() {
+  # Before anything moves, confirm the target ESP already holds systemd-boot,
+  # which verify_target_bootloader checks again in the chroot at the end.
+  # Otherwise that check would only fail after the files have moved. Uses the
+  # live session's bootctl; if there is none, the final check still runs.
+  local esp=$1
+  if ! command -v bootctl >/dev/null; then
+    log_warn "bootctl is not available in the live session; the bootloader is checked after conversion instead."
+    return 0
+  fi
+  bootctl --esp-path="$esp" is-installed >/dev/null ||
+    fail "systemd-boot is not installed on the EFI partition; nothing was changed. Check that the right EFI partition was given and that Pop!_OS installed its boot loader there."
+}
+
 verify_efi_partition() {
   local efi_dev=$1 parttype
   parttype=$(lsblk -dnro PARTTYPE "$efi_dev")
@@ -385,6 +399,7 @@ main() {
   mkdir "$WORK_DIR/efi"
   mount -t vfat "$efi_dev" "$WORK_DIR/efi"
   mount --make-private "$WORK_DIR/efi"
+  (( repair_boot )) || verify_esp_bootloader "$WORK_DIR/efi"
   umount "$WORK_DIR/efi"
   rmdir "$WORK_DIR/efi"
 

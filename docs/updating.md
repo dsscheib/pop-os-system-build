@@ -22,6 +22,8 @@ Options: `--yes`, `--skip STEP[,STEP]`, `--only STEP[,STEP]`, `--bump-mise`. For
 
 APT upgrades are covered by Snapper: the APT hook takes a snapshot before and after every run (`snapper list` shows them, and `snapper-rollback` restores one).
 
+**Rolling back across a kernel update:** on Pop!_OS, kernelstub keeps the kernel and initramfs on the EFI partition, which snapshots don't cover. After a rollback, the newest kernel would boot against a root that lacks its modules (no Wi-Fi or sound, for example). Hold Space at power-on and pick the `Pop_OS-oldkern` entry. Once booted, run `sudo update-initramfs -u -k all && sudo kernelstub` so the boot entries match the restored root.
+
 To make your existing `update` alias use this, change it in your dotfiles' fish config:
 
 ```fish

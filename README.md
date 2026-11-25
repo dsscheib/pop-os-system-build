@@ -24,24 +24,40 @@ Everything is safe to re-run. A second run changes nothing unless something has 
 
 ### 1. Prepare the disk for snapshots (optional, from the live USB)
 
-Do this right after the Pop!_OS installer finishes and **before you reboot**. The script reorganizes the Btrfs root into `@`, `@home` and `@snapshots` subvolumes so Snapper can take and roll back snapshots. Boot the live USB in UEFI mode, and get this repo onto it (clone it or copy it from a USB stick).
+**In the Pop!_OS installer,** choose a custom install with exactly two partitions: a FAT32 EFI System Partition (1 GB or more) mounted at `/boot/efi`, and one Btrfs partition for `/`. Don't create a separate `/home` or `/boot`; the script refuses those.
+
+Do this right after the Pop!_OS installer finishes and **before you reboot**. The script reorganizes the Btrfs root into `@`, `@home` and `@snapshots` subvolumes so Snapper can take and roll back snapshots. Boot the live USB in UEFI mode, and get this repo onto it: clone it (if the live session has no git, run `sudo apt install git` first), or copy it from a USB stick.
 
 ```bash
 lsblk                                                   # find your root (Btrfs) and EFI partitions
 sudo ./preboot/setup_btrfs_live_install.sh /dev/nvme0n1p3
-# If the EFI partition isn't detected (for example with an encrypted root), name it too:
+# If the EFI partition isn't detected, name it too:
 sudo ./preboot/setup_btrfs_live_install.sh /dev/nvme0n1p3 /dev/nvme0n1p1
 ```
 
-If the script reports that the root filesystem is already mounted, unmount the installer's mounts (`findmnt` lists them) and run it again. To repair fstab, kernelstub and initramfs on a disk that's already converted, add `--repair-boot` before the device names.
+- **Encrypted root:** the script needs the unlocked Btrfs filesystem, not the encrypted partition. Unlock it first, then pass the mapped device and the EFI partition:
+  ```bash
+  sudo cryptsetup open /dev/nvme0n1p3 cryptroot   # add `sudo vgchange -ay` if the installer used LVM
+  sudo ./preboot/setup_btrfs_live_install.sh /dev/mapper/cryptroot /dev/nvme0n1p1
+  ```
+- **Copied from a USB stick?** FAT sticks drop the execute bit, so run it as `sudo bash ./preboot/setup_btrfs_live_install.sh …`.
+- If the script reports that the root filesystem is already mounted, unmount the installer's mounts (`findmnt` lists them) and run it again.
+- To repair fstab, kernelstub and initramfs on a disk that's already converted, add `--repair-boot` before the device names.
 
 Skip this step if you don't want snapshots.
 
 ### 2. Clone and bootstrap
 
-After rebooting into the installed system:
+After rebooting into the installed system, bring it fully up to date first. Right after the first login, Pop!_OS's own updater may be holding the package manager, and the first `apply` shouldn't be the run that replaces the kernel and desktop under you.
 
 ```bash
+sudo apt update && sudo apt full-upgrade -y && sudo reboot
+```
+
+Then clone the repo into `~/github`. The `update` shell function in the dotfiles and the STM32 download folder both expect that location.
+
+```bash
+mkdir -p ~/github && cd ~/github
 git clone https://github.com/dsscheib/pop-os-system-build.git
 cd pop-os-system-build
 ./bootstrap.sh
@@ -59,12 +75,12 @@ Edit `local.yml` (it's gitignored, so it stays on this machine). The settings yo
 
 | Setting | Default | Change it when… |
 | :--- | :--- | :--- |
-| `dotfiles_repo` | empty | you want `mise run auth` to restore your private Chezmoi dotfiles |
-| `nvim_config_repo`, `nvim_config_ref` | empty | you want your Neovim config cloned into `~/.config/nvim` (`ref` is an optional branch, tag or commit) |
+| `dotfiles_repo` | empty | you want `mise run auth` to restore your private Chezmoi dotfiles. Use the HTTPS URL: SSH keys don't exist yet on a fresh machine. |
+| `nvim_config_repo`, `nvim_config_ref` | empty | you want your Neovim config cloned into `~/.config/nvim` (`ref` is an optional branch, tag or commit). Use the HTTPS URL. If the repo is private, leave this empty until after step 5, because there are no GitHub credentials before then. |
 | `enable_snapper` | `true` | set `false` if you skipped step 1; otherwise `apply` stops with a Btrfs layout error |
-| `enable_hibernation` | `false` | set `true` on laptops to create a Btrfs swapfile and resume settings |
+| `enable_hibernation` | `false` | set `true` on laptops to create a Btrfs swapfile and resume settings. Closing the lid on battery then suspends, and hibernates after 1 hour (`HIBERNATE_DELAY` in `scripts/configure_hibernation.py`); on AC it only suspends. |
 | `install_samsung_970_evo_nvme_rule` | `false` | only on the machine with that Samsung drive at PCI `0000:00:1d.0` |
-| `install_dropbox` | `true` | set `false` to skip `nautilus-dropbox` |
+| `install_dropbox` | `true` | set `false` to skip Dropbox. The `nautilus-dropbox` package is Dropbox's Linux client; its Nautilus plugin goes unused on COSMIC, and syncing works without it. See step 7 for the one-time setup. |
 | `install_appimagelauncher` | `false` | set `true` to install AppImageLauncher |
 
 Everything else (package lists, Flatpak apps, the LLVM version, which STM32 tools to install, and so on) lives in `ansible/group_vars/all/00-defaults.yml`. Any of it can be overridden in `local.yml`.
@@ -87,6 +103,8 @@ When Ansible asks for `BECOME password:`, enter your sudo password. The first ru
 
 ### 5. Sign in
 
+**Restoring a backup of your home directory?** Do it before this step, and leave `~/.local/share/keyrings/` out of it. An old keyring replaces the new one and wipes the GitHub CLI login this step creates.
+
 ```bash
 mise run auth
 ```
@@ -98,7 +116,7 @@ This walks through each interactive sign-in and skips any step that doesn't appl
 3. **Google Drive**: if your dotfiles provide the OAuth client, signs in to rclone and asks before the first full two-way sync.
 4. **Herdr**: hooks Herdr into whichever agent CLIs are installed.
 
-To redo a single step later: `mise run auth -- --step gdrive` (or `github`, `chezmoi`, `herdr`).
+To redo a single step later: `mise run auth -- --step gdrive` (or `github`, `chezmoi`, `herdr`). Every step is safe to rerun if one stops partway, for example on a network error or a closed browser tab.
 
 ### 6. Apply again
 
@@ -111,8 +129,9 @@ Now that your dotfiles and Mise tools are in place, this second run sets up ever
 ### 7. Finish up
 
 - **Log out and back in** so your new `dialout` and `plugdev` group memberships apply (needed for serial ports and debug probes).
-- **Laptops with hibernation:** reboot, then test with `systemctl hibernate`.
+- **Laptops with hibernation:** reboot, then test with `systemctl hibernate`, and once more with `systemctl suspend-then-hibernate`.
 - **Sign in to the AI CLIs** you use: `agy`, `claude`, `codex`, `copilot`, and `:Copilot auth` inside Neovim.
+- **Dropbox:** run `dropbox start -i` once. It downloads the Dropbox program and prints a link to sign this computer in. Then run `dropbox autostart y` so it starts at every login.
 
 ## Everyday use
 

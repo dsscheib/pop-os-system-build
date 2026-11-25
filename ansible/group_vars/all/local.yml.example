@@ -1,10 +1,13 @@
 ---
 # Copy to ansible/group_vars/all/local.yml (gitignored) for per-machine overrides.
 
-# Private Chezmoi dotfiles repository (cloned via gh or SSH)
+# Private Chezmoi dotfiles repository. Use the HTTPS URL: `mise run auth` signs
+# in with the GitHub CLI first, and a fresh machine has no SSH keys yet.
 # dotfiles_repo: "https://github.com/your-username/dotfiles.git"
 
-# Neovim configuration repository
+# Neovim configuration repository (HTTPS). The first `mise run apply` clones it
+# before any GitHub sign-in, so leave it unset until after `mise run auth` if the
+# repo is private.
 # nvim_config_repo: "https://github.com/your-username/astronvim_v6"
 # nvim_config_ref: ""
 
