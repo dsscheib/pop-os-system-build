@@ -24,7 +24,15 @@ Everything is safe to re-run. A second run changes nothing unless something has 
 
 ### 1. Prepare the disk for snapshots (optional, from the live USB)
 
-**In the Pop!_OS installer,** choose a custom install with exactly two partitions: a FAT32 EFI System Partition of 4 GB (the size Pop!_OS's automatic install uses; kernels and their initramfs images are stored there) mounted at `/boot/efi`, and one Btrfs partition for `/`. Don't create a separate `/home` or `/boot`; the script refuses those.
+**In the Pop!_OS installer,** choose a custom install with these partitions, in this order:
+
+| Partition | Format | Size | Mount point |
+| :--- | :--- | :--- | :--- |
+| EFI System Partition | FAT32 | 4 GB | `/boot/efi` |
+| Recovery | FAT32 | 4 GB | `/recovery` |
+| Root | Btrfs | the rest of the disk | `/` |
+
+Both 4 GB sizes match Pop!_OS's automatic install. The EFI partition holds the kernels and their initramfs images. The installer copies itself onto the recovery partition, so you can boot it from the boot menu (hold Space while the computer starts) without a USB stick. The recovery partition is optional; the script leaves its `/recovery` entry as it is. Don't create a separate `/home` or `/boot`; the script refuses those.
 
 Do this right after the Pop!_OS installer finishes and **before you reboot**. The script reorganizes the Btrfs root into `@`, `@home` and `@snapshots` subvolumes so Snapper can take and roll back snapshots. Boot the live USB in UEFI mode, and get this repo onto it: clone it (if the live session has no git, run `sudo apt install git` first), or copy it from a USB stick.
 
