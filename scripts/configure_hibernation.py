@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Configure hibernation on the installed Pop!_OS Btrfs/systemd-boot layout.
 
+Supports both initramfs generators: initramfs-tools (Pop!_OS 24.04) and dracut
+(Pop!_OS 26.04, which replaces initramfs-tools).
+
 Never hibernates the machine. Swap allocation is confined to @swap and its
 hibernate.swap file; existing swap areas are preserved and never deactivated.
 """
@@ -22,6 +25,18 @@ GIB = 1024 ** 3
 SWAP = '/swap/hibernate.swap'
 # How long the lid-close suspend lasts before the machine hibernates.
 HIBERNATE_DELAY = '1h'
+INITRAMFS_TOOLS_RESUME = '/usr/share/initramfs-tools/scripts/local-premount/resume'
+INITRAMFS_TOOLS_CONF = '/etc/initramfs-tools/conf.d/resume'
+DRACUT_MODULES = '/usr/lib/dracut/modules.d'
+# dracut leaves its resume module out of host-only images unless resume= was
+# already on the running kernel's command line; always include it.
+DRACUT_CONF = '/etc/dracut.conf.d/90-pop-hibernation.conf'
+DRACUT_CONF_TEXT = 'add_dracutmodules+=" resume "\n'
+# With dracut's systemd module, these resume from the resume= and
+# resume_offset= kernel parameters that kernelstub publishes.
+DRACUT_RESUME_FILES = ('usr/lib/systemd/system-generators/systemd-hibernate-resume-generator',
+                       'usr/lib/systemd/system/systemd-hibernate-resume.service',
+                       'usr/lib/systemd/systemd-hibernate-resume')
 # Ubuntu's /usr/share/polkit-1/rules.d/com.ubuntu.desktop.rules answers NO to
 # every hibernate action, so logind reports CanHibernate=no and users can't
 # hibernate. Rules files are evaluated in lexical order across rules.d
@@ -122,9 +137,21 @@ class Hibernation:
     def mount_info(self, point, field):
         return self.run('findmnt', '-n', '-o', field, '--mountpoint', point)
 
+    def initramfs_generator(self):
+        """Return 'initramfs-tools' or 'dracut', whichever builds this system's initramfs."""
+        if self.path(INITRAMFS_TOOLS_RESUME).is_file():
+            if 'resume_offset' not in self.read(INITRAMFS_TOOLS_RESUME):
+                raise ValueError('Install initramfs-tools with swap-file resume support first')
+            return 'initramfs-tools'
+        if any(self.path(DRACUT_MODULES).glob('*resume')):
+            return 'dracut'
+        raise ValueError('Install initramfs-tools, or dracut with its resume module, first')
+
     def preflight(self):
-        for command in ('btrfs', 'findmnt', 'mount', 'umount', 'swapon', 'blkid',
-                        'kernelstub', 'update-initramfs', 'lsinitramfs', 'systemctl', 'systemd-analyze'):
+        self.initramfs = self.initramfs_generator()
+        tools = ('lsinitramfs',) if self.initramfs == 'initramfs-tools' else ('dracut', 'lsinitrd')
+        for command in ('btrfs', 'findmnt', 'mount', 'umount', 'swapon', 'blkid', 'kernelstub',
+                        'update-initramfs', *tools, 'systemctl', 'systemd-analyze'):
             if not shutil.which(command):
                 raise ValueError(f'Required command missing: {command}')
         if not re.search(r'^ID=(?:pop|"pop")$', self.read('/etc/os-release'), re.MULTILINE):
@@ -150,8 +177,6 @@ class Hibernation:
         if esp != '/boot/efi':
             raise ValueError('Only kernelstub ESP path /boot/efi is supported')
         self.read('/boot/efi/loader/entries/Pop_OS-current.conf')
-        if 'resume_offset' not in self.read('/usr/share/initramfs-tools/scripts/local-premount/resume'):
-            raise ValueError('Install initramfs-tools with swap-file resume support first')
         for unit in ('hibernate.target', 'systemd-hibernate.service'):
             state = self.run('systemctl', 'show', '-p', 'LoadState', '--value', unit)
             if state != 'loaded':
@@ -166,7 +191,7 @@ class Hibernation:
         self.fstab = swap_fstab(self.read('/etc/fstab'), self.uuid)
         resume_options(self.config, self.uuid, 1)  # Validate before allocating swap.
         for name in ('/etc/fstab', '/etc/kernelstub/configuration',
-                     '/etc/initramfs-tools/conf.d/resume',
+                     INITRAMFS_TOOLS_CONF, DRACUT_CONF,
                      '/etc/systemd/sleep.conf.d/90-pop-hibernation.conf',
                      '/etc/systemd/logind.conf.d/90-lid-close.conf', POLKIT_RULE, '/swap'):
             if self.path(name).is_symlink():
@@ -249,10 +274,17 @@ class Hibernation:
             if not path.is_file() or path.stat().st_size == 0:
                 raise ValueError(f'Missing EFI boot image: {path}')
             if image[0] == 'initrd':
-                listing = self.run('lsinitramfs', str(path)).splitlines()
-                has_resume |= 'scripts/local-premount/resume' in listing
+                has_resume |= self._initramfs_resumes(path)
         if not has_resume:
-            raise ValueError('The EFI initramfs is missing its early-boot resume script')
+            raise ValueError('The EFI initramfs is missing its early-boot resume support'
+                             + (' (systemd-hibernate-resume)' if self.initramfs == 'dracut' else ''))
+
+    def _initramfs_resumes(self, path):
+        if self.initramfs == 'dracut':
+            # lsinitrd prints `ls -l`-style lines; the path is a whole field.
+            fields = set(self.run('lsinitrd', str(path)).split())
+            return all(name in fields for name in DRACUT_RESUME_FILES)
+        return 'scripts/local-premount/resume' in self.run('lsinitramfs', str(path)).splitlines()
 
     def _boot_entry_valid(self, offset):
         try:
@@ -295,7 +327,10 @@ class Hibernation:
             raise ValueError('Hibernation swap did not become active')
         fstab_changed = self.write('/etc/fstab', self.fstab)
         self.run('findmnt', '--verify', '--tab-file', str(self.path('/etc/fstab')))
-        resume_changed = self.write('/etc/initramfs-tools/conf.d/resume', f'RESUME=UUID={self.uuid}\n')
+        if self.initramfs == 'dracut':
+            resume_changed = self.write(DRACUT_CONF, DRACUT_CONF_TEXT)
+        else:
+            resume_changed = self.write(INITRAMFS_TOOLS_CONF, f'RESUME=UUID={self.uuid}\n')
         # The lid uses suspend-then-hibernate: suspend first, hibernate after
         # HIBERNATE_DELAY. If hibernation fails, the machine stays suspended
         # instead of staying awake.

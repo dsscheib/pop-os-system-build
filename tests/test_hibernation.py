@@ -34,6 +34,10 @@ class Fixture(hibernation.Hibernation):
         self.fail_publish = False
         self.sleep_override = False
         self.suspend_then_hibernate_override = False
+        # `lsinitrd` output of a Pop!_OS 26.04 dracut image (format from dracut 110).
+        self.dracut_listing = '\n'.join(
+            f'-rwxr-xr-x   1 root     root        27232 Sep 16 14:55 {name}'
+            for name in hibernation.DRACUT_RESUME_FILES)
 
     def run(self, *args):
         self.calls.append(args)
@@ -78,6 +82,8 @@ class Fixture(hibernation.Hibernation):
                     + ('AllowSuspendThenHibernate=no\n' if self.suspend_then_hibernate_override else ''))
         if args[0] == 'lsinitramfs':
             return 'scripts/local-premount/resume\nconf/conf.d/resume'
+        if args[0] == 'lsinitrd':
+            return self.dracut_listing
         if args[0] == 'kernelstub' and not self.fail_publish:
             options = json.loads(self.read('/etc/kernelstub/configuration'))['user']['kernel_options']
             self.path('/boot/efi/loader/entries/Pop_OS-current.conf').write_text(
@@ -197,6 +203,55 @@ class HibernationTests(unittest.TestCase):
                              for call in self.setup.calls), 0)
         self.assertEqual(sum(call[0] == 'swapon' and '--priority' in call
                              for call in self.setup.calls), 0)
+
+    def use_dracut(self):
+        """Turn the fixture into Pop!_OS 26.04, where dracut replaces initramfs-tools."""
+        self.setup.path(hibernation.INITRAMFS_TOOLS_RESUME).unlink()
+        module = self.setup.path(hibernation.DRACUT_MODULES + '/74resume/module-setup.sh')
+        module.parent.mkdir(parents=True)
+        module.write_text('# dracut resume module\n')
+
+    def test_dracut_configuration_includes_resume_module_and_is_repeatable(self):
+        self.use_dracut()
+        self.assertTrue(self.setup.configure())
+        self.assertEqual(self.setup.read(hibernation.DRACUT_CONF), 'add_dracutmodules+=" resume "\n')
+        self.assertFalse(self.setup.path(hibernation.INITRAMFS_TOOLS_CONF).exists())
+        options = json.loads(self.setup.read('/etc/kernelstub/configuration'))['user']['kernel_options']
+        self.assertIn('resume=UUID=aaaa-bbbb', options)
+        self.assertIn('resume_offset=123456', options)
+        commands = [call[0] for call in self.setup.calls]
+        self.assertLess(commands.index('update-initramfs'), commands.index('kernelstub'))
+        self.assertIn(('lsinitrd', str(self.setup.path('/boot/efi/EFI/Pop_OS-test/initrd.img'))),
+                      self.setup.calls)
+        self.assertNotIn('lsinitramfs', commands)
+        self.assertTrue(self.setup.path(hibernation.POLKIT_RULE).exists())
+        self.setup.calls.clear()
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertFalse(self.setup.configure())
+        self.assertNotIn('update-initramfs', [call[0] for call in self.setup.calls])
+
+    def test_dracut_image_without_systemd_resume_stops_before_lid_policy(self):
+        self.use_dracut()
+        for missing in hibernation.DRACUT_RESUME_FILES:
+            with self.subTest(missing=missing):
+                self.setup.dracut_listing = '\n'.join(
+                    f'-rw-r--r--   1 root root 666 Sep 16 14:55 {name}'
+                    for name in hibernation.DRACUT_RESUME_FILES if name != missing)
+                with self.assertRaisesRegex(ValueError, 'systemd-hibernate-resume'):
+                    self.setup.configure()
+                self.assertFalse(self.setup.path('/etc/systemd/logind.conf.d/90-lid-close.conf').exists())
+                self.assertFalse(self.setup.path(hibernation.POLKIT_RULE).exists())
+
+    def test_requires_an_initramfs_generator_with_resume_support(self):
+        self.setup.path(hibernation.INITRAMFS_TOOLS_RESUME).unlink()
+        with self.assertRaisesRegex(ValueError, 'initramfs-tools, or dracut'):
+            self.setup.preflight()
+        self.setup.path(hibernation.DRACUT_MODULES + '/74resume').mkdir(parents=True)
+        with patch.object(hibernation.shutil, 'which',
+                          side_effect=lambda name: None if name == 'lsinitrd' else '/fixture/tool'):
+            with self.assertRaisesRegex(ValueError, 'Required command missing: lsinitrd'):
+                self.setup.preflight()
+        self.assertFalse(self.setup.path('/swap').exists())
 
     def test_drifted_efi_entry_triggers_boot_refresh(self):
         self.assertTrue(self.setup.configure())
