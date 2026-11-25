@@ -97,6 +97,22 @@ class AuthScriptTests(unittest.TestCase):
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertIn('not configured', res.stdout)
 
+    def test_auth_gdrive_rejects_a_placeholder_client_before_touching_rclone(self):
+        bin_dir = self.root / 'bin'
+        bin_dir.mkdir()
+        rclone = bin_dir / 'rclone'
+        rclone.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> "$HOME/rclone.log"\n')
+        rclone.chmod(0o755)
+        oauth = self.root / 'gdrive-oauth.env'
+        oauth.write_text('GDRIVE_CLIENT_ID=your-client-id\nGDRIVE_CLIENT_SECRET=your-client-secret\n')
+        oauth.chmod(0o600)
+        res = self.bash('auth_gdrive', env={'PATH': f'{bin_dir}:{os.environ["PATH"]}',
+                                            'GDRIVE_OAUTH_ENV': str(oauth)})
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("isn't a Google OAuth client ID", res.stderr)
+        self.assertNotIn('your-client', res.stdout + res.stderr)  # Never echo the values.
+        self.assertFalse((self.root / 'rclone.log').exists())
+
     def test_auth_chezmoi_falls_back_to_mise_exec(self):
         bin_dir = self.root / 'bin'
         bin_dir.mkdir()
@@ -267,11 +283,11 @@ class AuthScriptTests(unittest.TestCase):
             '#!/usr/bin/env bash\n'
             'case $1 in\n'
             '  listremotes) printf "gdrive:\\n" ;;\n'
-            '  config) printf \'{"gdrive":{"client_id":"cid"}}\' ;;\n'
+            '  config) printf \'{"gdrive":{"client_id":"cid.apps.googleusercontent.com"}}\' ;;\n'
             'esac\n'
         )
         (bin_dir / 'rclone').chmod(0o755)
-        (bin_dir / 'jq').write_text('#!/usr/bin/env bash\ncat >/dev/null\nprintf "cid\\n"\n')
+        (bin_dir / 'jq').write_text('#!/usr/bin/env bash\ncat >/dev/null\nprintf "cid.apps.googleusercontent.com\\n"\n')
         (bin_dir / 'jq').chmod(0o755)
 
         sc_log = self.root / 'systemctl.log'
@@ -295,7 +311,7 @@ class AuthScriptTests(unittest.TestCase):
             'PATH': f'{bin_dir}:{os.environ["PATH"]}',
             'XDG_STATE_HOME': str(state_dir),
             'GDRIVE_OAUTH_ENV': str(self.root / 'missing.env'),
-            'GDRIVE_CLIENT_ID': 'cid',
+            'GDRIVE_CLIENT_ID': 'cid.apps.googleusercontent.com',
             'GDRIVE_CLIENT_SECRET': 'sec',
             'SC_LOG': str(sc_log),
         }

@@ -209,6 +209,7 @@ This does the same job as the `snapper` role, for a machine where you don't want
 | `apply` stops with "Root must mount /@ and /.snapshots must mount /@snapshots…" | Your root isn't the Btrfs layout from step 1. Set `enable_snapper: false` in `local.yml`, or convert the disk from a live USB. |
 | The containers role asks for subordinate IDs | Run the `sudo usermod --add-subuids … --add-subgids …` command it prints, then `mise run role containers` |
 | Chezmoi can't decrypt files during `mise run auth` | Your age key isn't at `~/.config/chezmoi/key.txt` (see step 3) |
+| `mise run auth` says `GDRIVE_CLIENT_ID` isn't a Google OAuth client ID, or the browser says "The OAuth client was not found" | `~/.config/rclone/gdrive-oauth.env` in your dotfiles still holds placeholder values, or the client was deleted. Put your Google Cloud OAuth client ID and secret in it, run `chezmoi add --encrypt ~/.config/rclone/gdrive-oauth.env`, then `mise run auth -- --step gdrive` |
 | "Permission denied" on a serial port or debug probe | Log out and back in to pick up the new groups, then reconnect the device |
 | GitHub CLI suddenly signed out after restoring a backup | Don't restore an old `~/.local/share/keyrings/` over a new install, because it replaces the GitHub CLI token. Sign in again with `mise run auth -- --step github`. |
 
