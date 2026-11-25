@@ -27,9 +27,9 @@ pinned_downloads:
     url: "https://global.synologydownload.com/download/Utility/HyperBackupExplorer/3.0.1-0156/Linux/x86_64/HyperBackupExplorer-3.0.1-0156-linux.tar.bz2"
     sha256: "5a36e4bc9ca31cb8737be63059f9506a17349c19546a4ff42fd17cc6f0a2e088"
   antigravity_cli:
-    version: "1.5.16"
-    url: "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.16-5250855658717184/linux-x64/cli_linux_x64.tar.gz"
-    sha256: "9bdab234d06bad1a61be2321072652eb06be78baff1acbfae47331da5a090abc"
+    version: "1.5.17"
+    url: "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.17-4823843970351104/linux-x64/cli_linux_x64.tar.gz"
+    sha256: "6304b4f592ae97e59231cfb1b365ee29c155750c9a881f0cc8efe5f5281077cf"
   arduino_ide:
     version: "2.3.11"
     url: "https://github.com/arduino/arduino-ide/releases/download/2.3.11/arduino-ide_2.3.11_Linux_64bit.zip"
