@@ -164,6 +164,13 @@ class HibernationTests(unittest.TestCase):
                          'HandleLidSwitchExternalPower=suspend\nHandleLidSwitchDocked=ignore\n')
         lid_backup = lid.with_name(lid.name + '.pre-hibernation')
         self.assertEqual(lid_backup.read_text(), '[Login]\nHandleLidSwitch=suspend\n')
+        # Ubuntu's polkit rule disables hibernation; ours must be installed and sort first.
+        rule = self.setup.path(hibernation.POLKIT_RULE)
+        self.assertEqual(rule.read_text(), hibernation.POLKIT_RULE_TEXT)
+        self.assertEqual(rule.stat().st_mode & 0o777, 0o644)
+        self.assertLess(rule.name, 'com.ubuntu.desktop.rules')
+        self.assertIn('"org.freedesktop.login1.hibernate"', rule.read_text())
+        self.assertIn('subject.local && subject.active', rule.read_text())
         options = json.loads(self.setup.read('/etc/kernelstub/configuration'))['user']['kernel_options']
         self.assertEqual(options, ['quiet', 'rootflags=subvol=@', 'resume=UUID=aaaa-bbbb', 'resume_offset=123456'])
         commands = [call[0] for call in self.setup.calls]
@@ -273,6 +280,7 @@ class HibernationTests(unittest.TestCase):
             self.setup.configure()
         self.assertFalse(any(call[0] == 'kernelstub' for call in self.setup.calls))
         self.assertFalse(self.setup.path('/etc/systemd/logind.conf.d/90-lid-close.conf').exists())
+        self.assertFalse(self.setup.path(hibernation.POLKIT_RULE).exists())
 
     def test_verifies_published_boot_parameters(self):
         self.setup.fail_publish = True

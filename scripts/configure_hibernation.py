@@ -22,6 +22,28 @@ GIB = 1024 ** 3
 SWAP = '/swap/hibernate.swap'
 # How long the lid-close suspend lasts before the machine hibernates.
 HIBERNATE_DELAY = '1h'
+# Ubuntu's /usr/share/polkit-1/rules.d/com.ubuntu.desktop.rules answers NO to
+# every hibernate action, so logind reports CanHibernate=no and users can't
+# hibernate. Rules files are evaluated in lexical order across rules.d
+# directories and the first answer wins; "50-…" sorts before "com.ubuntu…".
+POLKIT_RULE = '/etc/polkit-1/rules.d/50-pop-workstation-hibernate.rules'
+POLKIT_RULE_TEXT = '''\
+// Installed by pop-os-system-build (scripts/configure_hibernation.py).
+// Overrides Ubuntu's com.ubuntu.desktop.rules, which disables hibernation:
+// allow it for the active local session, the same terms Ubuntu uses for suspend.
+polkit.addRule(function(action, subject) {
+    if ((action.id == "org.freedesktop.login1.hibernate" ||
+         action.id == "org.freedesktop.login1.handle-hibernate-key" ||
+         action.id == "org.freedesktop.upower.hibernate") &&
+        subject.local && subject.active) {
+        return polkit.Result.YES;
+    }
+    if (action.id == "org.freedesktop.login1.hibernate-multiple-sessions" &&
+        subject.local && subject.active) {
+        return polkit.Result.AUTH_ADMIN_KEEP;
+    }
+});
+'''
 
 
 def swap_size(meminfo):
@@ -146,7 +168,7 @@ class Hibernation:
         for name in ('/etc/fstab', '/etc/kernelstub/configuration',
                      '/etc/initramfs-tools/conf.d/resume',
                      '/etc/systemd/sleep.conf.d/90-pop-hibernation.conf',
-                     '/etc/systemd/logind.conf.d/90-lid-close.conf', '/swap'):
+                     '/etc/systemd/logind.conf.d/90-lid-close.conf', POLKIT_RULE, '/swap'):
             if self.path(name).is_symlink():
                 raise ValueError(f'Refusing a symlink at {name}')
         swap = self.path(SWAP)
@@ -309,10 +331,12 @@ class Hibernation:
         lid_changed = self.write('/etc/systemd/logind.conf.d/90-lid-close.conf',
                                  '[Login]\nHandleLidSwitch=suspend-then-hibernate\n'
                                  'HandleLidSwitchExternalPower=suspend\nHandleLidSwitchDocked=ignore\n')
+        # polkitd watches its rules directories, so the rule applies immediately.
+        polkit_changed = self.write(POLKIT_RULE, POLKIT_RULE_TEXT)
         if fstab_changed or sleep_changed or lid_changed:
             self.run('systemctl', 'daemon-reload')
         changed = any((subvol_changed, swap_changed, fstab_changed, resume_changed,
-                       sleep_changed, kernelstub_changed, boot_changed, lid_changed))
+                       sleep_changed, kernelstub_changed, boot_changed, lid_changed, polkit_changed))
         if changed:
             print(f'Hibernation configured: {SWAP} ({swap.stat().st_size // GIB} GiB).')
             print('Reboot to load the new resume settings, then test: systemctl hibernate')
