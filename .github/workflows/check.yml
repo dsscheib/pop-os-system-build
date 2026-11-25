@@ -28,11 +28,18 @@ jobs:
   ansible-integration:
     needs: check
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ['ubuntu:24.04', 'ubuntu:26.04']
+    name: ansible-integration (${{ matrix.image }})
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Verify Ansible convergence and idempotency in Ubuntu 24.04 container
+      - name: Verify Ansible convergence and idempotency in ${{ matrix.image }} container
+        env:
+          IMAGE: ${{ matrix.image }}
         run: >-
-          docker run --rm -v "$PWD:/workspace:ro" ubuntu:24.04
+          docker run --rm -v "$PWD:/workspace:ro" "$IMAGE"
           bash /workspace/scripts/ci_container_test.sh /workspace
