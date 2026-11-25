@@ -8,12 +8,12 @@ MISE_VERSION="v2026.11.14"
 MISE_URL="https://github.com/jdx/mise/releases/download/v2026.11.14/mise-v2026.11.14-linux-x64"
 MISE_SHA256="6fa596291e9758106f761fea4f8e7fac6c3e7ff4714d5c0b9a76e16068db14f6"
 
-UV_VERSION="0.13.9"
-UV_URL="https://github.com/astral-sh/uv/releases/download/0.13.9/uv-x86_64-unknown-linux-gnu.tar.gz"
-UV_SHA256="a7fbaff2b9a271d85c1bdb540941090fd1ce011797b4abeb48e4dcd39c2471d5"
+UV_VERSION="0.13.10"
+UV_URL="https://github.com/astral-sh/uv/releases/download/0.13.10/uv-x86_64-unknown-linux-gnu.tar.gz"
+UV_SHA256="bf65ac1a0af10f92c522d91ac096c7c0a39657647b155577e7836c2cbbb4526c"
 
 ANSIBLE_CORE_VERSION="2.22.0"
-ANSIBLE_LINT_VERSION="26.11.0"
+ANSIBLE_LINT_VERSION="26.11.1"
 
 log_info() { printf '[INFO] %s\n' "$*"; }
 log_warn() { printf '[WARN] %s\n' "$*" >&2; }
