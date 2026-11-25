@@ -110,6 +110,19 @@ class UpdateScriptTests(unittest.TestCase):
         self.assertIn('mise upgrade --bump', self.calls())
         self.assertIn(f'chezmoi re-add {config}/config.toml', self.calls())
         self.assertFalse(any('re-add' in c and 'mise.lock' in c for c in self.calls()))
+        self.assertFalse(any(c.startswith('chezmoi add') for c in self.calls()))
+
+    def test_bump_mise_adds_new_per_package_lockfiles(self):
+        config = self.home / '.config/mise'
+        (config / 'locks/npm-openai-codex/0.172.0').mkdir(parents=True)
+        (config / 'config.toml').write_text('[tools]\n')
+        (config / 'mise.lock').write_text('')
+        self.stub('mise', '[[ $1 == outdated ]] && echo "npm:@openai/codex 0.171.0 0.172.0"; exit 0')
+        self.stub('chezmoi')  # Manages config.toml and mise.lock.
+        result = self.run_update('--only', 'mise', '--bump-mise')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f'chezmoi re-add {config}/config.toml {config}/mise.lock', self.calls())
+        self.assertIn(f'chezmoi add {config}/locks', self.calls())
 
     def test_report_without_bump_does_not_upgrade(self):
         self.stub('mise', '[[ $1 == outdated ]] && echo "node 24 26"; exit 0')

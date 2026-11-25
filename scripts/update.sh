@@ -161,6 +161,11 @@ bump_mise_tools() {
     return 0
   fi
   chezmoi re-add "${files[@]}" || return 1
+  # mise.lock points npm and pipx tools to per-version lockfiles in locks/. A
+  # bump creates new folders there, which `re-add` skips, so `add` them.
+  if [[ -d $HOME/.config/mise/locks ]] && chezmoi source-path "$HOME/.config/mise/mise.lock" >/dev/null 2>&1; then
+    chezmoi add "$HOME/.config/mise/locks" || return 1
+  fi
   chezmoi git -- status --short || true
   log_info "Review, then commit and push your dotfiles: chezmoi git -- commit -am 'Bump Mise tools' && chezmoi git -- push"
 }
