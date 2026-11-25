@@ -24,7 +24,7 @@ Everything is safe to re-run. A second run changes nothing unless something has 
 
 ### 1. Prepare the disk for snapshots (optional, from the live USB)
 
-**In the Pop!_OS installer,** choose a custom install with exactly two partitions: a FAT32 EFI System Partition (1 GB or more) mounted at `/boot/efi`, and one Btrfs partition for `/`. Don't create a separate `/home` or `/boot`; the script refuses those.
+**In the Pop!_OS installer,** choose a custom install with exactly two partitions: a FAT32 EFI System Partition of 4 GB (the size Pop!_OS's automatic install uses; kernels and their initramfs images are stored there) mounted at `/boot/efi`, and one Btrfs partition for `/`. Don't create a separate `/home` or `/boot`; the script refuses those.
 
 Do this right after the Pop!_OS installer finishes and **before you reboot**. The script reorganizes the Btrfs root into `@`, `@home` and `@snapshots` subvolumes so Snapper can take and roll back snapshots. Boot the live USB in UEFI mode, and get this repo onto it: clone it (if the live session has no git, run `sudo apt install git` first), or copy it from a USB stick.
 
@@ -234,13 +234,13 @@ Runtimes and developer CLIs (`go`, `node`, `rust`, `uv`, `neovim`, `starship`, `
 mise run check    # or: bash scripts/check.sh
 ```
 
-This runs `shellcheck`, Bash syntax checks, Python and YAML parsing, `ansible-playbook --syntax-check`, `ansible-lint`, and the unit tests. CI runs the same checks, plus a full playbook test in an `ubuntu:24.04` container. That test previews the changes, applies them, then confirms that both a second preview and a second apply report no changes.
+This runs `shellcheck`, Bash syntax checks, Python and YAML parsing, `ansible-playbook --syntax-check`, `ansible-lint`, and the unit tests. CI runs the same checks, plus a full playbook test in `ubuntu:24.04` and `ubuntu:26.04` containers. That test previews the changes, applies them, then confirms that both a second preview and a second apply report no changes.
 
-To run the full greenfield end-to-end test locally in a disposable `ubuntu:24.04` container (requires Podman and network access; exercises `bootstrap.sh`, `desktop_apps`, `auth.sh` with ephemeral fixtures, Day-2 convergence, `lazy-lock.json` merge, `stm32`, and `mise run role`):
+To run the full greenfield end-to-end test locally in a disposable `ubuntu:24.04` or `ubuntu:26.04` container (requires Podman and network access; exercises `bootstrap.sh`, `desktop_apps`, `auth.sh` with ephemeral fixtures, Day-2 convergence, `lazy-lock.json` merge, `stm32`, and `mise run role`):
 
 ```bash
 podman run --rm -v "$PWD:/workspace:ro,Z" docker.io/library/ubuntu:24.04 \
   bash /workspace/scripts/e2e_container_test.sh /workspace
 ```
 
-For the faster CI-only container test (skips `desktop_gui`, `auth.sh`, and `stm32`), substitute `scripts/ci_container_test.sh`.
+Use `ubuntu:26.04` in place of `ubuntu:24.04` to test the newer release. For the faster CI-only container test (skips `desktop_gui`, `auth.sh`, and `stm32`), substitute `scripts/ci_container_test.sh`.

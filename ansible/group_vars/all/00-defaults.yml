@@ -7,6 +7,7 @@ workstation_home: "{{ ansible_facts['user_dir'] }}"
 workstation_local_bin: "{{ workstation_home }}/.local/bin"
 repo_root: "{{ playbook_dir | dirname }}"
 ubuntu_codename: "{{ ansible_facts['distribution_release'] }}"
+ubuntu_version: "{{ ansible_facts['distribution_version'] }}"
 
 # System role behavior
 system_apt_upgrade: true
@@ -226,7 +227,8 @@ apt_hyper_backup_deps:
   - bzip2
   - libnss3
   - libxss1
-  - libxml2
+  # Ubuntu 26.04 renamed libxml2 to libxml2-16.
+  - "{{ 'libxml2-16' if ubuntu_version is version('26.04', '>=') else 'libxml2' }}"
   - libxslt1.1
   - libgl1
   - libxkbcommon-x11-0

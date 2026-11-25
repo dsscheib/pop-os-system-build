@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Full greenfield end-to-end verification inside a disposable ubuntu:24.04 container.
+# Full greenfield end-to-end verification inside a disposable ubuntu:24.04 or ubuntu:26.04 container.
 set -euo pipefail
 
 usage() {
@@ -8,9 +8,9 @@ Usage: podman run --rm -v "$PWD:/workspace:ro" docker.io/library/ubuntu:24.04 \
          bash /workspace/scripts/e2e_container_test.sh [/workspace]
 
 Runs full greenfield end-to-end verification inside a disposable ubuntu:24.04
-container: ./bootstrap.sh, desktop_apps, auth.sh with ephemeral age/Chezmoi/
-Neovim fixtures, Day-2 convergence, lazy-lock.json merge, opt-in stm32, and
-mise run role dispatch.
+or ubuntu:26.04 container: ./bootstrap.sh, desktop_apps, auth.sh with ephemeral
+age/Chezmoi/Neovim fixtures, Day-2 convergence, lazy-lock.json merge, opt-in
+stm32, and mise run role dispatch.
 EOF
 }
 

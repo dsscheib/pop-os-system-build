@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run inside an ubuntu:24.04 CI container to verify playbook convergence and idempotency.
+# Run inside an ubuntu:24.04 or ubuntu:26.04 CI container to verify playbook convergence and idempotency.
 set -euo pipefail
 
 REPO_SRC=${1:-/workspace}
