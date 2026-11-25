@@ -292,6 +292,11 @@ auth_gdrive() {
     log_info "GDRIVE_CLIENT_ID / GDRIVE_CLIENT_SECRET not configured; skipping Google Drive auth."
     return 0
   fi
+  # Catch a placeholder before the browser does ("The OAuth client was not found").
+  if [[ $GDRIVE_CLIENT_ID != *.apps.googleusercontent.com ]]; then
+    log_error "GDRIVE_CLIENT_ID isn't a Google OAuth client ID (those end in .apps.googleusercontent.com); check ${GDRIVE_OAUTH_ENV:-~/.config/rclone/gdrive-oauth.env} for a placeholder."
+    return 1
+  fi
 
   local local_dir="${GDRIVE_LOCAL_DIR:-$HOME/GoogleDrive}"
   local state="${XDG_STATE_HOME:-$HOME/.local/state}/pop-workstation"
