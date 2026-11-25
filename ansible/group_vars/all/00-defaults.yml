@@ -17,7 +17,7 @@ install_samsung_970_evo_nvme_rule: false
 # Toolchain / application versions not managed by Mise
 llvm_version: 23
 kicad_release_series: "10.0"
-kicad_python_version: "0.8.0"
+kicad_python_version: "0.9.0"
 pynvim_version: "0.6.0"
 tpm_commit: "e261deb1b47614eed3400089ce7197dc68acc4eb"
 
