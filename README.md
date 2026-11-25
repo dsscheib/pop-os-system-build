@@ -78,7 +78,7 @@ Edit `local.yml` (it's gitignored, so it stays on this machine). The settings yo
 | `dotfiles_repo` | empty | you want `mise run auth` to restore your private Chezmoi dotfiles. Use the HTTPS URL: SSH keys don't exist yet on a fresh machine. |
 | `nvim_config_repo`, `nvim_config_ref` | empty | you want your Neovim config cloned into `~/.config/nvim` (`ref` is an optional branch, tag or commit). Use the HTTPS URL. If the repo is private, leave this empty until after step 5, because there are no GitHub credentials before then. |
 | `enable_snapper` | `true` | set `false` if you skipped step 1; otherwise `apply` stops with a Btrfs layout error |
-| `enable_hibernation` | `false` | set `true` on laptops to create a Btrfs swapfile and resume settings. Closing the lid on battery then suspends, and hibernates after 1 hour (`HIBERNATE_DELAY` in `scripts/configure_hibernation.py`); on AC it only suspends. |
+| `enable_hibernation` | `false` | set `true` on laptops to create a Btrfs swapfile and resume settings. Closing the lid on battery then suspends, and hibernates after 1 hour (`HIBERNATE_DELAY` in `scripts/configure_hibernation.py`); on AC it only suspends. It also adds a polkit rule that lets your desktop session hibernate, which Ubuntu disables by default. |
 | `install_samsung_970_evo_nvme_rule` | `false` | only on the machine with that Samsung drive at PCI `0000:00:1d.0` |
 | `install_dropbox` | `true` | set `false` to skip Dropbox. The `nautilus-dropbox` package is Dropbox's Linux client; its Nautilus plugin goes unused on COSMIC, and syncing works without it. See step 7 for the one-time setup. |
 | `install_appimagelauncher` | `false` | set `true` to install AppImageLauncher |
