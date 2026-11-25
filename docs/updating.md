@@ -35,11 +35,11 @@ alias update="mise -C ~/github/pop-os-system-build run update"
 ```bash
 mise run update --only mise                # see what's behind
 mise run update --only mise --bump-mise    # bump everything, then re-add the config to Chezmoi
-chezmoi git -- diff                        # review
-chezmoi git -- commit -am "Bump Mise tools" && chezmoi git -- push
+chezmoi git -- status                      # review (new locks/ folders show as untracked)
+chezmoi git -- add -A && chezmoi git -- commit -m "Bump Mise tools" && chezmoi git -- push
 ```
 
-`--bump-mise` moves every tool to its newest release, **including new major versions** (Node 24 → 26, for example). To bump only some tools, run it by hand from your home directory: `mise upgrade --bump uv rust`, then `chezmoi re-add ~/.config/mise/config.toml ~/.config/mise/mise.lock`. If a bump breaks something, revert the dotfiles commit and run `chezmoi apply`; Mise reinstalls the previous versions.
+`--bump-mise` moves every tool to its newest release, **including new major versions** (Node 24 → 26, for example). To bump only some tools, run it by hand from your home directory: `mise upgrade --bump uv rust`, then `chezmoi add ~/.config/mise`. Use `add`, not `re-add`: npm and pipx tools get a new `locks/<tool>/<version>/` folder that `re-add` skips, and without it `mise install` fails on your other machines. If a bump breaks something, revert the dotfiles commit and run `chezmoi apply`; Mise reinstalls the previous versions.
 
 ## Bumping this repo's pins
 

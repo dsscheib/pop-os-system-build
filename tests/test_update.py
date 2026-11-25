@@ -123,6 +123,7 @@ class UpdateScriptTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(f'chezmoi re-add {config}/config.toml {config}/mise.lock', self.calls())
         self.assertIn(f'chezmoi add {config}/locks', self.calls())
+        self.assertIn('chezmoi git -- add -A', result.stdout + result.stderr)  # Hint stages new lock folders.
 
     def test_report_without_bump_does_not_upgrade(self):
         self.stub('mise', '[[ $1 == outdated ]] && echo "node 24 26"; exit 0')

@@ -167,7 +167,7 @@ bump_mise_tools() {
     chezmoi add "$HOME/.config/mise/locks" || return 1
   fi
   chezmoi git -- status --short || true
-  log_info "Review, then commit and push your dotfiles: chezmoi git -- commit -am 'Bump Mise tools' && chezmoi git -- push"
+  log_info "Review, then commit and push your dotfiles: chezmoi git -- add -A && chezmoi git -- commit -m 'Bump Mise tools' && chezmoi git -- push (add -A includes new locks/ folders)"
 }
 
 main() {
