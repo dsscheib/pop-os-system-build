@@ -369,6 +369,7 @@ install_mise
             'hyper_backup_explorer',
             'antigravity_cli',
             'arduino_ide',
+            'cosmic_swipe',
             'vscode_key',
             'mozilla_key',
             'githubcli_key',
@@ -386,6 +387,7 @@ install_mise
             'hyper_backup_explorer',
             'antigravity_cli',
             'arduino_ide',
+            'cosmic_swipe',
         }
         deb_version_keys = {'synology', 'appimagelauncher'}
         fingerprint_key_keys = {'kicad_key'}

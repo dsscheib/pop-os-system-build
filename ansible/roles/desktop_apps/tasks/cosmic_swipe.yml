@@ -1,0 +1,161 @@
+---
+# cosmic-swipe: four-finger up/down touchpad gestures for COSMIC (Workspaces overview and
+# App Library), until COSMIC handles them itself. Installed from the pinned release tarball:
+# binary in a versioned directory, ~/.local/bin link, the touchpad-only udev rule (so the user
+# needs no 'input' group) and a systemd user service. Skipped on desktops without COSMIC.
+
+- name: Check whether the COSMIC compositor is installed
+  ansible.builtin.stat:
+    path: /usr/bin/cosmic-comp
+  register: desktop_apps_cosmic_comp_stat
+
+- name: Report that cosmic-swipe is skipped without COSMIC
+  ansible.builtin.debug:
+    msg: "COSMIC is not installed (no /usr/bin/cosmic-comp); skipping cosmic-swipe."
+  when: not desktop_apps_cosmic_comp_stat.stat.exists
+
+- name: Install cosmic-swipe touchpad gestures
+  when: desktop_apps_cosmic_comp_stat.stat.exists
+  block:
+    - name: Set cosmic-swipe path facts
+      ansible.builtin.set_fact:
+        desktop_apps_cosmic_swipe_versions_dir: "{{ workstation_home }}/Applications/.cosmic-swipe.versions"
+        desktop_apps_cosmic_swipe_install_dir: >-
+          {{ workstation_home ~ '/Applications/.cosmic-swipe.versions/' ~ pinned_downloads.cosmic_swipe.version }}
+        desktop_apps_cosmic_swipe_app_dir: >-
+          {{ workstation_home ~ '/Applications/.cosmic-swipe.versions/' ~ pinned_downloads.cosmic_swipe.version
+             ~ '/cosmic-swipe-' ~ pinned_downloads.cosmic_swipe.version ~ '-x86_64-linux' }}
+
+    - name: Ensure cosmic-swipe versions directory exists
+      ansible.builtin.file:
+        path: "{{ desktop_apps_cosmic_swipe_versions_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Check whether pinned cosmic-swipe version is installed
+      ansible.builtin.stat:
+        path: "{{ desktop_apps_cosmic_swipe_app_dir }}/cosmic-swipe"
+      register: desktop_apps_cosmic_swipe_stat
+
+    - name: Download and extract pinned cosmic-swipe release
+      when:
+        - not desktop_apps_cosmic_swipe_stat.stat.exists
+        - not ansible_check_mode
+      block:
+        - name: Create temporary workspace for cosmic-swipe download
+          ansible.builtin.tempfile:
+            path: "{{ desktop_apps_cosmic_swipe_versions_dir }}"
+            state: directory
+            prefix: .tmp-pop-cosmic-swipe-
+          register: desktop_apps_cosmic_swipe_tmpdir
+
+        - name: Download verified cosmic-swipe archive
+          ansible.builtin.get_url:
+            url: "{{ pinned_downloads.cosmic_swipe.url }}"
+            dest: "{{ desktop_apps_cosmic_swipe_tmpdir.path }}/cosmic-swipe.tar.gz"
+            checksum: "sha256:{{ pinned_downloads.cosmic_swipe.sha256 }}"
+            mode: "0644"
+
+        - name: Extract cosmic-swipe archive safely
+          ansible.builtin.command:
+            argv:
+              - python3
+              - "{{ repo_root }}/scripts/st_assets.py"
+              - tar
+              - "{{ desktop_apps_cosmic_swipe_tmpdir.path }}/cosmic-swipe.tar.gz"
+              - "{{ desktop_apps_cosmic_swipe_tmpdir.path }}/extracted"
+          changed_when: true
+
+        - name: Verify extracted cosmic-swipe files exist
+          ansible.builtin.stat:
+            path: >-
+              {{ desktop_apps_cosmic_swipe_tmpdir.path ~ '/extracted/cosmic-swipe-'
+                 ~ pinned_downloads.cosmic_swipe.version ~ '-x86_64-linux/' ~ item }}
+          loop:
+            - cosmic-swipe
+            - 70-cosmic-swipe-touchpad.rules
+            - cosmic-swipe.service
+          register: desktop_apps_cosmic_swipe_extracted_stat
+          failed_when: not desktop_apps_cosmic_swipe_extracted_stat.stat.exists
+
+        - name: Remove incomplete cosmic-swipe directory if present
+          ansible.builtin.file:
+            path: "{{ desktop_apps_cosmic_swipe_install_dir }}"
+            state: absent
+
+        - name: Move validated cosmic-swipe release into place
+          ansible.builtin.command:
+            argv:
+              - mv
+              - -T
+              - "{{ desktop_apps_cosmic_swipe_tmpdir.path }}/extracted"
+              - "{{ desktop_apps_cosmic_swipe_install_dir }}"
+          changed_when: true
+      always:
+        - name: Remove temporary cosmic-swipe workspace
+          ansible.builtin.file:
+            path: "{{ desktop_apps_cosmic_swipe_tmpdir.path }}"
+            state: absent
+          when: desktop_apps_cosmic_swipe_tmpdir.path is defined
+
+    - name: Report cosmic-swipe drift in check mode
+      ansible.builtin.debug:
+        msg: "Would download and install cosmic-swipe {{ pinned_downloads.cosmic_swipe.version }}"
+      changed_when: true
+      when:
+        - ansible_check_mode
+        - not desktop_apps_cosmic_swipe_stat.stat.exists
+
+    # Everything below reads files from the extracted release, which check mode on a machine
+    # without it has not downloaded.
+    - name: Configure installed cosmic-swipe release
+      when: not ansible_check_mode or desktop_apps_cosmic_swipe_stat.stat.exists
+      block:
+        - name: Link cosmic-swipe into ~/.local/bin
+          ansible.builtin.file:
+            src: "{{ desktop_apps_cosmic_swipe_app_dir }}/cosmic-swipe"
+            dest: "{{ workstation_local_bin }}/cosmic-swipe"
+            state: link
+            force: true
+          notify: Restart cosmic-swipe
+
+        - name: Install touchpad-only udev rule for cosmic-swipe
+          ansible.builtin.copy:
+            src: "{{ desktop_apps_cosmic_swipe_app_dir }}/70-cosmic-swipe-touchpad.rules"
+            dest: /etc/udev/rules.d/70-cosmic-swipe-touchpad.rules
+            owner: root
+            group: root
+            mode: "0644"
+          become: true
+          notify: Reload touchpad udev rules
+
+        - name: Ensure systemd user unit directory exists
+          ansible.builtin.file:
+            path: "{{ workstation_home }}/.config/systemd/user"
+            state: directory
+            mode: "0755"
+
+        - name: Install cosmic-swipe systemd user unit
+          ansible.builtin.copy:
+            src: "{{ desktop_apps_cosmic_swipe_app_dir }}/cosmic-swipe.service"
+            dest: "{{ workstation_home }}/.config/systemd/user/cosmic-swipe.service"
+            mode: "0644"
+          notify: Restart cosmic-swipe
+
+        - name: Prune superseded cosmic-swipe versions
+          ansible.builtin.import_role:
+            name: prune_versions
+          vars:
+            prune_versions_dir: "{{ desktop_apps_cosmic_swipe_versions_dir }}"
+            prune_versions_keep: "{{ pinned_downloads.cosmic_swipe.version }}"
+
+        # Needs the desktop user's systemd instance, which containers do not have.
+        - name: Enable and start cosmic-swipe user service
+          ansible.builtin.systemd_service:
+            name: cosmic-swipe.service
+            scope: user
+            enabled: true
+            state: started
+            daemon_reload: true
+          tags:
+            - systemd_live

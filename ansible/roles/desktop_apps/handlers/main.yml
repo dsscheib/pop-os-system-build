@@ -40,3 +40,36 @@
   changed_when: true
   become: true
   when: ansible_facts['service_mgr'] == 'systemd'
+
+# Applies the cosmic-swipe uaccess rule to touchpads already present, so logind grants the
+# desktop user its ACL without a reboot. The daemon retries until the touchpad is readable.
+- name: Reload touchpad udev rules
+  ansible.builtin.command:
+    argv:
+      - udevadm
+      - control
+      - --reload-rules
+  changed_when: true
+  become: true
+  when: ansible_facts['service_mgr'] == 'systemd'
+
+- name: Trigger input udev rules for touchpads
+  ansible.builtin.command:
+    argv:
+      - udevadm
+      - trigger
+      - --subsystem-match=input
+      - --action=change
+  listen: Reload touchpad udev rules
+  changed_when: true
+  become: true
+  when: ansible_facts['service_mgr'] == 'systemd'
+
+- name: Restart cosmic-swipe
+  ansible.builtin.systemd_service:
+    name: cosmic-swipe.service
+    scope: user
+    state: restarted
+    daemon_reload: true
+  tags:
+    - systemd_live

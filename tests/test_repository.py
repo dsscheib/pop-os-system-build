@@ -976,6 +976,49 @@ main "$1"
         self.assertTrue(trigger_handler['become'])
         self.assertEqual(trigger_handler['when'], "ansible_facts['service_mgr'] == 'systemd'")
 
+    def test_touchpad_udev_handler_reapplies_rules_to_input_devices(self):
+        # The cosmic-swipe uaccess ACL only reaches an existing touchpad on a change event for
+        # the input subsystem; the desktop handler's USB trigger would never apply it.
+        handlers = yaml.safe_load((REPO / 'ansible/roles/desktop_apps/handlers/main.yml').read_text(encoding='utf-8'))
+        trigger = next(h for h in handlers if h.get('listen') == 'Reload touchpad udev rules')
+        self.assertEqual(
+            trigger['ansible.builtin.command']['argv'],
+            ['udevadm', 'trigger', '--subsystem-match=input', '--action=change'],
+        )
+        self.assertTrue(trigger['become'])
+
+    def _cosmic_swipe_tasks(self):
+        tasks = yaml.safe_load((REPO / 'ansible/roles/desktop_apps/tasks/cosmic_swipe.yml').read_text(encoding='utf-8'))
+        install = next(t for t in tasks if t['name'] == 'Install cosmic-swipe touchpad gestures')
+        configure = next(t for t in install['block'] if t['name'] == 'Configure installed cosmic-swipe release')
+        return install, configure['block']
+
+    def test_cosmic_swipe_installs_only_on_cosmic(self):
+        install, _ = self._cosmic_swipe_tasks()
+        self.assertEqual(install['when'], 'desktop_apps_cosmic_comp_stat.stat.exists')
+
+    def test_cosmic_swipe_udev_rule_sorts_before_logind_acl_rules(self):
+        # uaccess tags only take effect if set before systemd's 73-seat-late.rules runs.
+        _, configure = self._cosmic_swipe_tasks()
+        rule = next(t for t in configure if t['name'] == 'Install touchpad-only udev rule for cosmic-swipe')
+        name = Path(rule['ansible.builtin.copy']['dest']).name
+        self.assertLess(name, '73-seat-late.rules')
+
+    def test_cosmic_swipe_user_service_is_skipped_in_containers(self):
+        _, configure = self._cosmic_swipe_tasks()
+        service = next(t for t in configure if t['name'] == 'Enable and start cosmic-swipe user service')
+        self.assertIn('systemd_live', service['tags'])
+
+    def test_cosmic_swipe_pin_matches_release_archive_layout(self):
+        # The tasks find files under cosmic-swipe-<version>-x86_64-linux/; a bump to a release
+        # with a different archive name must fail here rather than on a workstation.
+        entry = yaml.safe_load((REPO / 'ansible/group_vars/all/downloads.yml').read_text(encoding='utf-8'))[
+            'pinned_downloads']['cosmic_swipe']
+        self.assertEqual(
+            Path(entry['url']).name,
+            f"cosmic-swipe-{entry['version']}-x86_64-linux.tar.gz",
+        )
+
 
 if __name__ == '__main__':
     unittest.main()
