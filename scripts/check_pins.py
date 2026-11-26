@@ -62,6 +62,8 @@ PINS = [
     Pin('antigravity_cli', 'download', 'antigravity_cli', ('antigravity',)),
     Pin('arduino_ide', 'download', 'arduino_ide',
         ('github', 'arduino/arduino-ide', r'_Linux_64bit\.zip$')),
+    Pin('cosmic_swipe', 'download', 'cosmic_swipe',
+        ('github', 'dsscheib/cosmic-swipe', r'-x86_64-linux\.tar\.gz$')),
     Pin('mise', 'bootstrap', 'MISE', ('github', 'jdx/mise', r'^mise-v[0-9.]+-linux-x64$')),
     Pin('uv', 'bootstrap', 'UV', ('github', 'astral-sh/uv', r'^uv-x86_64-unknown-linux-gnu\.tar\.gz$')),
     Pin('ansible-core', 'bootstrap-version', 'ANSIBLE_CORE_VERSION', ('pypi', 'ansible-core')),

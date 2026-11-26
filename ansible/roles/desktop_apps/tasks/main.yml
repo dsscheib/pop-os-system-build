@@ -22,6 +22,7 @@
     - synology
     - hyper_backup
     - appimagelauncher
+    - cosmic_swipe
 
 - name: Install Nerd Fonts
   ansible.builtin.import_tasks: fonts.yml
@@ -48,3 +49,11 @@
   tags:
     - desktop_apps
     - desktop_gui
+
+- name: Install cosmic-swipe touchpad gestures for COSMIC
+  ansible.builtin.import_tasks: cosmic_swipe.yml
+  when: install_cosmic_swipe | bool
+  tags:
+    - desktop_apps
+    - desktop_gui
+    - cosmic_swipe

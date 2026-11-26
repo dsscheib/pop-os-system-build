@@ -75,6 +75,9 @@ nvim_config_ref: ""
 # Desktop application toggles
 install_dropbox: true
 install_appimagelauncher: false
+# Four-finger up/down gestures for COSMIC; skipped automatically on desktops without COSMIC.
+# Turn off once COSMIC handles these gestures itself, or each swipe acts twice.
+install_cosmic_swipe: true
 
 # STM32 opt-in installers (run via: mise run role stm32)
 stm32_tools:

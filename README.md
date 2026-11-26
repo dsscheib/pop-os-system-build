@@ -90,6 +90,7 @@ Edit `local.yml` (it's gitignored, so it stays on this machine). The settings yo
 | `install_samsung_970_evo_nvme_rule` | `false` | only on the machine with that Samsung drive at PCI `0000:00:1d.0` |
 | `install_dropbox` | `true` | set `false` to skip Dropbox. The `nautilus-dropbox` package is Dropbox's Linux client; its Nautilus plugin goes unused on COSMIC, and syncing works without it. See step 7 for the one-time setup. |
 | `install_appimagelauncher` | `false` | set `true` to install AppImageLauncher |
+| `install_cosmic_swipe` | `true` | set `false` to skip [cosmic-swipe](https://github.com/dsscheib/cosmic-swipe), which adds four-finger up (Workspaces overview) and down (App Library) touchpad gestures to COSMIC. It's skipped automatically on desktops without COSMIC. Set it `false` everywhere once COSMIC ships these gestures itself, or each swipe acts twice; turning it off doesn't uninstall it (see [its README](https://github.com/dsscheib/cosmic-swipe#install) for `uninstall.sh`). |
 
 Everything else (package lists, Flatpak apps, the LLVM version, which STM32 tools to install, and so on) lives in `ansible/group_vars/all/00-defaults.yml`. Any of it can be overridden in `local.yml`.
 
@@ -166,7 +167,7 @@ Use any of these names with `mise run role <name>`:
 | `toolchains` (`gcc`, `llvm`, `arm`, `avr`, `riscv`) | Newest GCC/G++ and LLVM/Clang (from `apt.llvm.org`), linked into `~/.local/bin`, plus ARM, AVR and RISC-V cross-compilers |
 | `containers` (`podman`) | Rootless Podman with `docker.io` as the default search registry, plus Fish completion |
 | `browsers` (`firefox`, `chrome`) | Firefox Developer Edition (Mozilla's APT repo) and Google Chrome |
-| `desktop_apps` (`fonts`, `vscode`, `kicad`, `flatpak`, `arduino`, `saleae`, `synology`, `hyper_backup`) | JetBrainsMono Nerd Font, VS Code, KiCad 10 with `kicad-python`, FreeCAD and OrcaSlicer (Flathub), Arduino IDE 2, Saleae Logic 2, Synology Drive, Hyper Backup Explorer |
+| `desktop_apps` (`fonts`, `vscode`, `kicad`, `flatpak`, `arduino`, `saleae`, `synology`, `hyper_backup`, `cosmic_swipe`) | JetBrainsMono Nerd Font, VS Code, KiCad 10 with `kicad-python`, FreeCAD and OrcaSlicer (Flathub), Arduino IDE 2, Saleae Logic 2, Synology Drive, Hyper Backup Explorer, and on COSMIC the cosmic-swipe four-finger gestures (with a touchpad-only udev rule, so no `input` group) |
 | `ai_agents` (`claudecode`, `antigravity`) | Claude Code and the Antigravity CLI (`agy`), with Antigravity set to ask before destructive git commands |
 | `workstation` (`chezmoi`, `mise`, `neovim`, `tmux`) | Applies dotfile changes, installs missing Mise tools, sets up the Neovim Python provider and config, and installs tmux plugins |
 | `completions` | Shell completions for `codex`, `herdr`, `rustup` and `cargo` |

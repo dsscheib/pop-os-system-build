@@ -34,6 +34,10 @@ pinned_downloads:
     version: "2.3.11"
     url: "https://github.com/arduino/arduino-ide/releases/download/2.3.11/arduino-ide_2.3.11_Linux_64bit.zip"
     sha256: "1e009f3c720092e6fae4e71809e0b755058e8c5d59eac7548b288d4f42b5e9b1"
+  cosmic_swipe:
+    version: "v0.1.0"
+    url: "https://github.com/dsscheib/cosmic-swipe/releases/download/v0.1.0/cosmic-swipe-v0.1.0-x86_64-linux.tar.gz"
+    sha256: "f6d20ca59dcf39d7eb8a994556282b8cacaeb744c3de287fda3020961f908e06"
   vscode_key:
     version: "2026-10-13"
     url: "https://packages.microsoft.com/keys/microsoft.asc"
