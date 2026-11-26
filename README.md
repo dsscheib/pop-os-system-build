@@ -110,6 +110,8 @@ mise run apply
 
 When Ansible asks for `BECOME password:`, enter your sudo password. The first run downloads and installs a lot, so expect it to take a while.
 
+When it finishes, close every terminal window and open a new one. A terminal that was already open doesn't see the fonts this run installed. COSMIC Terminal then resets its font setting as soon as your dotfiles change it, and the next apply stops on that change.
+
 ### 5. Sign in
 
 **Restoring a backup of your home directory?** Do it before this step, and leave `~/.local/share/keyrings/` out of it. An old keyring replaces the new one and wipes the GitHub CLI login this step creates.

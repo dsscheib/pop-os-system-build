@@ -1066,6 +1066,13 @@ main "$1"
         self.assertIn('TAG+="uaccess"', rules[0])
         self.assertNotIn('RUN', rules[0])
 
+    def test_cosmic_swipe_leaves_systemd_user_dir_group_bits_to_chezmoi(self):
+        # Chezmoi manages ~/.config/systemd/user with the user's umask; a fixed numeric
+        # mode here made every apply stop on Chezmoi drift.
+        _, configure = self._cosmic_swipe_tasks()
+        task = next(t for t in configure if t['name'] == 'Ensure systemd user unit directory exists')
+        self.assertEqual(task['ansible.builtin.file']['mode'], 'u=rwx')
+
     def test_cosmic_swipe_user_service_is_skipped_in_containers(self):
         _, configure = self._cosmic_swipe_tasks()
         service = next(t for t in configure if t['name'] == 'Enable and start cosmic-swipe user service')
