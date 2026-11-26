@@ -1,0 +1,72 @@
+---
+# The brave-browser package does not add its own APT source (its postinst exits
+# before that code, brave/brave-browser#54299), so this source is the only one.
+- name: Ensure APT keyrings directory exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Download Brave APT signing key
+  ansible.builtin.get_url:
+    url: "{{ pinned_downloads.brave_browser_key.url }}"
+    dest: /etc/apt/keyrings/brave-browser.gpg
+    checksum: "sha256:{{ pinned_downloads.brave_browser_key.sha256 }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+
+# Brave's manual install steps create these; a second source for the same repo
+# with a different Signed-By makes apt refuse to update.
+- name: Remove manually added Brave APT source files
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/apt/sources.list.d/brave-browser-release.list
+    - /etc/apt/sources.list.d/brave-browser-release.sources
+  become: true
+
+- name: Configure Brave deb822 APT repository
+  ansible.builtin.deb822_repository:
+    name: pop-brave-browser
+    types:
+      - deb
+    uris:
+      - https://brave-browser-apt-release.s3.brave.com/
+    suites:
+      - stable
+    components:
+      - main
+    architectures:
+      - amd64
+    signed_by: /etc/apt/keyrings/brave-browser.gpg
+  become: true
+  notify: Update browsers APT cache
+
+- name: Flush browsers handlers before installing Brave
+  ansible.builtin.meta: flush_handlers
+
+- name: Check whether Brave deb822 repository is configured on disk
+  ansible.builtin.stat:
+    path: /etc/apt/sources.list.d/pop-brave-browser.sources
+  register: browsers_brave_repo_stat
+
+- name: Install Brave
+  ansible.builtin.apt:
+    name: brave-browser
+    state: present
+  become: true
+  when: not ansible_check_mode or browsers_brave_repo_stat.stat.exists
+
+- name: Verify Brave executable version
+  ansible.builtin.command:
+    argv:
+      - brave-browser
+      - --version
+  changed_when: false
+  when: not ansible_check_mode

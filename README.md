@@ -168,7 +168,7 @@ Use any of these names with `mise run role <name>`:
 | `snapper` | Snapper root snapshots, `snapper-rollback`, snapshots around APT upgrades, optional hibernation |
 | `toolchains` (`gcc`, `llvm`, `arm`, `avr`, `riscv`) | Newest GCC/G++ and LLVM/Clang (from `apt.llvm.org`), linked into `~/.local/bin`, plus ARM, AVR and RISC-V cross-compilers |
 | `containers` (`podman`) | Rootless Podman with `docker.io` as the default search registry, plus Fish completion |
-| `browsers` (`firefox`, `chrome`) | Firefox Developer Edition (Mozilla's APT repo) and Google Chrome |
+| `browsers` (`firefox`, `chrome`, `brave`) | Firefox Developer Edition (Mozilla's APT repo), Google Chrome and Brave |
 | `desktop_apps` (`fonts`, `vscode`, `kicad`, `flatpak`, `arduino`, `saleae`, `synology`, `hyper_backup`, `cosmic_swipe`) | JetBrainsMono Nerd Font, VS Code, KiCad 10 with `kicad-python`, FreeCAD and OrcaSlicer (Flathub), Arduino IDE 2, Saleae Logic 2, Synology Drive, Hyper Backup Explorer, and on COSMIC the cosmic-swipe four-finger gestures (with a touchpad-only udev rule, so no `input` group) |
 | `ai_agents` (`claudecode`, `antigravity`) | Claude Code and the Antigravity CLI (`agy`), with Antigravity set to ask before destructive git commands |
 | `workstation` (`chezmoi`, `mise`, `neovim`, `tmux`) | Applies dotfile changes, installs missing Mise tools, sets up the Neovim Python provider and config, and installs tmux plugins |

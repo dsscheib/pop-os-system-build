@@ -376,6 +376,7 @@ install_mise
             'claude_code_key',
             'kicad_key',
             'google_chrome_key',
+            'brave_browser_key',
             'llvm_key',
         }
         self.assertEqual(set(v2_downloads.keys()), expected_keys)
@@ -522,7 +523,11 @@ install_mise
         bin_task = next(t for t in ai_agents if t['name'] == 'Ensure ~/.local/bin directory exists')
         self.assertIn('antigravity', bin_task['tags'])
 
-        for rel_path in ('roles/toolchains/tasks/llvm.yml', 'roles/browsers/tasks/chrome.yml'):
+        for rel_path in (
+            'roles/toolchains/tasks/llvm.yml',
+            'roles/browsers/tasks/chrome.yml',
+            'roles/browsers/tasks/brave.yml',
+        ):
             tasks = yaml.safe_load((ANSIBLE_DIR / rel_path).read_text())
             self.assertTrue(
                 any(
