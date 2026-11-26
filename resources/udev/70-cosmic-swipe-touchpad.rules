@@ -1,0 +1,8 @@
+# cosmic-swipe: let the logged-in user read touchpads, and only touchpads.
+#
+# The "uaccess" tag makes systemd-logind grant the user at the active seat an ACL on the
+# device, the same way it does for /dev/uinput, sound cards and webcams. Keyboards and every
+# other input device stay readable by root (and the 'input' group) only.
+#
+# The file name must sort before 73-seat-late.rules, where the ACLs are applied.
+ACTION=="add|change", SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_TOUCHPAD}=="1", TAG+="uaccess"
