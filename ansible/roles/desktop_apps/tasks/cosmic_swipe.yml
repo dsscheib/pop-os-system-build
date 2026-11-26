@@ -3,6 +3,8 @@
 # App Library), until COSMIC handles them itself. Installed from the pinned release tarball:
 # binary in a versioned directory, ~/.local/bin link, the touchpad-only udev rule (so the user
 # needs no 'input' group) and a systemd user service. Skipped on desktops without COSMIC.
+# The udev rule is installed as root, so it comes from resources/udev/ in this repo, not from
+# the user-writable release folder; when a bump changes the release's rule, update that copy.
 
 - name: Check whether the COSMIC compositor is installed
   ansible.builtin.stat:
@@ -121,7 +123,7 @@
 
         - name: Install touchpad-only udev rule for cosmic-swipe
           ansible.builtin.copy:
-            src: "{{ desktop_apps_cosmic_swipe_app_dir }}/70-cosmic-swipe-touchpad.rules"
+            src: "{{ repo_root }}/resources/udev/70-cosmic-swipe-touchpad.rules"
             dest: /etc/udev/rules.d/70-cosmic-swipe-touchpad.rules
             owner: root
             group: root

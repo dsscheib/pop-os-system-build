@@ -1004,6 +1004,20 @@ main "$1"
         name = Path(rule['ansible.builtin.copy']['dest']).name
         self.assertLess(name, '73-seat-late.rules')
 
+    def test_cosmic_swipe_udev_rule_is_installed_from_the_repo(self):
+        # Root copies this rule; a copy in the user-owned release folder could be edited by
+        # anything running as the user and would run as root on the next apply.
+        _, configure = self._cosmic_swipe_tasks()
+        rule = next(t for t in configure if t['name'] == 'Install touchpad-only udev rule for cosmic-swipe')
+        src = rule['ansible.builtin.copy']['src']
+        self.assertEqual(src, '{{ repo_root }}/resources/udev/70-cosmic-swipe-touchpad.rules')
+        text = (REPO / 'resources/udev/70-cosmic-swipe-touchpad.rules').read_text(encoding='utf-8')
+        rules = [line for line in text.splitlines() if line.strip() and not line.startswith('#')]
+        self.assertEqual(len(rules), 1)
+        self.assertIn('ENV{ID_INPUT_TOUCHPAD}=="1"', rules[0])
+        self.assertIn('TAG+="uaccess"', rules[0])
+        self.assertNotIn('RUN', rules[0])
+
     def test_cosmic_swipe_user_service_is_skipped_in_containers(self):
         _, configure = self._cosmic_swipe_tasks()
         service = next(t for t in configure if t['name'] == 'Enable and start cosmic-swipe user service')

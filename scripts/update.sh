@@ -167,7 +167,9 @@ bump_mise_tools() {
     chezmoi add "$HOME/.config/mise/locks" || return 1
   fi
   chezmoi git -- status --short || true
-  log_info "Review, then commit and push your dotfiles: chezmoi git -- add -A && chezmoi git -- commit -m 'Bump Mise tools' && chezmoi git -- push (add -A includes new locks/ folders)"
+  # Stage only the Mise folder: `add -A` would also commit any stray unencrypted file in the
+  # dotfiles source, such as a secret added without --encrypt.
+  log_info "Review, then commit and push your dotfiles: chezmoi git -- add dot_config/mise && chezmoi git -- commit -m 'Bump Mise tools' && chezmoi git -- push (this stages new locks/ folders too)"
 }
 
 main() {

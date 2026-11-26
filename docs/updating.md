@@ -36,10 +36,10 @@ alias update="mise -C ~/github/pop-os-system-build run update"
 mise run update --only mise                # see what's behind
 mise run update --only mise --bump-mise    # bump everything, then re-add the config to Chezmoi
 chezmoi git -- status                      # review (new locks/ folders show as untracked)
-chezmoi git -- add -A && chezmoi git -- commit -m "Bump Mise tools" && chezmoi git -- push
+chezmoi git -- add dot_config/mise && chezmoi git -- commit -m "Bump Mise tools" && chezmoi git -- push
 ```
 
-`--bump-mise` moves every tool to its newest release, **including new major versions** (Node 24 → 26, for example). To bump only some tools, run it by hand from your home directory: `mise upgrade --bump uv rust`, then `chezmoi add ~/.config/mise`. Use `add`, not `re-add`: npm and pipx tools get a new `locks/<tool>/<version>/` folder that `re-add` skips, and without it `mise install` fails on your other machines. If a bump breaks something, revert the dotfiles commit and run `chezmoi apply`; Mise reinstalls the previous versions.
+`--bump-mise` moves every tool to its newest release, **including new major versions** (Node 24 → 26, for example). To bump only some tools, run it by hand from your home directory: `mise upgrade --bump uv rust`, then `chezmoi re-add ~/.config/mise/config.toml ~/.config/mise/mise.lock && chezmoi add ~/.config/mise/locks`. The lock folders need `add`, not `re-add`: npm and pipx tools get a new `locks/<tool>/<version>/` folder that `re-add` skips, and without it `mise install` fails on your other machines. Don't `chezmoi add` all of `~/.config/mise`, and don't commit with `add -A`: either can commit a file holding tokens, unencrypted. If a bump breaks something, revert the dotfiles commit and run `chezmoi apply`; Mise reinstalls the previous versions.
 
 ## Bumping this repo's pins
 
@@ -64,7 +64,7 @@ Some pins are report-only, because a safe bump needs a decision or a value the c
 After bumping, do it like any other change:
 
 1. Work on a branch.
-2. Review `git diff`.
+2. Review `git diff`. For a cosmic-swipe bump, also compare the new release's `70-cosmic-swipe-touchpad.rules` with `resources/udev/`, and update the repo copy if it changed: `apply` installs the rule from the repo, never from the download.
 3. Run `mise run check`.
 4. CI's container test skips the desktop apps, so for pins in `downloads.yml` also run the full end-to-end test, which installs them in a fresh container. Run it on `ubuntu:24.04` and, with that image name changed, on `ubuntu:26.04`. Each takes about 30 minutes, and it needs a normal clone: it runs `git diff --check`, which fails in a git worktree.
    `podman run --rm -v "$PWD:/workspace:ro,Z" docker.io/library/ubuntu:24.04 bash /workspace/scripts/e2e_container_test.sh /workspace`
