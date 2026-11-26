@@ -131,11 +131,13 @@
           become: true
           notify: Reload touchpad udev rules
 
+        # Owner bits only: Chezmoi also manages this directory using the user's umask,
+        # and a fixed numeric mode here would show up as Chezmoi drift on every run.
         - name: Ensure systemd user unit directory exists
           ansible.builtin.file:
             path: "{{ workstation_home }}/.config/systemd/user"
             state: directory
-            mode: "0755"
+            mode: "u=rwx"
 
         - name: Install cosmic-swipe systemd user unit
           ansible.builtin.copy:
