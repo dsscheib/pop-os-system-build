@@ -25,3 +25,6 @@ __pycache__/
 
 # Personal Claude Code overrides
 .claude/settings.local.json
+
+# Ansible caches (ansible-lint installs collections into ansible/.ansible/)
+.ansible/
