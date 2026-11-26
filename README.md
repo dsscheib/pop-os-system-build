@@ -87,7 +87,7 @@ Edit `local.yml` (it's gitignored, so it stays on this machine). The settings yo
 | `nvim_config_repo`, `nvim_config_ref` | empty | you want your Neovim config cloned into `~/.config/nvim` (`ref` is an optional branch, tag or commit). Use the HTTPS URL. If the repo is private, leave this empty until after step 5, because there are no GitHub credentials before then. |
 | `enable_snapper` | `true` | set `false` if you skipped step 1; otherwise `apply` stops with a Btrfs layout error |
 | `enable_hibernation` | `false` | set `true` on laptops to create a Btrfs swapfile and resume settings. Closing the lid on battery then suspends, and hibernates after 1 hour (`HIBERNATE_DELAY` in `scripts/configure_hibernation.py`); on AC it only suspends. It also adds a polkit rule that lets your desktop session hibernate, which Ubuntu disables by default. Works with initramfs-tools (Pop!_OS 24.04) and `dracut` (26.04). |
-| `install_samsung_970_evo_nvme_rule` | `false` | only on the machine with that Samsung drive at PCI `0000:00:1d.0` |
+| `install_samsung_970_evo_nvme_rule` | `false` | only on a machine with a Samsung 970 EVO drive |
 | `install_dropbox` | `true` | set `false` to skip Dropbox. The `nautilus-dropbox` package is Dropbox's Linux client; its Nautilus plugin goes unused on COSMIC, and syncing works without it. See step 7 for the one-time setup. |
 | `install_appimagelauncher` | `false` | set `true` to install AppImageLauncher |
 | `install_cosmic_swipe` | `true` | set `false` to skip [cosmic-swipe](https://github.com/dsscheib/cosmic-swipe), which adds four-finger up (Workspaces overview) and down (App Library) touchpad gestures to COSMIC. It's skipped automatically on desktops without COSMIC. Set it `false` everywhere once COSMIC ships these gestures itself, or each swipe acts twice; turning it off doesn't uninstall it (see [its README](https://github.com/dsscheib/cosmic-swipe#install) for `uninstall.sh`). |
@@ -199,7 +199,7 @@ sudo ./preboot/setup_secondary_btrfs_drive.sh /dev/disk/by-id/<your-drive>
 
 This mounts the drive's `@data` and `@snapshots` subvolumes at `/mnt/data` and links `~/data` and `~/Downloads` to it. It refuses to touch the system disk.
 
-The script was written for one machine's Samsung 970 EVO. With no drive given, it looks for that drive; for any other drive, pass its `/dev/disk/by-id/…` path. It always installs the Samsung power-management udev rule. That rule matches Samsung 970 EVO controllers, but one line also keeps the device at PCI address `0000:00:1d.0` powered on.
+The script was written for one machine's Samsung 970 EVO. With no drive given, it looks for that drive; for any other drive, pass its `/dev/disk/by-id/…` path. It always installs the Samsung power-management udev rule. That rule only affects Samsung 970 EVO controllers and the PCIe port each one is attached to, so it does nothing on a machine without one.
 
 ### Snapper without Ansible
 
