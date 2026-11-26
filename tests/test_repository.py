@@ -1035,6 +1035,28 @@ main "$1"
         )
         self.assertTrue(trigger['become'])
 
+    def test_brave_default_policies_each_turn_a_feature_off(self):
+        # Brave names some policies ...Disabled (true turns off) and others ...Enabled
+        # (false turns off); a flipped value would switch a feature on instead.
+        defaults = yaml.safe_load((REPO / 'ansible/group_vars/all/00-defaults.yml').read_text(encoding='utf-8'))
+        policies = defaults['brave_policies']
+        self.assertTrue(policies)
+        for name, value in policies.items():
+            with self.subTest(policy=name):
+                self.assertIsInstance(value, bool)
+                if name.endswith('Disabled'):
+                    self.assertIs(value, True)
+                else:
+                    self.assertTrue(name.endswith('Enabled'))
+                    self.assertIs(value, False)
+
+    def test_brave_policies_are_written_where_brave_reads_managed_policies(self):
+        # brave-core app/brave_main_delegate.cc sets the Linux policy dir to /etc/brave/policies.
+        tasks = yaml.safe_load((REPO / 'ansible/roles/browsers/tasks/brave.yml').read_text(encoding='utf-8'))
+        task = next(t for t in tasks if t['name'] == 'Write Brave managed policies')
+        self.assertEqual(task['ansible.builtin.copy']['dest'], '/etc/brave/policies/managed/pop-os-system-build.json')
+        self.assertIn('brave_policies | to_nice_json', task['ansible.builtin.copy']['content'])
+
     def _cosmic_swipe_tasks(self):
         tasks = yaml.safe_load((REPO / 'ansible/roles/desktop_apps/tasks/cosmic_swipe.yml').read_text(encoding='utf-8'))
         install = next(t for t in tasks if t['name'] == 'Install cosmic-swipe touchpad gestures')

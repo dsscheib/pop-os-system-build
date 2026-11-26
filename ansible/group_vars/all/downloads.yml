@@ -58,6 +58,10 @@ pinned_downloads:
     version: "2026-11-13"
     url: "https://keyserver.ubuntu.com/pks/lookup?op=get&options=mr&search=0xFDA854F61C4D0D9572BB95E5245D5502FAD7A805"
     fingerprint: "FDA854F61C4D0D9572BB95E5245D5502FAD7A805"
+  brave_browser_key:
+    version: "2026-11-26"
+    url: "https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg"
+    sha256: "c85e85aa3d1783ffaa649ee8dbbc22af7f87192d304602d37e3018226b394788"
   google_chrome_key:
     version: "2026-10-31"
     url: "https://dl.google.com/linux/linux_signing_key.pub"

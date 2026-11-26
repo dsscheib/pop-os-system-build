@@ -10,3 +10,9 @@
   tags:
     - browsers
     - chrome
+
+- name: Configure Brave
+  ansible.builtin.import_tasks: brave.yml
+  tags:
+    - browsers
+    - brave

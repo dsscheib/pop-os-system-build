@@ -342,6 +342,7 @@ podman --version >/dev/null
 gh --version >/dev/null
 firefox-devedition --version >/dev/null
 google-chrome --version >/dev/null
+brave-browser --version >/dev/null
 code --version --no-sandbox >/dev/null
 kicad-cli --version >/dev/null
 "$HOME/.local/share/kicad-python/bin/python" -c 'import kipy'
