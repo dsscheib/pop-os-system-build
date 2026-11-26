@@ -79,6 +79,21 @@ install_appimagelauncher: false
 # Turn off once COSMIC handles these gestures itself, or each swipe acts twice.
 install_cosmic_swipe: true
 
+# Brave policies, written to /etc/brave/policies/managed/. Names and meanings come from
+# brave-core components/policy/resources/templates/policy_definitions/BraveSoftware/.
+# Remove an entry to let Brave's settings page decide; set {} to manage nothing.
+brave_policies:
+  BraveRewardsDisabled: true        # Rewards / BAT ads
+  BraveWalletDisabled: true         # crypto wallet
+  BraveVPNDisabled: true            # paid VPN
+  BraveAIChatEnabled: false         # Leo AI chat
+  BraveLocalAIEnabled: false        # on-device models for Leo
+  BraveTalkDisabled: true           # video calls
+  BraveNewsDisabled: true           # news feed on the new tab page
+  BraveP3AEnabled: false            # product analytics
+  BraveStatsPingEnabled: false      # daily usage ping
+  BraveWebDiscoveryEnabled: false   # browsing data for Brave Search (off by default)
+
 # STM32 opt-in installers (run via: mise run role stm32)
 stm32_tools:
   - cubeide

@@ -70,3 +70,21 @@
       - --version
   changed_when: false
   when: not ansible_check_mode
+
+- name: Ensure Brave managed policy directory exists
+  ansible.builtin.file:
+    path: /etc/brave/policies/managed
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Write Brave managed policies
+  ansible.builtin.copy:
+    content: "{{ brave_policies | to_nice_json }}\n"
+    dest: /etc/brave/policies/managed/pop-os-system-build.json
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
