@@ -43,6 +43,41 @@
         - workstation_chezmoi_which.rc == 0
         - workstation_chezmoi_repo_stat.stat.exists
 
+    - name: Find Chezmoi targets changed outside Chezmoi
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ repo_root }}/scripts/chezmoi_conflicts.py"
+        stdin: "{{ workstation_chezmoi_status.stdout }}"
+      register: workstation_chezmoi_conflicts
+      changed_when: false
+      check_mode: false
+      when:
+        - workstation_chezmoi_which.rc == 0
+        - workstation_chezmoi_repo_stat.stat.exists
+        - (workstation_chezmoi_status.stdout | default('') | trim) | length > 0
+
+    - name: Stop on Chezmoi targets changed outside Chezmoi
+      vars:
+        workstation_chezmoi_conflict_msg: >-
+          These files changed since Chezmoi last wrote them, so 'chezmoi apply' would stop to ask
+          before overwriting them: {{ workstation_chezmoi_conflicts.stdout_lines | join(', ') }}.
+          Review each with 'chezmoi diff ~/<path>'. Keep the dotfiles version with
+          'chezmoi apply --force ~/<path>', or keep a file's local version with
+          'chezmoi re-add ~/<path>'. Then run this again.
+      ansible.builtin.fail:
+        msg: "{{ workstation_chezmoi_conflict_msg }}"
+      when:
+        - not ansible_check_mode
+        - workstation_chezmoi_conflicts.stdout_lines | default([]) | length > 0
+
+    - name: Report Chezmoi targets changed outside Chezmoi in check mode
+      ansible.builtin.debug:
+        msg: "Would stop: changed since Chezmoi last wrote them: {{ workstation_chezmoi_conflicts.stdout_lines | join(', ') }}"
+      when:
+        - ansible_check_mode
+        - workstation_chezmoi_conflicts.stdout_lines | default([]) | length > 0
+
     - name: Apply Chezmoi dotfiles
       ansible.builtin.command:
         argv:
