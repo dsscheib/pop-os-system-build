@@ -14,6 +14,7 @@ MOUNT_DATA="/mnt/data"
 MOUNT_SNAPSHOTS="/mnt/data/.snapshots"
 BTRFS_OPTS_BASE="defaults,noatime,compress=zstd:1,ssd,discard=async,space_cache=v2,nofail"
 SECONDARY_TOP_MNT=""
+PCI_DEVICES_DIR="/sys/bus/pci/devices"
 
 usage() {
   die "Usage: sudo $0 [--format] [DISK]"
@@ -31,9 +32,9 @@ install_nvme_udev_rules() {
 }
 
 verify_nvme_power_settings() {
-  local pci_dir nvme_dir val
+  local pci_dir nvme_dir port_dir val
   local found=0
-  for pci_dir in /sys/bus/pci/devices/*; do
+  for pci_dir in "$PCI_DEVICES_DIR"/*; do
     [[ -f "$pci_dir/vendor" && -f "$pci_dir/device" ]] || continue
     if [[ $(<"$pci_dir/vendor") == "0x144d" && $(<"$pci_dir/device") == "0xa808" ]]; then
       found=1
@@ -44,6 +45,12 @@ verify_nvme_power_settings() {
           [[ "$val" == "$expected" ]] || die "Expected $pci_dir/$name=$expected, got $val"
         fi
       done
+      # The rule also keeps the PCIe port directly above the drive powered on.
+      port_dir=$(readlink -f -- "$pci_dir/..")
+      if [[ -f "$port_dir/vendor" && -f "$port_dir/power/control" ]]; then
+        val=$(<"$port_dir/power/control")
+        [[ "$val" == "on" ]] || die "Expected $port_dir/power/control=on, got $val"
+      fi
       for nvme_dir in "$pci_dir"/nvme/nvme*; do
         [[ -d "$nvme_dir" ]] || continue
         if [[ -f "$nvme_dir/power/pm_qos_latency_tolerance_us" ]]; then

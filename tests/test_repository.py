@@ -6,6 +6,7 @@ import io
 import os
 from pathlib import Path
 import shlex
+import shutil
 import stat
 import subprocess
 import sys
@@ -647,6 +648,53 @@ locate_existing_btrfs_partition /dev/nvme1n1
 ''', script='preboot/setup_secondary_btrfs_drive.sh')
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('pass --format', result.stderr)
+
+    def test_samsung_nvme_rule_has_no_fixed_pci_address(self):
+        # A fixed address such as 0000:00:1d.0 is a different device on other machines (the
+        # Wi-Fi card's root port on one laptop); the port rule must follow the drive instead.
+        text = (REPO / 'resources/udev/99-samsung-970-evo-nvme.rules').read_text(encoding='utf-8')
+        rules = [line for line in text.splitlines() if line.strip() and not line.startswith('#')]
+        self.assertFalse([line for line in rules if 'KERNEL==' in line])
+        for line in rules:
+            with self.subTest(rule=line):
+                self.assertIn('{vendor}=="0x144d"', line)
+                self.assertIn('{device}=="0xa808"', line)
+        self.assertIn('RUN+="/bin/sh -c \'echo on > /sys%p/../power/control\'"', text)
+        if shutil.which('udevadm'):
+            result = subprocess.run(['udevadm', 'verify', str(REPO / 'resources/udev/99-samsung-970-evo-nvme.rules')],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def _fake_samsung_sysfs(self, port_control):
+        port = self.root / 'devices/pci0000:00/0000:00:06.0'
+        drive = port / '0000:01:00.0'
+        (drive / 'power').mkdir(parents=True)
+        (drive / 'link').mkdir()
+        (port / 'power').mkdir()
+        (port / 'vendor').write_text('0x8086\n')
+        (port / 'power/control').write_text(f'{port_control}\n')
+        for name, value in (('vendor', '0x144d'), ('device', '0xa808'), ('d3cold_allowed', '0'),
+                            ('power/control', 'on'), ('link/l1_2_aspm', '0'), ('link/l1_2_pcipm', '0')):
+            (drive / name).write_text(f'{value}\n')
+        bus = self.root / 'bus'
+        bus.mkdir()
+        (bus / '0000:01:00.0').symlink_to(drive)
+        (bus / '0000:00:06.0').symlink_to(port)
+        return bus
+
+    def test_secondary_btrfs_checks_the_port_above_the_samsung_drive(self):
+        bus = self._fake_samsung_sysfs('auto')
+        result = self.bash('PCI_DEVICES_DIR="$1"; verify_nvme_power_settings', bus,
+                           script='preboot/setup_secondary_btrfs_drive.sh')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('0000:00:06.0/power/control=on, got auto', result.stderr)
+
+    def test_secondary_btrfs_accepts_a_powered_port_above_the_samsung_drive(self):
+        bus = self._fake_samsung_sysfs('on')
+        result = self.bash('PCI_DEVICES_DIR="$1"; verify_nvme_power_settings', bus,
+                           script='preboot/setup_secondary_btrfs_drive.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('not currently detected', result.stderr)
 
     def test_secondary_btrfs_migrates_and_symlinks_downloads_idempotently(self):
         home = self.root / 'home'

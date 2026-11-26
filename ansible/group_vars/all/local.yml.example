@@ -16,7 +16,7 @@
 # enable_snapper: false
 # enable_hibernation: true
 
-# Install Samsung 970 EVO NVMe power-management udev rule (PCI 0000:00:1d.0)
+# Install Samsung 970 EVO NVMe power-management udev rule (only affects that drive and its PCIe port)
 # install_samsung_970_evo_nvme_rule: true
 
 # cosmic-swipe (four-finger up/down gestures) installs on every COSMIC desktop; set false
