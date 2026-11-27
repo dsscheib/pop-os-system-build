@@ -94,6 +94,45 @@ brave_policies:
   BraveStatsPingEnabled: false      # daily usage ping
   BraveWebDiscoveryEnabled: false   # browsing data for Brave Search (off by default)
 
+# Firefox enterprise policies, written to /etc/firefox/policies/policies.json. Both Firefox
+# (Pop's package) and Firefox Developer Edition read that file, and while it exists they ignore
+# the policies.json in their install folder, so keep DisableAppUpdate (APT updates both).
+# Names and options: https://github.com/mozilla/policy-templates/blob/master/docs/index.md
+firefox_policies:
+  DisableAppUpdate: true
+  DisableTelemetry: true
+  DisableFirefoxStudies: true
+  EnableTrackingProtection:     # Strict: also blocks cross-site cookies, fingerprinters, cryptominers
+    Value: true
+    Category: strict
+  HttpsOnlyMode: enabled        # on by default; local addresses such as localhost are not upgraded
+  DNSOverHTTPS:                 # Firefox's default provider; falls back to system DNS if it fails
+    Enabled: true
+    Fallback: true
+  NetworkPrediction: false      # no DNS prefetching of links on the page
+  FirefoxHome:
+    SponsoredTopSites: false
+    SponsoredStories: false
+    SponsoredPocket: false      # older name for SponsoredStories
+    Stories: false
+  FirefoxSuggest:
+    SponsoredSuggestions: false
+    ImproveSuggest: false       # don't send what you type in the address bar to Mozilla
+  UserMessaging:
+    ExtensionRecommendations: false
+    FeatureRecommendations: false
+    MoreFromMozilla: false
+    SkipOnboarding: true
+  Preferences:
+    privacy.globalprivacycontrol.enabled:   # tell sites not to sell or share your data
+      Value: true
+      Status: locked
+  ExtensionSettings:
+    uBlock0@raymondhill.net:    # uBlock Origin: blocks ads and trackers, like Brave Shields
+      installation_mode: normal_installed
+      install_url: https://addons.mozilla.org/firefox/downloads/latest/uBlock0@raymondhill.net/latest.xpi
+      private_browsing: true
+
 # STM32 opt-in installers (run via: mise run role stm32)
 stm32_tools:
   - cubeide

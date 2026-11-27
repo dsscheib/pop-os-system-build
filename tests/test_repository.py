@@ -1057,6 +1057,30 @@ main "$1"
         self.assertEqual(task['ansible.builtin.copy']['dest'], '/etc/brave/policies/managed/pop-os-system-build.json')
         self.assertIn('brave_policies | to_nice_json', task['ansible.builtin.copy']['content'])
 
+    def test_firefox_policies_keep_app_updates_off_and_enforce_privacy(self):
+        # While /etc/firefox/policies/policies.json exists, Firefox ignores the policies.json in
+        # its install folder, which is where Pop's package turns self-updates off.
+        defaults = yaml.safe_load((REPO / 'ansible/group_vars/all/00-defaults.yml').read_text(encoding='utf-8'))
+        policies = defaults['firefox_policies']
+        self.assertIs(policies['DisableAppUpdate'], True)
+        self.assertIs(policies['DisableTelemetry'], True)
+        self.assertIs(policies['DisableFirefoxStudies'], True)
+        self.assertEqual(policies['EnableTrackingProtection'], {'Value': True, 'Category': 'strict'})
+        for addon_id, settings in policies['ExtensionSettings'].items():
+            with self.subTest(addon=addon_id):
+                self.assertEqual(
+                    settings['install_url'],
+                    f'https://addons.mozilla.org/firefox/downloads/latest/{addon_id}/latest.xpi',
+                )
+
+    def test_firefox_policies_are_written_where_every_firefox_reads_them(self):
+        # Firefox reads /etc/<lowercased application.ini Name>/policies/policies.json, and both
+        # Pop's Firefox and Firefox Developer Edition are named "Firefox".
+        tasks = yaml.safe_load((REPO / 'ansible/roles/browsers/tasks/firefox.yml').read_text(encoding='utf-8'))
+        task = next(t for t in tasks if t['name'] == 'Write Firefox system policies')
+        self.assertEqual(task['ansible.builtin.copy']['dest'], '/etc/firefox/policies/policies.json')
+        self.assertIn("{'policies': firefox_policies}", task['ansible.builtin.copy']['content'])
+
     def _cosmic_swipe_tasks(self):
         tasks = yaml.safe_load((REPO / 'ansible/roles/desktop_apps/tasks/cosmic_swipe.yml').read_text(encoding='utf-8'))
         install = next(t for t in tasks if t['name'] == 'Install cosmic-swipe touchpad gestures')

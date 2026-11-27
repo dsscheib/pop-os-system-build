@@ -67,3 +67,21 @@
     state: present
   become: true
   when: not ansible_check_mode or browsers_mozilla_repo_stat.stat.exists
+
+- name: Ensure Firefox system policy directory exists
+  ansible.builtin.file:
+    path: /etc/firefox/policies
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Write Firefox system policies
+  ansible.builtin.copy:
+    content: "{{ {'policies': firefox_policies} | to_nice_json }}\n"
+    dest: /etc/firefox/policies/policies.json
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
