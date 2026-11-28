@@ -177,6 +177,9 @@ class HibernationTests(unittest.TestCase):
         self.assertLess(rule.name, 'com.ubuntu.desktop.rules')
         self.assertIn('"org.freedesktop.login1.hibernate"', rule.read_text())
         self.assertIn('subject.local && subject.active', rule.read_text())
+        hook = self.setup.path(hibernation.S2H_HOOK)
+        self.assertEqual(hook.read_text(), hibernation.S2H_HOOK_TEXT)
+        self.assertEqual(hook.stat().st_mode & 0o777, 0o755)
         options = json.loads(self.setup.read('/etc/kernelstub/configuration'))['user']['kernel_options']
         self.assertEqual(options, ['quiet', 'rootflags=subvol=@', 'resume=UUID=aaaa-bbbb', 'resume_offset=123456'])
         commands = [call[0] for call in self.setup.calls]
@@ -203,6 +206,25 @@ class HibernationTests(unittest.TestCase):
                              for call in self.setup.calls), 0)
         self.assertEqual(sum(call[0] == 'swapon' and '--priority' in call
                              for call in self.setup.calls), 0)
+
+    def test_replacing_an_older_sleep_hook_leaves_no_second_hook(self):
+        # systemd-sleep runs every executable in the hook directory, so a backup
+        # copy of the old hook would run as well.
+        hook = self.setup.path(hibernation.S2H_HOOK)
+        hook.parent.mkdir(parents=True)
+        hook.write_text('#!/bin/sh\nexit 0\n')
+        hook.chmod(0o755)
+        self.assertTrue(self.setup.configure())
+        self.assertEqual(hook.read_text(), hibernation.S2H_HOOK_TEXT)
+        self.assertEqual(sorted(path.name for path in hook.parent.iterdir()), [hook.name])
+
+    def test_refuses_symlinked_sleep_hook(self):
+        hook = self.setup.path(hibernation.S2H_HOOK)
+        hook.parent.mkdir(parents=True)
+        hook.symlink_to(self.root / 'elsewhere')
+        with self.assertRaisesRegex(ValueError, 'symlink'):
+            self.setup.preflight()
+        self.assertFalse((self.root / 'elsewhere').exists())
 
     def use_dracut(self):
         """Turn the fixture into Pop!_OS 26.04, where dracut replaces initramfs-tools."""
@@ -409,3 +431,138 @@ class HibernationTests(unittest.TestCase):
         config = {'user': {'kernel_options': ['quiet', 'acpi_osi="Windows 2022"']}}
         self.assertEqual(hibernation.resume_options(config, 'aaaa', '42'),
                          ['quiet', 'acpi_osi="Windows 2022"', 'resume=UUID=aaaa', 'resume_offset=42'])
+
+
+INVOCATION = '0123456789abcdef0123456789abcdef'
+SLEEP_CONF = """# /etc/systemd/sleep.conf
+[Sleep]
+#HibernateDelaySec=
+
+# /etc/systemd/sleep.conf.d/90-pop-hibernation.conf
+[Sleep]
+AllowHibernation=yes
+HibernateDelaySec=1h
+"""
+
+
+class SuspendThenHibernateHookTests(unittest.TestCase):
+    """The sleep hook, run in-process against a fixture state file and a fake clock."""
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.state = Path(temp.name) / 'deadline'
+        self.hook = {'__name__': 'pop_workstation_s2h_timer'}
+        exec(compile(hibernation.S2H_HOOK_TEXT, hibernation.S2H_HOOK, 'exec'), self.hook)
+        self.hook['STATE'] = str(self.state)
+        self.now = 1000.0
+        self.slept = []
+        self.config = SLEEP_CONF
+
+    def fake_run(self, args, **kwargs):
+        self.assertEqual(args, ['systemd-analyze', 'cat-config', 'systemd/sleep.conf'])
+        return subprocess.CompletedProcess(args, 0, stdout=self.config)
+
+    def call(self, phase, operation='suspend-then-hibernate', action='suspend', invocation=INVOCATION):
+        env = {'SYSTEMD_SLEEP_ACTION': action}
+        if invocation is not None:
+            env['INVOCATION_ID'] = invocation
+        with contextlib.redirect_stderr(io.StringIO()) as log:
+            result = self.hook['main'](['hook', phase, operation], env, clock=lambda: self.now,
+                                       sleep=self.slept.append, run=self.fake_run)
+        self.assertEqual(result, 0)
+        return log.getvalue()
+
+    def test_parses_systemd_time_spans(self):
+        parse = self.hook['parse_timespan']
+        for text, seconds in [('1h', 3600), ('2min', 120), ('1h 30min', 5400), ('1h30min', 5400),
+                              ('90', 90), ('1.5h', 5400), ('45 s', 45), ('1d', 86400)]:
+            with self.subTest(text=text):
+                self.assertEqual(parse(text), seconds)
+        for text in ('', 'infinity', '5M', '0', '1x', '-1h', 'h'):
+            with self.subTest(text=text):
+                self.assertIsNone(parse(text))
+
+    def test_reads_the_effective_delay(self):
+        self.assertEqual(self.hook['hibernate_delay'](self.fake_run), 3600)
+        # A later drop-in wins; an empty assignment resets to unset.
+        self.config = SLEEP_CONF + '\n# /etc/systemd/sleep.conf.d/99-test.conf\n[Sleep]\nHibernateDelaySec=2min\n'
+        self.assertEqual(self.hook['hibernate_delay'](self.fake_run), 120)
+        self.config = SLEEP_CONF + '[Sleep]\nHibernateDelaySec=\n'
+        self.assertIsNone(self.hook['hibernate_delay'](self.fake_run))
+        self.config = '[Other]\nHibernateDelaySec=1h\n'
+        self.assertIsNone(self.hook['hibernate_delay'](self.fake_run))
+
+    def test_early_timer_wake_waits_until_past_the_deadline(self):
+        self.call('pre')
+        deadline = 1000.0 + 3600
+        self.now = deadline - 1.7  # The early wake reported in systemd#38193.
+        log = self.call('post')
+        self.assertEqual(len(self.slept), 1)
+        self.assertAlmostEqual(self.now + self.slept[0], deadline + self.hook['MARGIN'])
+        self.assertIn('systemd#38193', log)
+
+    def test_wake_just_after_the_deadline_still_waits_out_the_margin(self):
+        self.call('pre')
+        self.now = 1000.0 + 3600 + 0.4
+        self.call('post')
+        self.assertAlmostEqual(self.slept[0], self.hook['MARGIN'] - 0.4)
+
+    def test_manual_wake_returns_at_once(self):
+        self.call('pre')
+        for when in (1000.0 + 60, 1000.0 + 3600 - self.hook['EARLY'] - 0.01, 1000.0 + 3600 + 5):
+            with self.subTest(when=when):
+                self.now = when
+                self.assertIn('not waiting', self.call('post'))
+        self.assertEqual(self.slept, [])
+
+    def test_battery_estimation_resuspend_keeps_the_first_deadline(self):
+        self.call('pre')
+        self.now = 2500.0
+        self.call('post')
+        self.call('pre')  # systemd suspends again within the same run.
+        self.now = 1000.0 + 3600 - 1.0
+        self.call('post')
+        self.assertAlmostEqual(self.now + self.slept[0], 1000.0 + 3600 + self.hook['MARGIN'])
+
+    def test_a_new_run_replaces_the_previous_deadline(self):
+        self.call('pre')
+        self.now = 9000.0
+        self.call('pre', invocation='f' * 32)
+        self.now = 9000.0 + 3600 - 1.0
+        self.call('post', invocation='f' * 32)
+        self.assertEqual(len(self.slept), 1)
+        self.now = 1000.0 + 3600 - 1.0
+        self.call('post')  # The old run's deadline is gone.
+        self.assertEqual(len(self.slept), 1)
+
+    def test_ignores_everything_but_the_suspend_step_of_suspend_then_hibernate(self):
+        cases = [{'operation': 'suspend'}, {'operation': 'hibernate', 'action': 'hibernate'},
+                 {'action': 'hibernate'}, {'action': 'suspend-after-failed-hibernate'},
+                 {'invocation': None}, {'invocation': '../../etc/passwd'}]
+        for case in cases:
+            with self.subTest(case=case):
+                self.call('pre', **case)
+                self.assertFalse(self.state.exists())
+
+    def test_unset_delay_watches_nothing(self):
+        self.config = '[Sleep]\nAllowHibernation=yes\n'
+        self.assertIn('not watching', self.call('pre'))
+        self.assertFalse(self.state.exists())
+        self.now = 1000.0 + 3600 - 1.0
+        self.call('post')
+        self.assertEqual(self.slept, [])
+
+    def test_installed_script_never_fails_a_sleep(self):
+        """Run the hook as systemd would, with systemd-analyze missing from PATH."""
+        self.assertTrue(hibernation.S2H_HOOK_TEXT.startswith('#!/usr/bin/python3 -I\n'))
+        script = self.state.with_name('hook')
+        script.write_text(hibernation.S2H_HOOK_TEXT.replace(
+            "STATE = '/run/pop-workstation-s2h-deadline'", f'STATE = {str(self.state)!r}'))
+        self.assertIn(str(self.state), script.read_text())
+        result = subprocess.run([sys.executable, '-I', str(script), 'pre', 'suspend-then-hibernate'],
+                                env={'PATH': '', 'SYSTEMD_SLEEP_ACTION': 'suspend', 'INVOCATION_ID': INVOCATION},
+                                capture_output=True, text=True, check=False)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn('pop-workstation-s2h-timer: skipped:', result.stderr)
+        self.assertFalse(self.state.exists())
