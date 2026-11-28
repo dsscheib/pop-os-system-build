@@ -59,6 +59,136 @@ polkit.addRule(function(action, subject) {
     }
 });
 '''
+# systemd 255 (24.04) reads sleep hooks only from /usr/lib/systemd/system-sleep.
+# This file is ours alone; systemd-sleep would also run any executable backup
+# copy left beside it, so it is written without one.
+S2H_HOOK = '/usr/lib/systemd/system-sleep/pop-workstation-s2h-timer'
+S2H_HOOK_TEXT = r'''#!/usr/bin/python3 -I
+# Installed by pop-os-system-build (scripts/configure_hibernation.py).
+#
+# Works around systemd#38193: after the suspend step of suspend-then-hibernate,
+# systemd checks its HibernateDelaySec wake timer once, without waiting. When the
+# RTC wakes the machine slightly before that timer counts as expired, systemd
+# takes it for a manual wake and stays awake instead of hibernating.
+#
+# systemd runs this hook, and waits for it, before checking the timer. On "pre"
+# it records when the suspend-then-hibernate run went to sleep; on "post" it
+# waits until just past the deadline if the wake came close to it, so systemd
+# sees its timer fire. Other wakes return at once. It never fails a sleep.
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import time
+
+STATE = '/run/pop-workstation-s2h-deadline'
+# A wake this close before the deadline is treated as the timer's. Reported
+# early wakes are under 2 seconds; a manual wake inside the window hibernates.
+EARLY = 10.0
+# Wait until this long past the deadline.
+MARGIN = 1.0
+UNITS = {
+    'us': 1e-6, 'usec': 1e-6, 'ms': 1e-3, 'msec': 1e-3,
+    '': 1, 's': 1, 'sec': 1, 'second': 1, 'seconds': 1,
+    'm': 60, 'min': 60, 'minute': 60, 'minutes': 60,
+    'h': 3600, 'hr': 3600, 'hour': 3600, 'hours': 3600,
+    'd': 86400, 'day': 86400, 'days': 86400,
+    'w': 604800, 'week': 604800, 'weeks': 604800,
+}
+
+
+def log(message):
+    print(f'pop-workstation-s2h-timer: {message}', file=sys.stderr, flush=True)
+
+
+def parse_timespan(text):
+    """Seconds in a systemd time span such as "1h", "90min" or "1h 30min"; None if unparseable."""
+    text = text.strip()
+    if not re.fullmatch(r'(?:\d+(?:\.\d+)?\s*[a-z]*\s*)+', text):
+        return None
+    total = 0.0
+    for number, unit in re.findall(r'(\d+(?:\.\d+)?)\s*([a-z]*)', text):
+        if unit not in UNITS:
+            return None
+        total += float(number) * UNITS[unit]
+    return total if total > 0 else None
+
+
+def hibernate_delay(run=subprocess.run):
+    """The effective HibernateDelaySec= in seconds, or None when unset."""
+    text = run(['systemd-analyze', 'cat-config', 'systemd/sleep.conf'],
+               check=True, text=True, capture_output=True, timeout=10).stdout
+    section, value = '', None
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith('[') and line.endswith(']'):
+            section = line
+        elif section == '[Sleep]' and line.startswith('HibernateDelaySec='):
+            value = line.split('=', 1)[1]
+    return parse_timespan(value) if value else None
+
+
+def read_state():
+    try:
+        with open(STATE) as stream:
+            invocation, deadline = stream.read().split()
+        return invocation, float(deadline)
+    except (OSError, ValueError):
+        return None
+
+
+def write_state(invocation, deadline):
+    directory = os.path.dirname(STATE)
+    fd, temporary = tempfile.mkstemp(dir=directory, prefix='.pop-workstation-s2h.')
+    try:
+        with os.fdopen(fd, 'w') as stream:
+            stream.write(f'{invocation} {deadline:.6f}\n')
+        os.replace(temporary, STATE)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def main(argv, env, clock=lambda: time.clock_gettime(time.CLOCK_BOOTTIME),
+         sleep=time.sleep, run=subprocess.run):
+    # Only the suspend step of suspend-then-hibernate; systemd sets INVOCATION_ID
+    # per service run, which tells repeated suspends of one run from a new run.
+    if (len(argv) != 3 or argv[2] != 'suspend-then-hibernate'
+            or env.get('SYSTEMD_SLEEP_ACTION') != 'suspend'):
+        return 0
+    invocation = env.get('INVOCATION_ID', '')
+    if not re.fullmatch(r'[0-9a-f]{32}', invocation):
+        return 0
+    state = read_state()
+    if argv[1] == 'pre':
+        # systemd sets its deadline once per run, just before the first
+        # suspend; keep that first record when it re-suspends to measure battery.
+        if state and state[0] == invocation:
+            return 0
+        delay = hibernate_delay(run)
+        if delay is None:
+            log('HibernateDelaySec= is unset or unreadable; not watching this run')
+            return 0
+        write_state(invocation, clock() + delay)
+    elif argv[1] == 'post' and state and state[0] == invocation:
+        remaining = state[1] - clock()
+        if -MARGIN < remaining <= EARLY:
+            log(f'{remaining:.2f} s to the hibernate deadline at wake; '
+                f'waiting {remaining + MARGIN:.2f} s so systemd sees its timer (systemd#38193)')
+            sleep(remaining + MARGIN)
+        else:
+            log(f'{remaining:.0f} s to the hibernate deadline at wake; not waiting')
+    return 0
+
+
+if __name__ == '__main__':
+    try:
+        sys.exit(main(sys.argv, os.environ))
+    except Exception as error:  # Never block or fail a sleep.
+        log(f'skipped: {error}')
+        sys.exit(0)
+'''
 
 
 def swap_size(meminfo):
@@ -122,15 +252,15 @@ class Hibernation:
     def run(self, *args):
         return subprocess.run(args, check=True, text=True, capture_output=True).stdout.strip()
 
-    def write(self, name, text, mode=0o644):
+    def write(self, name, text, mode=0o644, backup=True):
         path = self.path(name)
         if path.is_symlink():
             raise ValueError(f'Refusing to replace symlink: {name}')
         if path.exists() and path.read_text() == text and (path.stat().st_mode & 0o777) == mode:
             return False
-        backup = path.with_name(path.name + '.pre-hibernation')
-        if path.exists() and not backup.exists():
-            shutil.copy2(path, backup)
+        copy = path.with_name(path.name + '.pre-hibernation')
+        if backup and path.exists() and not copy.exists():
+            shutil.copy2(path, copy)
         atomic_text(path, text, mode)
         return True
 
@@ -193,7 +323,7 @@ class Hibernation:
         for name in ('/etc/fstab', '/etc/kernelstub/configuration',
                      INITRAMFS_TOOLS_CONF, DRACUT_CONF,
                      '/etc/systemd/sleep.conf.d/90-pop-hibernation.conf',
-                     '/etc/systemd/logind.conf.d/90-lid-close.conf', POLKIT_RULE, '/swap'):
+                     '/etc/systemd/logind.conf.d/90-lid-close.conf', POLKIT_RULE, S2H_HOOK, '/swap'):
             if self.path(name).is_symlink():
                 raise ValueError(f'Refusing a symlink at {name}')
         swap = self.path(SWAP)
@@ -350,6 +480,10 @@ class Hibernation:
             raise ValueError('Another systemd sleep drop-in overrides AllowHibernation; resolve it and rerun')
         if settings.get('AllowSuspendThenHibernate', 'yes').lower() not in ('yes', 'true', '1', 'on'):
             raise ValueError('Another systemd sleep drop-in overrides AllowSuspendThenHibernate; resolve it and rerun')
+        # Keeps suspend-then-hibernate from staying awake when the RTC wakes it
+        # just before systemd's timer expires (systemd#38193). Sleep hooks are
+        # read on each sleep, so no reload is needed.
+        hook_changed = self.write(S2H_HOOK, S2H_HOOK_TEXT, mode=0o755, backup=False)
         # Retain unrelated options and replace old resume/noresume parameters.
         self.config.setdefault('user', {})['kernel_options'] = resume_options(self.config, self.uuid, offset)
         kernelstub_changed = self.write('/etc/kernelstub/configuration', json.dumps(self.config, indent=2) + '\n')
@@ -371,7 +505,8 @@ class Hibernation:
         if fstab_changed or sleep_changed or lid_changed:
             self.run('systemctl', 'daemon-reload')
         changed = any((subvol_changed, swap_changed, fstab_changed, resume_changed,
-                       sleep_changed, kernelstub_changed, boot_changed, lid_changed, polkit_changed))
+                       sleep_changed, hook_changed, kernelstub_changed, boot_changed, lid_changed,
+                       polkit_changed))
         if changed:
             print(f'Hibernation configured: {SWAP} ({swap.stat().st_size // GIB} GiB).')
             print('Reboot to load the new resume settings, then test: systemctl hibernate')
